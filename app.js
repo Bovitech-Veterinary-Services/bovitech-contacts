@@ -941,6 +941,7 @@ function renderSyncPill() {
     case 'signin': t = n ? `Tap to sync (${n})` : 'Tap to sync'; cls = 'off'; break;
     case 'setup': t = 'Sign in to sync'; cls = 'off'; break;
     case 'error': t = 'Sync error — tap'; cls = 'warn'; break;
+    case 'empty': t = 'No contacts yet'; cls = 'off'; break;
     default: t = n ? `${n} to sync` : 'Synced';
   }
   sp.textContent = t; sp.className = 'pill ' + cls; sp.dataset.act = 'sync-now'; sp.style.cursor = 'pointer'; sp.title = Sync.msg || (D.sync.last ? 'Last synced ' + new Date(D.sync.last).toLocaleString('en-AU') : '');
