@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '3.8 (15 Oct 2026)';
+const APP_VERSION = '3.9 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -611,6 +611,13 @@ function readRep(name) {
 }
 const val = (id) => ($('#' + id) ? $('#' + id).value.trim() : '');
 
+// one combined "Contact category" picker: A+ / A / B / C (tick one) and every other category, all as tick boxes
+function catPicker(group, rating, cats, firstLabel, catAttr) {
+  return `<div class="checks big" data-rtgroup="${group}">${[['', firstLabel], ...RATINGS.map((r) => [r, tagName(r)])].map(([v, l]) => `<label class="rt"><input type="checkbox" data-rt="${v}" ${(rating || '') === v ? 'checked' : ''}>${h(l)}</label>`).join('')}</div>
+  <div class="checks big" style="margin-top:6px">${D.tags.filter((t) => t.group === 'client').map((t) => `<label><input type="checkbox" ${catAttr}="${t.id}" ${cats.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div>`;
+}
+const rtVal = (scope, group) => { const el = (scope || document).querySelector(`[data-rtgroup="${group}"] [data-rt]:checked`); return el ? el.dataset.rt : ''; };
+document.addEventListener('change', (e) => { const t = e.target; if (!t.dataset || !('rt' in t.dataset)) return; const g = t.closest('[data-rtgroup]'); g.querySelectorAll('[data-rt]').forEach((i) => (i.checked = i === t)); if (!g.querySelector('[data-rt]:checked')) g.querySelector('[data-rt=""]').checked = true; });
 function editContact(c) {
   const isNew = !c;
   const wasInactive = !!(c && effTags(c).includes('inactive'));
@@ -618,7 +625,7 @@ function editContact(c) {
   c = c || { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [] };
 
   const { dr, ptags } = photoCandidates(c);
-  const photoOpts = [['auto', 'Automatic' + (needsPhotoChoice(c) ? ' (needs choosing)' : '')], ...[...new Set([...dr, ...effTags(c).filter((t) => tagPhotoSrc(t))])].map((t) => [t, tagName(t)])];
+  const photoOpts = [['auto', 'Use default photo automatically assigned to the category' + (needsPhotoChoice(c) ? ' (needs choosing)' : '')], ...[...new Set([...dr, ...effTags(c).filter((t) => tagPhotoSrc(t))])].map((t) => [t, tagName(t)])];
   const cands = [...new Set([...dr, ...ptags])];
   if (cands.length >= 2) photoOpts.push(['split:' + cands.slice(0, 2).join(','), 'Split: ' + cands.slice(0, 2).map(tagName).join(' + ')]);
   if (c.photoChoice && c.photoChoice.startsWith('split:') && !photoOpts.some((o) => o[0] === c.photoChoice)) photoOpts.push([c.photoChoice, 'Split (current)']);
@@ -634,8 +641,7 @@ function editContact(c) {
     <input type="hidden" id="e-catmode" value="${followsBiz(c) ? 'biz' : 'own'}">
     <div id="e-catbiz" style="${followsBiz(c) ? '' : 'display:none'}"><div class="hint">Follows ${h(bizOf(c).map((b) => b.name).join(', '))}: ${h([...bizOf(c).map((b) => b.rating).filter(Boolean).map(tagName), ...bizCatsOf(c).map(tagName)].join(', ') || 'no categories yet')}. Change them on the business.</div></div>
     <div id="e-catown" style="${followsBiz(c) ? 'display:none' : ''}">
-      <div class="f"><label>A+ / A / B / C</label><select id="e-rating"><option value="">${c.links.length ? 'Same as business' : 'None'}</option>${RATINGS.map((r) => `<option value="${r}" ${ownRating(c) === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>
-      <div class="checks">${D.tags.filter((t) => t.group === 'client').map((t) => `<label><input type="checkbox" data-cat="${t.id}" ${effCats(c).includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div>
+      ${catPicker('crating', ownRating(c), effCats(c), c.links.length ? 'A+ to C same as business' : 'No A+ to C', 'data-cat')}
     </div></div>
   <div class="f"><span class="lbl">Additional tags</span><div class="checks">${D.tags.filter((t) => t.group === 'additional').map((t) => `<label><input type="checkbox" data-tag="${t.id}" ${c.tags.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div></div>
   <div class="f"><label>Mobile numbers</label>${repRows('mob', c.mobiles, [{ k: 'value', ph: '04xx xxx xxx', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
@@ -643,9 +649,9 @@ function editContact(c) {
   <div class="f"><label>Email</label>${repRows('email', c.emails, [{ k: 'value', ph: 'name@example.com', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Postal address</label>${repRows('postal', c.postal.map((p) => ({ value: p })), [{ k: 'value', ph: 'PO Box / street, town, postcode' }])}</div>
   <div class="f"><label>General info</label>${richEditor('e-info', c)}</div>
-  <div class="f"><label style="color:var(--red-ink)">General warnings (red — adds "CHECK WARNING" to the photo). Farm warnings go on the farm.</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
+  <div class="f"><label style="color:var(--red-ink)">General warnings (adds "CHECK WARNING" to the client's photo). If the warning relates to farm or yards, please add to the farm warning section under the relevant business.</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
   <div class="f"><label style="color:var(--red-ink)">⛔ Do not answer — reason (shown under the red banner when they're "Do not answer")</label><textarea id="e-dnareason" class="warn" placeholder="e.g. bad debtor, not the client for us, don't feel safe" style="min-height:60px">${h(c.dnaReason || '')}</textarea></div>
-  <div class="f"><label style="color:#7a5a00">Side notes (yellow — important but not a warning, e.g. don't mention X, dog bites)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
+  <div class="f"><label style="color:#7a5a00">Side notes (a general caution but not an urgent warning, e.g. don't mention X as they don't talk)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
   <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${(c.photoChoice || 'auto') === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
     <input type="file" id="e-photofile" accept="image/*" style="margin-top:6px;${c.photoChoice === 'custom' ? '' : 'display:none'}"><div class="hint">Photos come from the tags automatically. If a contact has two businesses with different ratings, the photo is split and labelled with each business.</div></div>
   <div class="f"><label><input type="checkbox" id="e-star" ${c.starred ? 'checked' : ''}> Starred (show at top of list)</label></div>
@@ -659,7 +665,7 @@ function editContact(c) {
     newBiz.forEach((el) => { const b = newBusiness(el.dataset.newbiz); c.links.push({ bid: b.id }); });
     const addl = [...document.querySelectorAll('#sheet [data-tag]')].filter((i) => i.checked).map((i) => i.dataset.tag);
     const mode = c.links.length ? $('#e-catmode').value : 'own';
-    const rv = mode === 'own' ? $('#e-rating').value : '';
+    const rv = mode === 'own' ? rtVal($('#sheet'), 'crating') : '';
     c.tags = [...addl, ...(rv ? [rv] : [])];
     if (mode === 'biz') c.ownCats = false; else { const want = [...document.querySelectorAll('#sheet [data-cat]')].filter((i) => i.checked).map((i) => i.dataset.cat); c.ownCats = true; c.tags.push(...want); if (c.links.length && want.slice().sort().join() === bizCatsOf(c).sort().join()) { c.ownCats = false; c.tags = c.tags.filter((t) => !isCatTag(t)); } }
     c.mobiles = readRep('mob'); c.landlines = readRep('land'); c.emails = readRep('email'); c.postal = readRep('postal').map((p) => p.value);
@@ -708,8 +714,7 @@ function editBiz(b) {
   <div class="f"><label>Business type</label><select id="e-btype"><option value="client">Client business</option><option value="nonclient" ${isClientBiz(b) ? '' : 'selected'}>Non-client business (industry)</option></select><div class="hint">Non-client businesses don't need a PIC, patient IDs, A+ to C category or farms — they have business locations instead.</div></div>
   <div class="f"><label>Primary contact required?</label><select id="e-bpreq"><option value="yes">Yes</option><option value="no" ${b.primaryRequired === false ? 'selected' : ''}>Not required</option></select></div>
   ${(IDX.bizContacts.get(b.id) || []).length ? `<div class="f"><label>Primary contact</label><select id="e-bprimary"><option value="">— choose —</option>${(IDX.bizContacts.get(b.id) || []).map((c) => `<option value="${c.id}" ${primaryOf(b)?.id === c.id ? 'selected' : ''}>${h(fullName(c))}</option>`).join('')}</select></div>` : ''}
-  <div class="f"><label>Contact category — A+ / A / B / C</label><select id="e-brating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${b.rating === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>
-  <div class="f"><span class="lbl">Contact category — other</span><div class="checks">${D.tags.filter((t) => t.group === 'client').map((t) => `<label><input type="checkbox" data-bcat="${t.id}" ${(b.cats || []).includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div><div class="hint">Contacts set to "Same as business" follow these. Contacts with their own categories keep theirs.</div></div>
+  <div class="f"><span class="lbl">Contact category</span>${catPicker('brating', b.rating, b.cats || [], 'No A+ to C', 'data-bcat')}<div class="hint">Contacts set to "Same as business" follow these. Contacts with their own categories keep theirs.</div></div>
   <div class="f client-only"><label>Property Identification Code (PIC)</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2 }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f client-only"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
   <div class="f"><label>General info</label>${richEditor('e-binfo', b)}</div>
@@ -720,7 +725,7 @@ function editBiz(b) {
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-biz" data-id="${b.id}" style="color:var(--red)">Delete business</button></div>`}`;
   openSheet(isNew ? 'New business' : 'Edit business', body, () => {
     const name = val('e-bname'); if (!name) { toast('Enter a business name'); return false; }
-    const newRating = $('#e-brating').value || null;
+    const newRating = rtVal($('#sheet'), 'brating') || null;
     if (newRating !== b.rating) b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict');
     b.type = $('#e-btype').value; b.primaryRequired = $('#e-bpreq').value !== 'no';
     const pSel = $('#e-bprimary'); if (pSel) { b.primaryContact = pSel.value || null; const pc = D.contacts.find((x) => x.id === b.primaryContact); if (pc && !pc.tags.includes('pa') && !pc.tags.includes('pi')) { pc.tags.push('pa'); touch(pc); } }
@@ -950,8 +955,7 @@ function editBizCats(bid) {
   const b = IDX.biz.get(bid); const cs = IDX.bizContacts.get(bid) || []; const cats = D.tags.filter((t) => t.group === 'client');
   const ratingSel = (id, cur, first) => `<select id="${id}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:9px;font-size:16px"><option value="">${first}</option>${RATINGS.map((r) => `<option value="${r}" ${cur === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select>`;
   const body = `<div class="card" style="background:#f3f8f3"><h3>${h(b.name)} — business categories</h3>
-    ${ratingSel('bc-rating', b.rating, 'No A+ to C')}
-    <div class="checks" style="margin-top:8px">${cats.map((t) => `<label><input type="checkbox" data-bizcat="${t.id}" ${(b.cats || []).includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div>
+    ${catPicker('bizr', b.rating, b.cats || [], 'No A+ to C', 'data-bizcat')}
     <div class="hint" style="margin-top:6px">Everyone set to "Same as business" gets these.</div></div>
   <div class="card" style="background:#fffbea"><h3>Quick change for ticked people</h3>
     <div class="search" style="flex-wrap:wrap"><select id="bc-tag" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:9px">${cats.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join('')}</select>
@@ -960,11 +964,10 @@ function editBizCats(bid) {
   ${cs.map((c) => { const own = !followsBiz(c) || !!ownRating(c); return `<div class="card" data-bccontact="${c.id}"><h3 style="text-transform:none;letter-spacing:0;font-size:17px;color:var(--ink)"><input type="checkbox" class="bc-pick" data-cid="${c.id}" style="width:20px;height:20px"> <span class="sp">${h(fullName(c))}</span></h3>
     <div class="seg" style="margin-bottom:8px"><button type="button" class="${own ? '' : 'on'}" data-act="bc-mode" data-v="biz">Same as business</button><button type="button" class="${own ? 'on' : ''}" data-act="bc-mode" data-v="own">Own categories</button></div>
     <input type="hidden" class="bc-modeval" value="${own ? 'own' : 'biz'}">
-    <div class="bc-own" style="${own ? '' : 'display:none'}">${ratingSel('bcr-' + c.id, ownRating(c), 'A+ to C same as business')}
-    <div class="checks" style="margin-top:8px">${cats.map((t) => `<label><input type="checkbox" data-bccat="${t.id}" ${effCats(c).includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div></div></div>`; }).join('')}`;
+    <div class="bc-own" style="${own ? '' : 'display:none'}">${catPicker('r-' + c.id, ownRating(c), effCats(c), 'A+ to C same as business', 'data-bccat')}</div></div>`; }).join('')}`;
   openSheet('Categories — ' + b.name, body, () => {
     let n = 0;
-    const nr = $('#bc-rating').value || null; const nbc = [...document.querySelectorAll('#sheet [data-bizcat]')].filter((i) => i.checked).map((i) => i.dataset.bizcat);
+    const nr = rtVal($('#sheet'), 'bizr') || null; const nbc = [...document.querySelectorAll('#sheet [data-bizcat]')].filter((i) => i.checked).map((i) => i.dataset.bizcat);
     const oldBc = b.cats || []; let bch = false;
     if (nr !== (b.rating || null) || nbc.slice().sort().join() !== oldBc.slice().sort().join()) { b.rating = nr; b.cats = nbc; b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict'); touch(b); bch = true; reindex(); }
     document.querySelectorAll('#sheet [data-bccontact]').forEach((row) => {
@@ -972,7 +975,7 @@ function editBizCats(bid) {
       const before = effCats(c), beforeR = ownRating(c), wasFollow = followsBiz(c);
       if (row.querySelector('.bc-modeval').value === 'biz') { c.tags = c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)); c.ownCats = false; }
       else {
-        const want = [...row.querySelectorAll('[data-bccat]')].filter((i) => i.checked).map((i) => i.dataset.bccat); const r = row.querySelector('select').value;
+        const want = [...row.querySelectorAll('[data-bccat]')].filter((i) => i.checked).map((i) => i.dataset.bccat); const r = rtVal(row, 'r-' + c.id);
         c.tags = c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)); if (r) c.tags.push(r);
         if (want.slice().sort().join() === bizCatsOf(c).sort().join()) c.ownCats = false; else { c.ownCats = true; c.tags.push(...want); }
       }
