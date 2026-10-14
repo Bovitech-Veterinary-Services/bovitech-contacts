@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '3.1 (14 Oct 2026)';
+const APP_VERSION = '3.2 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -879,7 +879,9 @@ function shareFarm(keep, other) {
 // edit the contact categories of everyone at one business on one screen
 function editBizCats(bid) {
   const b = IDX.biz.get(bid); const cs = IDX.bizContacts.get(bid) || []; const cats = D.tags.filter((t) => t.group === 'client');
-  const body = `<div class="hint" style="margin-bottom:8px">Tick the categories each person should have, or use the quick change to give or remove one category for several people at once.</div>
+  const body = `<div class="card"><h3>A+ / A / B / C — for the whole business</h3><select id="bc-rating" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;font-size:16px"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${b.rating === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select>
+    <div class="hint" style="margin-top:4px">This applies to everyone at ${h(b.name)}${isClientBiz(b) ? '' : ' (this is a non-client business — usually no rating)'}. A person linked to another business can have a different rating there.</div></div>
+  <div class="hint" style="margin-bottom:8px">Tick the other categories each person should have, or use the quick change to give or remove one category for several people at once.</div>
   <div class="card" style="background:#fffbea"><h3>Quick change</h3>
     <div class="search" style="flex-wrap:wrap"><select id="bc-tag" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:9px">${cats.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join('')}</select>
     <button class="btn small" type="button" data-act="bc-quick" data-on="1">Add to ticked people</button><button class="btn small" type="button" data-act="bc-quick" data-on="0">Remove from ticked people</button></div>
@@ -897,7 +899,8 @@ function editBizCats(bid) {
       if (!before.includes('inactive') && want.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); }
       c.tags = [...c.tags.filter((t) => IDX.tags.get(t)?.group !== 'client'), ...want]; touch(c); n++;
     });
-    NEXT_LOG_LABEL = `Categories updated for ${n} contact${n === 1 ? '' : 's'} at ${b.name}`; photoCache.clear(); Sync.soon();
+    const nr = $('#bc-rating').value || null; let rch = false; if (nr !== (b.rating || null)) { b.rating = nr; b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict'); touch(b); rch = true; }
+    NEXT_LOG_LABEL = `Categories updated at ${b.name}` + (rch ? ` (A+ to C: ${nr ? tagName(nr) : 'none'})` : '') + (n ? ` — ${n} contact${n === 1 ? '' : 's'}` : ''); if (rch) n++; photoCache.clear(); Sync.soon();
     if (!n) toast('No changes'); return true;
   });
 }
