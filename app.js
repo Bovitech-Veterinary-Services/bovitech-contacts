@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '2.3 (14 Oct 2026)';
+const APP_VERSION = '2.4 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -913,7 +913,7 @@ function renderSettings() {
   <div class="card"><h3>Homebase</h3><div class="f"><label>Address</label><input id="s-homeaddr" value="${h(st.home.address)}"></div><div class="f"><label>GPS</label><input id="s-homegps" value="${st.home.lat}, ${st.home.lng}"></div><button class="btn small" data-act="save-home">Save homebase</button></div>
   <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, and plan the most efficient route.</div></div>
   ${syncSettingsCard()}
-  <div class="card"><h3>App version</h3><div class="kv"><div class="k">Version</div><div class="v">${APP_VERSION}</div></div><div class="actions"><button class="btn small" data-act="app-refresh">⟳ Close and reopen on the latest version</button></div></div>
+  <div class="card"><h3>App version</h3><div class="kv"><div class="k">Version</div><div class="v">${APP_VERSION}</div></div>${S.latest ? `<div class="kv"><div class="k">Latest</div><div class="v">${h(S.latest)}${S.latest !== APP_VERSION.split(' ')[0] ? ' — <b style="color:var(--red)">tap ⟳ to update</b>' : ' ✓ up to date'}</div></div>` : ''}<div class="actions"><button class="btn small" data-act="app-refresh">⟳ Close and reopen on the latest version</button></div></div>
   ${renderChangeLog()}
   ${renderTrash()}
   <div class="card"><h3>Backup</h3><div class="actions"><button class="btn" data-act="export">Download backup</button><label class="btn">Restore backup<input type="file" accept=".json" data-act="import" style="display:none"></label></div><div class="hint">Data imported from Google Contacts on ${h(D.importedAt || '14 Oct 2026')}.</div></div>
@@ -1557,11 +1557,25 @@ async function refreshApp() {
   toast('Getting the latest version…');
   clearTimeout(saveTimer); await Store.set('data', D); // contacts and unsynced changes stay on the device
   try {
-    if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.update().catch(() => {}))); }
-    if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } // only the saved app files, not your data
+    // throw away every saved copy of the app files (not your data) and fetch fresh ones straight from GitHub
+    if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); }
+    await Promise.all(['./', 'index.html', 'app.js', 'config.js', 'sw.js', 'manifest.webmanifest', 'version.json'].map((u) => fetch(u, { cache: 'reload' }).catch(() => {})));
+    if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.unregister().catch(() => {}))); }
   } catch (e) { }
-  location.reload();
+  location.replace(location.pathname + '?v=' + Date.now()); // a fresh address so nothing old can be reused
 }
+/* ---------------- "new version available" check ---------------- */
+async function checkLatest() {
+  if (window.SEED || !navigator.onLine) return;
+  try {
+    const v = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json();
+    S.latest = v.version; const newer = v.version && v.version !== APP_VERSION.split(' ')[0];
+    const b = document.querySelector('header [data-act=app-refresh]');
+    if (b) { b.classList.toggle('update', newer); b.title = newer ? `Version ${v.version} is available — tap to update` : 'Close and reopen the app on the latest version'; b.innerHTML = newer ? '⟳<span> Update available</span>' : '⟳<span> Refresh app</span>'; }
+    if (newer && !S.toldLatest) { S.toldLatest = true; toast(`A newer version (${v.version}) is ready — tap ⟳ Update`); }
+  } catch (e) { }
+}
+setInterval(checkLatest, 10 * 60 * 1000); window.addEventListener('online', checkLatest); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkLatest(); });
 
 /* ---------------- data migrations (run on load and after sync; safe to repeat) ---------------- */
 function migrate() {
@@ -1736,6 +1750,8 @@ try { history.replaceState({ bvt: 0 }, ''); } catch (e) { }
   reindex(); baseline(); migrate(); logChanges('Automatic update'); save();
   reindex(); net(); renderAll();
   Sync.start();
+  checkLatest();
+  if (location.search.includes('v=')) history.replaceState(history.state, '', location.pathname);
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.SEED) {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});

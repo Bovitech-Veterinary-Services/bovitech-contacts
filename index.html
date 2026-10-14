@@ -32,6 +32,8 @@ header.top h1{font-family:var(--cond);font-size:21px;letter-spacing:.3px;margin:
 .pill.warn{background:var(--red);color:#fff}
 .hbtn{border:1px solid #3a3936;background:#2c2b29;color:#fff;border-radius:99px;padding:3px 10px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
 .hbtn:hover{background:#3a3936}
+.hbtn.update{background:var(--red);border-color:var(--red);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 5px rgba(215,31,43,.35)}}
 @media(max-width:480px){.hbtn span{display:none}.hbtn{font-size:16px;padding:2px 9px}}
 nav.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.06)}
 main{padding-bottom:env(safe-area-inset-bottom)}
