@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '2.8 (14 Oct 2026)';
+const APP_VERSION = '2.9 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -285,15 +285,15 @@ function computeJobs() {
     (b.flags || []).forEach((fl) => add({ type: fl.type, kind: 'business', id: b.id, who: b.name, note: fl.note }));
     if (b.primaryRequired !== false && !primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
   });
-  // pins within 1 km of each other (but not the identical spot): same farm or different farm?
+  // two farms on the same GPS pin: same farm or different farm?
   const pinned = []; D.businesses.forEach((b) => b.farms.forEach((f) => { if (f.lat != null) pinned.push({ b, f }); }));
   for (let i = 0; i < pinned.length; i++) for (let k = i + 1; k < pinned.length; k++) {
     const A = pinned[i], B = pinned[k];
     if (Math.abs(A.f.lat - B.f.lat) > 0.01 || Math.abs(A.f.lng - B.f.lng) > 0.012) continue;
-    const dkm = hav(A.f, B.f); if (dkm >= 1 || dkm < 0.02) continue;
+    const dkm = hav(A.f, B.f); if (dkm >= 0.02) continue; // only pins on the same spot (within 20 m)
     const key = 'nearpin:' + [A.f.id, B.f.id].sort().join('|');
     const nm = (x) => x.b.name + (x.f.name ? ' — ' + x.f.name : '');
-    add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two pins are ${Math.round(dkm * 1000)} m apart. Are they the same farm or different farms? (Pin 1 = ${nm(A)}, pin 2 = ${nm(B)})`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
+    add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two farms have the same GPS pin. Are they the same farm or different farms? (1 = ${nm(A)}, 2 = ${nm(B)})`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
   }
   dupeJobs(add);
   byGps.forEach((arr) => {
@@ -336,7 +336,7 @@ const JOB_TYPES = {
   kmverify: { t: 'Distance requires verification', manual: false },
   kmconflict: { t: 'Same farm, different km on different contacts', manual: true },
   dupe: { t: 'Possible duplicates', manual: false },
-  nearpin: { t: 'Pins within 1 km — same farm or different farm?', manual: false },
+  nearpin: { t: 'Same GPS pin on two farms — same farm or different farm?', manual: false },
   nogps: { t: 'Farm address with no GPS pin', manual: true },
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
   nokm: { t: 'No distance recorded', manual: true },
