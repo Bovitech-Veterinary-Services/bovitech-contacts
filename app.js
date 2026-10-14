@@ -7,7 +7,7 @@ const RATINGS = ['aplus', 'a', 'b', 'c'];
 const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
-const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'inactive', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family'];
+const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // Inactive is overridden by every other tag
 const MAX_STOPS = 9;
 const ICONS = {
   contacts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7"/><path d="M17 4a4 4 0 0 1 0 8M22 21c0-3-1.5-5.5-4-6.5"/></svg>',
@@ -253,6 +253,16 @@ function computeJobs() {
     (b.flags || []).forEach((fl) => add({ type: fl.type, kind: 'business', id: b.id, who: b.name, note: fl.note }));
     if (!primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
   });
+  // pins within 1 km of each other (but not the identical spot): same farm or different farm?
+  const pinned = []; D.businesses.forEach((b) => b.farms.forEach((f) => { if (f.lat != null) pinned.push({ b, f }); }));
+  for (let i = 0; i < pinned.length; i++) for (let k = i + 1; k < pinned.length; k++) {
+    const A = pinned[i], B = pinned[k];
+    if (Math.abs(A.f.lat - B.f.lat) > 0.01 || Math.abs(A.f.lng - B.f.lng) > 0.012) continue;
+    const dkm = hav(A.f, B.f); if (dkm >= 1 || dkm < 0.02) continue;
+    const key = 'nearpin:' + [A.f.id, B.f.id].sort().join('|');
+    const nm = (x) => x.b.name + (x.f.name ? ' — ' + x.f.name : '');
+    add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two pins are ${Math.round(dkm * 1000)} m apart. Are they the same farm or different farms?`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
+  }
   byGps.forEach((arr) => {
     const kms = [...new Set(arr.map((x) => x.f.kmReturn))];
     if (kms.length > 1) { const gk = arr.map((x) => x.f.gKm).find((v) => v != null); const best = gk != null ? kms.slice().sort((a, b) => Math.abs(a - gk) - Math.abs(b - gk))[0] : null;
@@ -279,6 +289,7 @@ const JOB_TYPES = {
   kmcheck: { t: 'Distance more than 1 km different to Google Maps', manual: true },
   kmverify: { t: 'Distance requires verification', manual: false },
   kmconflict: { t: 'Same farm, different km on different contacts', manual: true },
+  nearpin: { t: 'Pins within 1 km — same farm or different farm?', manual: false },
   nogps: { t: 'Farm address with no GPS pin', manual: true },
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
   nokm: { t: 'No distance recorded', manual: true },
@@ -764,6 +775,10 @@ function renderJobs() {
       ${t === 'conflict' ? `<button class="btn small red" data-act="conflict-open" data-key="${h(j.data.key)}">Resolve</button>` : ''}
       ${j.suggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-km" data-km="${j.suggest.km}" data-fids="${j.suggest.fids.join(',')}">✓ Use suggested: ${j.suggest.km} km</button>` : ''}
       ${!j.suggest && j.needsLookup && D.settings.mapsKey ? `<button class="btn small" data-act="lookup-km" data-fids="${j.needsLookup.join(',')}">Get Google Maps suggestion</button>` : ''}
+      ${j.pair ? (() => { const fa = IDX.farms.get(j.pair.a), fb = IDX.farms.get(j.pair.b); return `<a class="btn small" href="${gmapsPin(fa)}" target="_blank" rel="noopener">Pin 1</a><a class="btn small" href="${gmapsPin(fb)}" target="_blank" rel="noopener">Pin 2</a>
+        <button class="btn small" data-act="pin-diff" data-key="${h(j.key)}">Different farms</button>
+        <button class="btn small" data-act="pin-same" data-keep="${fa.id}" data-other="${fb.id}">Same farm — use pin 1</button>
+        <button class="btn small" data-act="pin-same" data-keep="${fb.id}" data-other="${fa.id}">Same farm — use pin 2</button>`; })() : ''}
       ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}
       ${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${JOB_TYPES[t].btn || 'Mark resolved'}</button>` : ''}</div></div></div>`;
     });
@@ -1177,6 +1192,20 @@ document.addEventListener('click', async (e) => {
     case 'job-dismiss': { D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); const [type, fid] = d.key.split(':'); if (type === 'signfix') { const f = IDX.farms.get(fid); if (f) { f.flags = f.flags.filter((x) => x.type !== 'signfix'); touch(IDX.farmBiz.get(fid)); } } changed(); break; }
     case 'use-km': { d.fids.split(',').forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = +d.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(fid)); }); changed(); toast('Distance updated'); break; }
     case 'lookup-km': { const fs = d.fids.split(',').map((x) => IDX.farms.get(x)).filter((f) => f && f.lat != null); el.disabled = true; el.textContent = 'Looking up…'; try { const r = await Maps.distances(fs.map((f) => ({ lat: f.lat, lng: f.lng }))); fs.forEach((f, i) => { if (r[i]) { f.gKm = Math.ceil(r[i].km * 2 - 1e-9); f.gMin = Math.round(r[i].min); f.gAt = Date.now(); touch(IDX.farmBiz.get(f.id)); } }); changed(); } catch (err) { toast(err.message); el.disabled = false; el.textContent = 'Get Google Maps suggestion'; } break; }
+    case 'pin-diff': D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); changed(); break;
+    case 'pin-same': {
+      const keep = IDX.farms.get(d.keep), other = IDX.farms.get(d.other); const bk = IDX.farmBiz.get(keep.id), bo = IDX.farmBiz.get(other.id);
+      if (bk === bo) { // same business: merge the two entries into one
+        if (!confirm('Merge these into one farm? Names, info and warnings are combined and the extra entry is removed.')) break;
+        const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
+        keep.info = join(keep.info, other.info); keep.warning = join(keep.warning, other.warning); keep.seeWarning = keep.seeWarning || other.seeWarning;
+        if (!keep.address) keep.address = other.address; if (!keep.name) keep.name = other.name;
+        if (keep.kmReturn == null) keep.kmReturn = other.kmReturn; if (keep.driveMin == null) keep.driveMin = other.driveMin;
+        bk.farms = bk.farms.filter((f) => f.id !== other.id); S.route.stops = S.route.stops.filter((s) => s.fid !== other.id); touch(bk); toast('Farms merged');
+      } else { // different businesses (e.g. a leased block): keep both, put them on the same pin
+        other.lat = keep.lat; other.lng = keep.lng; if (keep.gKm != null) { other.gKm = keep.gKm; other.gMin = keep.gMin; } touch(bo); toast('Pins matched — check the km if they differ');
+      }
+      changed(); break; }
     case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); changed(); toast('Photo set'); } break; }
     case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id)); changed(); break; }
     case 'check-dist': checkAllDistances(); break;
