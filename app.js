@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '2.7 (14 Oct 2026)';
+const APP_VERSION = '2.8 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -293,7 +293,7 @@ function computeJobs() {
     const dkm = hav(A.f, B.f); if (dkm >= 1 || dkm < 0.02) continue;
     const key = 'nearpin:' + [A.f.id, B.f.id].sort().join('|');
     const nm = (x) => x.b.name + (x.f.name ? ' — ' + x.f.name : '');
-    add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two pins are ${Math.round(dkm * 1000)} m apart. Are they the same farm or different farms?`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
+    add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two pins are ${Math.round(dkm * 1000)} m apart. Are they the same farm or different farms? (Pin 1 = ${nm(A)}, pin 2 = ${nm(B)})`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
   }
   dupeJobs(add);
   byGps.forEach((arr) => {
@@ -914,7 +914,7 @@ function renderJobs() {
       ${j.suggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-km" data-km="${j.suggest.km}" data-fids="${j.suggest.fids.join(',')}">✓ Use suggested: ${j.suggest.km} km</button>` : ''}
       ${j.suggest && IDX.farms.get(j.suggest.fids[0])?.lat != null ? `<a class="btn small" href="${gmapsRoute(IDX.farms.get(j.suggest.fids[0]))}" target="_blank" rel="noopener">🗺 View suggested route</a>` : ''}
       ${!j.suggest && j.needsLookup && D.settings.mapsKey ? `<button class="btn small" data-act="lookup-km" data-fids="${j.needsLookup.join(',')}">Get Google Maps suggestion</button>` : ''}
-      ${j.pair ? (() => { const fa = IDX.farms.get(j.pair.a), fb = IDX.farms.get(j.pair.b); return `<a class="btn small" href="${gmapsPin(fa)}" target="_blank" rel="noopener">Pin 1</a><a class="btn small" href="${gmapsPin(fb)}" target="_blank" rel="noopener">Pin 2</a>
+      ${j.pair ? (() => { const fa = IDX.farms.get(j.pair.a), fb = IDX.farms.get(j.pair.b); return `<a class="btn small greenbtn" href="https://www.google.com/maps/dir/?api=1&origin=${fa.lat},${fa.lng}&destination=${fb.lat},${fb.lng}&travelmode=walking" target="_blank" rel="noopener">🗺 View both pins on Google Maps</a><a class="btn small" href="${gmapsPin(fa)}" target="_blank" rel="noopener">View pin 1</a><a class="btn small" href="${gmapsPin(fb)}" target="_blank" rel="noopener">View pin 2</a>
         <button class="btn small" data-act="pin-diff" data-key="${h(j.key)}">Different farms</button>
         <button class="btn small" data-act="pin-same" data-keep="${fa.id}" data-other="${fb.id}">Same farm — use pin 1</button>
         <button class="btn small" data-act="pin-same" data-keep="${fb.id}" data-other="${fa.id}">Same farm — use pin 2</button>`; })() : ''}
