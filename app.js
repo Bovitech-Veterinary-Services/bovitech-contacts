@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.1 (15 Oct 2026)';
+const APP_VERSION = '4.2 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -352,6 +352,10 @@ function computeJobs() {
       note: diff.map((t) => { const has = cs.filter((c) => ec.get(c).includes(t)), not = cs.filter((c) => !ec.get(c).includes(t)); return `${tagName(t)}: ${has.map((c) => c.first).join(', ')} — but not ${not.map((c) => c.first).join(', ')}`; }).join(' • ') + '. Update them so they match?',
       catdiff: { bid: b.id, tags: diff.map((t) => ({ t, has: cs.filter((c) => ec.get(c).includes(t)).length, of: cs.length })) } });
   });
+  // more than one category on a record (only one is allowed) — e.g. edited on a device still on an older version
+  D.businesses.forEach((b) => { const cs = [...(b.rating ? [b.rating] : []), ...(b.cats || [])]; if (cs.length > 1) add({ type: 'multicat', key: 'multicat:' + b.id + ':' + cs.join('.'), kind: 'business', id: b.id, who: b.name, note: 'Has ' + cs.length + ' categories (' + cs.map(tagName).join(' + ') + ') — only one is allowed. Edit the business and pick one.' }); });
+  D.contacts.forEach((c) => { const cs = [...new Set(c.tags.filter((t) => isCatTag(t) || RATING_SET.has(t)))]; const both = c.tags.includes('pa') && c.tags.includes('pi');
+    if (cs.length > 1 || both) add({ type: 'multicat', key: 'multicat:' + c.id + ':' + cs.join('.') + (both ? ':papi' : ''), kind: 'contact', id: c.id, who: fullName(c), note: [cs.length > 1 ? 'Has ' + cs.length + ' categories (' + cs.map(tagName).join(' + ') + ') — only one is allowed' : '', both ? 'Tagged both Primary (active) and Primary (inactive)' : ''].filter(Boolean).join('. ') + '. Edit the contact and fix it.' }); });
   (D.conflicts || []).forEach((cf) => add({ type: 'conflict', kind: cf.kind === 'businesses' ? 'business' : 'contact', id: cf.key, who: cf.who, note: 'Changed on two devices while offline — differences below. Choose which version to keep:', data: cf }));
   return jobs;
 }
@@ -366,6 +370,7 @@ const JOB_TYPES = {
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
   nokm: { t: 'No distance recorded', manual: true },
   photo: { t: 'Choose which photo to show', manual: false },
+  multicat: { t: 'More than one category — pick one', manual: false },
   catpick: { t: 'Category changed to one only — check it', manual: true, btn: 'Looks right' },
   catdiff: { t: 'Contacts at the same business have different categories', manual: true, btn: 'Leave as is' },
   catprop: { t: 'Category changed — change the other contacts at the same business too?', manual: true, btn: 'No — only this contact' },
@@ -453,7 +458,7 @@ function navRecord() {
 }
 function navBack() {
   if (CONFIRM) { closeAsk(false); return; }
-  if (SHEET) { closeSheet(); return; }
+  if (SHEET) { leaveSheet(); return; }
   if (NAV.stack.length) { history.back(); return; } // popstate does the work
   S.sel = null; document.body.classList.remove('show-detail'); renderAll();
 }
@@ -640,7 +645,17 @@ function openSheet(title, body, onSave, extraBtns = '') {
   const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'sheet';
   bg.innerHTML = `<div class="sheet"><div class="sheet-h"><button class="btn" data-act="sheet-cancel">‹ Back</button><h2>${h(title)}</h2>${extraBtns}<button class="btn primary" data-act="sheet-save" id="sheet-save">Save</button></div><div class="form">${body}</div></div>`;
   document.body.appendChild(bg); SHEET = { onSave }; try { history.pushState({ sheet: 1 }, ''); } catch (e) { } updateBackBtn();
-  bg.addEventListener('click', (e) => { if (e.target === bg) closeSheet(); });
+  // clicking outside the edit screen no longer closes it (too easy to lose typing); snapshot the form so leaving can warn
+  setTimeout(() => { if (SHEET && $('#sheet') === bg) SHEET.snap = sheetState(); }, 0);
+}
+function sheetState() { const f = $('#sheet .form'); if (!f) return ''; return [...f.querySelectorAll('input,textarea,select')].map((el) => (el.type === 'checkbox' || el.type === 'radio') ? (el.checked ? '1' : '0') : el.type === 'file' ? (el.files && el.files.length ? 'f' : '') : el.value).join('\u0001'); }
+function sheetDirty() { return !!(SHEET && SHEET.snap != null && sheetState() !== SHEET.snap); }
+async function leaveSheet(fromPop) {
+  if (!SHEET) return;
+  if (!sheetDirty()) { if (fromPop) SHEET.popped = true; closeSheet(); return; }
+  if (fromPop) { try { history.pushState({ sheet: 1 }, ''); } catch (e) { } } // put the edit screen back while we ask
+  const sh = SHEET;
+  if (await ask('You have unsaved changes on this screen.\n\nLeave without saving?', 'Yes — discard my changes', true)) { if (SHEET === sh) closeSheet(); }
 }
 function closeSheet() { const s = $('#sheet'); if (s) s.remove(); if (SHEET && !SHEET.popped) { NAV.ignorePop++; history.back(); } SHEET = null; updateBackBtn(); }
 function repRows(name, rows, fields) {
@@ -2078,7 +2093,7 @@ document.addEventListener('click', async (e) => {
     case 'add-farm': editFarm(IDX.biz.get(d.bid), null); break;
     case 'edit-farm': editFarm(IDX.biz.get(d.bid), IDX.farms.get(d.fid)); break;
     case 'calc-dist': SHEET && SHEET.calc && SHEET.calc(); break;
-    case 'sheet-cancel': closeSheet(); break;
+    case 'sheet-cancel': leaveSheet(); break;
     case 'sheet-save': { if (!SHEET) break; const ok = await SHEET.onSave(); if (ok !== false) { const done = await changed(); if (done) { closeSheet(); toast('Saved'); } } break; }
     case 'rep-add': { const tpl = document.querySelector(`#sheet template[data-reptpl="${d.rep}"]`); document.querySelector(`#sheet [data-repwrap="${d.rep}"]`).insertAdjacentHTML('beforeend', tpl.innerHTML); break; }
     case 'rep-del': el.closest('.rep').remove(); break;
@@ -2188,11 +2203,13 @@ window.addEventListener('online', net); window.addEventListener('offline', net);
 window.addEventListener('popstate', () => {
   if (NAV.ignorePop) { NAV.ignorePop--; return; }
   if (CONFIRM) { closeAsk(false, true); return; } // phone Back closes a confirm pop-up first
-  if (SHEET) { SHEET.popped = true; closeSheet(); return; } // back closes an open edit screen first
+  if (SHEET) { leaveSheet(true); return; } // back closes an open edit screen first (asks if there are unsaved changes)
   navRestore();
 });
 document.addEventListener('scroll', (e) => { if (!NAV.last) return; if (e.target.id === 'list') NAV.last.scroll = e.target.scrollTop; if (e.target.id === 'detail') NAV.last.dscroll = e.target.scrollTop; }, true);
 try { history.replaceState({ bvt: 0 }, ''); } catch (e) { }
+window.addEventListener('beforeunload', (e) => { if (sheetDirty()) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (CONFIRM) closeAsk(false); else if (SHEET) leaveSheet(); } });
 
 /* ---------------- start ---------------- */
 (async function init() {
