@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.4 (15 Oct 2026)';
+const APP_VERSION = '4.5 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -339,8 +339,8 @@ function computeJobs() {
     if (c.createdAt) { const miss = missingInfo(c); if (miss.length) add({ type: 'newinfo', kind: 'contact', id: c.id, who, note: 'Missing: ' + miss.join(', ') }); }
     (c.flags || []).forEach((fl) => { if (fl.type === 'multirating') add({ type: 'multirating', kind: 'contact', id: c.id, who, note: fl.note }); });
   });
-  D.businesses.forEach((b) => (b.flags || []).forEach((fl) => { if (fl.type === 'catpick' && bizCat(b) === (fl.kept || '')) add({ type: 'catpick', key: 'catpick:' + b.id, kind: 'business', id: b.id, who: b.name, pick: { kind: 'business', id: b.id, alts: fl.had.filter((t) => t !== fl.kept) }, note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
-  D.contacts.forEach((c) => (c.flags || []).forEach((fl) => { if (fl.type === 'catpick' && catOf(c) === (fl.kept || '')) add({ type: 'catpick', key: 'catpick:' + c.id, kind: 'contact', id: c.id, who: fullName(c), pick: { kind: 'contact', id: c.id, alts: fl.had.filter((t) => t !== fl.kept) }, note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
+  D.businesses.forEach((b) => (b.flags || []).forEach((fl) => { if (fl.type === 'catpick' && bizCat(b) === (fl.kept || '')) add({ type: 'catpick', key: 'catpick:' + b.id, kind: 'business', id: b.id, who: b.name, pick: { kind: 'business', id: b.id, alts: fl.had.filter((t) => t !== fl.kept) }, okLabel: 'Change to new category: ' + (fl.kept ? tagName(fl.kept) : 'no category'), note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
+  D.contacts.forEach((c) => (c.flags || []).forEach((fl) => { if (fl.type === 'catpick' && catOf(c) === (fl.kept || '')) add({ type: 'catpick', key: 'catpick:' + c.id, kind: 'contact', id: c.id, who: fullName(c), pick: { kind: 'contact', id: c.id, alts: fl.had.filter((t) => t !== fl.kept) }, okLabel: 'Change to new category: ' + (fl.kept ? tagName(fl.kept) : 'no category'), note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
   // contacts at the same business with different categories (skip businesses already being asked about via a category change)
   const pendingBiz = new Set(); D.contacts.forEach((c) => (c.flags || []).forEach((f) => { if (f.type === 'catprop') (f.bids || []).forEach((b) => pendingBiz.add(b)); }));
   const isCat = (t) => IDX.tags.get(t)?.group === 'client';
@@ -371,7 +371,7 @@ const JOB_TYPES = {
   nokm: { t: 'No distance recorded', manual: true },
   photo: { t: 'Choose which photo to show', manual: false },
   multicat: { t: 'More than one category — pick one', manual: false },
-  catpick: { t: 'Category changed to one only — check it', manual: true, btn: 'Looks right' },
+  catpick: { t: 'Category changed to one only — check it', manual: true, btn: 'Change to new category' },
   catdiff: { t: 'Contacts at the same business have different categories', manual: true, btn: 'Leave as is' },
   catprop: { t: 'Category changed — change the other contacts at the same business too?', manual: true, btn: 'No — only this contact' },
   blockcheck: { t: 'Do not answer — has the number been blocked?', manual: true },
@@ -1156,7 +1156,7 @@ function renderJobs() {
       ${j.cat ? `<button class="btn small greenbtn" data-act="cat-apply" data-cid="${j.cat.cid}" data-at="${j.cat.at}">✓ Yes — change them too</button>` : ''}
       ${j.block ? `<button class="btn small greenbtn" data-act="block-yes" data-cid="${j.block}">✓ Yes — number blocked</button>${(D.contacts.find((x) => x.id === j.block) || { tags: [] }).tags.includes('blockedn') ? '' : `<button class="btn small" data-act="block-no" data-cid="${j.block}">Not yet</button>`}` : ''}
       ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}
-      ${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${JOB_TYPES[t].btn || 'Mark resolved - changes not required'}</button>` : ''}</div></div></div>`;
+      ${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${j.okLabel ? '✓ ' + h(j.okLabel) : JOB_TYPES[t].btn || 'Mark resolved - changes not required'}</button>` : ''}</div></div></div>`;
     });
     html += '</details>';
   });
