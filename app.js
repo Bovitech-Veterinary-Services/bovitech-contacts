@@ -329,7 +329,29 @@ function renderTabs() {
   $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
 function changed() { JOBS_CACHE = null; reindex(); save(); renderAll(); }
+/* ---------------- back navigation (in-app Back button + phone/browser back) ---------------- */
+const NAV = { last: null, stack: [], restoring: false, ignorePop: 0 };
+const navKey = () => S.tab + '|' + (S.sel ? S.sel.kind + ':' + S.sel.id : '');
+function navRecord() {
+  const k = navKey();
+  if (NAV.last && k !== NAV.last.key && !NAV.restoring) {
+    NAV.stack.push(NAV.last); if (NAV.stack.length > 60) NAV.stack.shift();
+    try { history.pushState({ bvt: NAV.stack.length }, ''); } catch (e) { }
+  }
+  if (!NAV.last || k !== NAV.last.key) NAV.last = { key: k, tab: S.tab, sel: S.sel ? { ...S.sel } : null, scroll: 0, dscroll: 0 };
+}
+function navBack() {
+  if (SHEET) { closeSheet(); return; }
+  if (NAV.stack.length) { history.back(); return; } // popstate does the work
+  S.sel = null; document.body.classList.remove('show-detail'); renderAll();
+}
+function navRestore() {
+  const prev = NAV.stack.pop(); if (!prev) { if (S.sel) { S.sel = null; renderAll(); } return; }
+  NAV.restoring = true; S.tab = prev.tab; S.sel = prev.sel; S.backTo = null; renderAll(); NAV.restoring = false;
+  NAV.last = prev; requestAnimationFrame(() => { $('#list').scrollTop = prev.scroll || 0; $('#detail').scrollTop = prev.dscroll || 0; });
+}
 function renderAll() {
+  navRecord();
   renderTabs();
   const main = $('#main');
   main.classList.toggle('single', ['search', 'route', 'jobs', 'settings'].includes(S.tab));
@@ -491,10 +513,10 @@ function openSheet(title, body, onSave, extraBtns = '') {
   closeSheet();
   const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'sheet';
   bg.innerHTML = `<div class="sheet"><div class="sheet-h"><button class="btn" data-act="sheet-cancel">Cancel</button><h2>${h(title)}</h2>${extraBtns}<button class="btn primary" data-act="sheet-save" id="sheet-save">Save</button></div><div class="form">${body}</div></div>`;
-  document.body.appendChild(bg); SHEET = { onSave };
+  document.body.appendChild(bg); SHEET = { onSave }; try { history.pushState({ sheet: 1 }, ''); } catch (e) { }
   bg.addEventListener('click', (e) => { if (e.target === bg) closeSheet(); });
 }
-function closeSheet() { const s = $('#sheet'); if (s) s.remove(); SHEET = null; }
+function closeSheet() { const s = $('#sheet'); if (s) s.remove(); if (SHEET && !SHEET.popped) { NAV.ignorePop++; history.back(); } SHEET = null; }
 function repRows(name, rows, fields) {
   // fields: [{k, ph, w, opts}]
   const row = (r = {}) => `<div class="rep" data-rep="${name}">${fields.map((f) => f.opts ? `<select data-k="${f.k}" style="flex:${f.w || 1}">${f.opts.map((o) => `<option ${o === (r[f.k] || '') ? 'selected' : ''}>${h(o)}</option>`).join('')}${r[f.k] && !f.opts.includes(r[f.k]) ? `<option selected>${h(r[f.k])}</option>` : ''}</select>` : `<input data-k="${f.k}" placeholder="${h(f.ph || '')}" value="${h(r[f.k] || '')}" style="flex:${f.w || 1}" ${f.list ? `list="${f.list}"` : ''}>`).join('')}<button class="x" type="button" data-act="rep-del" title="Remove">×</button></div>`;
@@ -1450,7 +1472,7 @@ document.addEventListener('click', async (e) => {
       if (!['contacts', 'biz'].includes(S.tab)) { S.backTo = S.tab; S.tab = d.kind === 'business' ? 'biz' : 'contacts'; }
       S.sel = { kind: d.kind, id: d.id }; renderAll(); $('#detail').scrollTop = 0; break;
     }
-    case 'back': S.sel = null; if (S.backTo) { S.tab = S.backTo; S.backTo = null; } document.body.classList.remove('show-detail'); renderAll(); break;
+    case 'back': navBack(); break;
     case 'quick': S.quick[d.v] = !S.quick[d.v]; renderContactList(); break;
     case 'tagf': { const cur = S.tagF[d.v]; if (!cur) S.tagF[d.v] = 'inc'; else if (cur === 'inc') S.tagF[d.v] = 'exc'; else delete S.tagF[d.v]; renderContactList(); break; }
     case 'clear': e.preventDefault(); S.q = ''; S.tagF = {}; S.quick = {}; renderContactList(); break;
@@ -1562,7 +1584,13 @@ document.addEventListener('change', async (e) => {
 });
 function net() { const n = $('#net'); n.textContent = navigator.onLine ? 'Online' : 'Offline'; n.className = 'pill' + (navigator.onLine ? '' : ' off'); }
 window.addEventListener('online', net); window.addEventListener('offline', net);
-window.addEventListener('popstate', () => { if (document.body.classList.contains('show-detail')) { S.sel = null; renderAll(); } });
+window.addEventListener('popstate', () => {
+  if (NAV.ignorePop) { NAV.ignorePop--; return; }
+  if (SHEET) { SHEET.popped = true; closeSheet(); return; } // back closes an open edit screen first
+  navRestore();
+});
+document.addEventListener('scroll', (e) => { if (!NAV.last) return; if (e.target.id === 'list') NAV.last.scroll = e.target.scrollTop; if (e.target.id === 'detail') NAV.last.dscroll = e.target.scrollTop; }, true);
+try { history.replaceState({ bvt: 0 }, ''); } catch (e) { }
 
 /* ---------------- start ---------------- */
 (async function init() {
