@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.5 (15 Oct 2026)';
+const APP_VERSION = '4.6 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -352,6 +352,8 @@ function computeJobs() {
       note: diff.map((t) => { const has = cs.filter((c) => ec.get(c).includes(t)), not = cs.filter((c) => !ec.get(c).includes(t)); return `${tagName(t)}: ${has.map((c) => c.first).join(', ')} — but not ${not.map((c) => c.first).join(', ')}`; }).join(' • ') + '. Update them so they match?',
       catdiff: { bid: b.id, tags: diff.map((t) => ({ t, has: cs.filter((c) => ec.get(c).includes(t)).length, of: cs.length })) } });
   });
+  // every contact needs a category
+  D.contacts.forEach((c) => { if (!catOf(c)) { const bs = bizOf(c); add({ type: 'nocat', kind: 'contact', id: c.id, who: fullName(c) + (bs.length ? ' (' + bs.map((b) => b.name).join(', ') + ')' : ''), note: bs.length ? 'No category — and the business has none either. Choose one.' : 'No category — choose one.', nocat: bs[0] ? bs[0].id : null }); } });
   // more than one category on a record (only one is allowed) — e.g. edited on a device still on an older version
   D.businesses.forEach((b) => { const cs = [...(b.rating ? [b.rating] : []), ...(b.cats || [])]; if (cs.length > 1) add({ type: 'multicat', key: 'multicat:' + b.id + ':' + cs.join('.'), kind: 'business', id: b.id, who: b.name, note: 'Has ' + cs.length + ' categories (' + cs.map(tagName).join(' + ') + ') — only one is allowed. Edit the business and pick one.' }); });
   D.contacts.forEach((c) => { const cs = [...new Set(c.tags.filter((t) => isCatTag(t) || RATING_SET.has(t)))]; const both = c.tags.includes('pa') && c.tags.includes('pi');
@@ -370,6 +372,7 @@ const JOB_TYPES = {
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
   nokm: { t: 'No distance recorded', manual: true },
   photo: { t: 'Choose which photo to show', manual: false },
+  nocat: { t: 'Contact has no category', manual: false },
   multicat: { t: 'More than one category — pick one', manual: false },
   catpick: { t: 'Category changed to one only — check it', manual: true, btn: 'Change to new category' },
   catdiff: { t: 'Contacts at the same business have different categories', manual: true, btn: 'Leave as is' },
@@ -670,7 +673,7 @@ const val = (id) => ($('#' + id) ? $('#' + id).value.trim() : '');
 
 // one combined "Contact category" picker: A+ / A / B / C (tick one) and every other category, all as tick boxes
 function catPicker(group, current, firstLabel) {
-  const opts = [['', firstLabel], ...RATINGS.map((r) => [r, tagName(r)]), ...D.tags.filter((t) => t.group === 'client').map((t) => [t.id, t.name])];
+  const opts = [...(firstLabel ? [['', firstLabel]] : []), ...RATINGS.map((r) => [r, tagName(r)]), ...D.tags.filter((t) => t.group === 'client').map((t) => [t.id, t.name])];
   return `<div class="checks big" data-rtgroup="${group}">${opts.map(([v, l]) => `<label class="${v === '' || RATING_SET.has(v) ? 'rt' : ''}"><input type="checkbox" data-rt="${v}" ${(current || '') === v ? 'checked' : ''}>${h(l)}</label>`).join('')}</div><div class="hint">Tick one — a contact or business can only have one category.</div>`;
 }
 const rtVal = (scope, group) => { const el = (scope || document).querySelector(`[data-rtgroup="${group}"] [data-rt]:checked`); return el ? el.dataset.rt : ''; };
@@ -717,7 +720,7 @@ function editContact(c) {
     <input type="hidden" id="e-catmode" value="${followsBiz(c) ? 'biz' : 'own'}">
     <div id="e-catbiz" style="${followsBiz(c) ? '' : 'display:none'}"><div class="hint">Follows ${h(bizOf(c).map((b) => b.name).join(', '))}: ${h([...bizOf(c).map((b) => b.rating).filter(Boolean).map(tagName), ...bizCatsOf(c).map(tagName)].join(', ') || 'no categories yet')}. Change them on the business.</div></div>
     <div id="e-catown" style="${followsBiz(c) ? 'display:none' : ''}">
-      ${catPicker('ccat', followsBiz(c) ? '' : catOf(c), 'No category')}
+      ${catPicker('ccat', followsBiz(c) ? '' : catOf(c), null)}
     </div></div>
   <div class="f"><span class="lbl">Additional tags</span><div class="checks">${D.tags.filter((t) => t.group === 'additional').map((t) => `<label><input type="checkbox" data-tag="${t.id}" ${c.tags.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div></div>
   <div class="f"><label>Mobile numbers</label>${repRows('mob', c.mobiles, [{ k: 'value', ph: '04xx xxx xxx', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
@@ -746,6 +749,8 @@ function editContact(c) {
     const mode = c.links.length ? $('#e-catmode').value : 'own';
     if (addl.includes('pa') && addl.includes('pi')) { toast('Choose Primary (active) or Primary (inactive) — not both'); return false; }
     const rv = mode === 'own' ? rtVal($('#sheet'), 'ccat') : '';
+    if (mode === 'own' && !rv) { toast('Choose a category — every contact needs one'); return false; }
+    if (mode === 'biz' && !c.links.map((l) => IDX.biz.get(l.bid)).filter(Boolean).map(bizCat).find(Boolean)) { toast("The business has no category yet — choose this contact's own category, or set the business's category first"); return false; }
     c.tags = [...addl];
     if (mode === 'biz') c.ownCats = false; else { c.ownCats = true; if (rv) c.tags.push(rv); if (c.links.length && rv && rv === c.links.map((l) => IDX.biz.get(l.bid)).filter(Boolean).map(bizCat).find(Boolean)) { c.ownCats = false; c.tags = c.tags.filter((t) => t !== rv); } }
     c.mobiles = readRep('mob'); c.landlines = readRep('land'); c.emails = readRep('email'); c.postal = readRep('postal').map((p) => p.value);
@@ -794,7 +799,7 @@ function editBiz(b) {
   <div class="f"><label>Business type</label><select id="e-btype"><option value="client">Client business</option><option value="nonclient" ${isClientBiz(b) ? '' : 'selected'}>Non-client business (industry)</option></select><div class="hint">Non-client businesses don't need a PIC, patient IDs, A+ to C category or farms — they have business locations instead.</div></div>
   <div class="f"><label>Primary contact required?</label><select id="e-bpreq"><option value="yes">Yes</option><option value="no" ${b.primaryRequired === false ? 'selected' : ''}>Not required</option></select></div>
   ${(IDX.bizContacts.get(b.id) || []).length ? `<div class="f"><label>Primary contact</label><select id="e-bprimary"><option value="">— choose —</option>${(IDX.bizContacts.get(b.id) || []).map((c) => `<option value="${c.id}" ${primaryOf(b)?.id === c.id ? 'selected' : ''}>${h(fullName(c))}</option>`).join('')}</select></div>` : ''}
-  <div class="f"><span class="lbl">Contact category</span>${catPicker('bcat', bizCat(b), 'No category')}<div class="hint">Contacts set to "Same as business" follow these. Contacts with their own categories keep theirs.</div></div>
+  <div class="f"><span class="lbl">Contact category</span>${catPicker('bcat', bizCat(b), null)}<div class="hint">Contacts set to "Same as business" follow these. Contacts with their own categories keep theirs.</div></div>
   <div class="f client-only"><label>Property Identification Code (PIC)</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2 }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f client-only"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
   <div class="f"><label>General info</label>${richEditor('e-binfo', b)}</div>
@@ -807,6 +812,7 @@ function editBiz(b) {
   openSheet(isNew ? 'New business' : 'Edit business', body, () => {
     const name = val('e-bname'); if (!name) { toast('Enter a business name'); return false; }
     const pick = rtVal($('#sheet'), 'bcat'); const newRating = RATING_SET.has(pick) ? pick : null;
+    if (!pick) { toast('Choose a category for the business'); return false; }
     if (newRating !== b.rating) b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict');
     b.type = $('#e-btype').value; b.primaryRequired = $('#e-bpreq').value !== 'no';
     const pSel = $('#e-bprimary'); if (pSel) { b.primaryContact = pSel.value || null; const pc = D.contacts.find((x) => x.id === b.primaryContact); if (pc && !pc.tags.includes('pa') && !pc.tags.includes('pi')) { pc.tags.push('pa'); touch(pc); } }
@@ -1016,6 +1022,7 @@ function bulkOps(t, sel) {
   if (sel.some((j) => j.photoSuggest)) ops.push({ op: 'usephoto', label: '✓ Use suggested photo for all', green: true });
   if (t === 'catprop') ops.push({ op: 'catapply', label: '✓ Yes — change them too', green: true });
   if (t === 'blockcheck') ops.push({ op: 'blockyes', label: '✓ Yes — numbers blocked', green: true }, { op: 'blockno', label: 'Not yet' });
+  if (t === 'nocat') ops.push({ op: 'setcat', label: 'Set this category for all selected', green: true });
   if (t === 'sheep') ops.push({ op: 'sheepreg', label: 'Change all to Sheep only (regular)' });
   if (t === 'noprimary') ops.push({ op: 'noprimreq', label: 'Primary contact not required' }, { op: 'nonclient', label: 'Make non-client (industry) businesses' });
   if (t === 'conflict') ops.push({ op: 'keepmine', label: "Keep this device's version for all" }, { op: 'keeptheirs', label: 'Keep the other version for all' });
@@ -1039,7 +1046,7 @@ function editBizCats(bid) {
   const b = IDX.biz.get(bid); const cs = IDX.bizContacts.get(bid) || []; const cats = D.tags.filter((t) => t.group === 'client');
   const ratingSel = (id, cur, first) => `<select id="${id}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:9px;font-size:16px"><option value="">${first}</option>${RATINGS.map((r) => `<option value="${r}" ${cur === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select>`;
   const body = `<div class="card" style="background:#f3f8f3"><h3>${h(b.name)} — business categories</h3>
-    ${catPicker('bizr', bizCat(b), 'No category')}
+    ${catPicker('bizr', bizCat(b), null)}
     <div class="hint" style="margin-top:6px">Everyone set to "Same as business" gets this.</div></div>
   <div class="card" style="background:#fffbea"><h3>Quick change for ticked people</h3>
     <div class="search" style="flex-wrap:wrap"><select id="bc-tag" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:9px">${[...RATINGS, ...cats.map((t) => t.id)].map((t) => `<option value="${t}">${h(tagName(t))}</option>`).join('')}</select>
@@ -1048,10 +1055,13 @@ function editBizCats(bid) {
   ${cs.map((c) => { const own = !followsBiz(c) || !!ownRating(c); return `<div class="card" data-bccontact="${c.id}"><h3 style="text-transform:none;letter-spacing:0;font-size:17px;color:var(--ink)"><input type="checkbox" class="bc-pick" data-cid="${c.id}" style="width:20px;height:20px"> <span class="sp">${h(fullName(c))}</span></h3>
     <div class="seg" style="margin-bottom:8px"><button type="button" class="${own ? '' : 'on'}" data-act="bc-mode" data-v="biz">Same as business</button><button type="button" class="${own ? 'on' : ''}" data-act="bc-mode" data-v="own">Own category</button></div>
     <input type="hidden" class="bc-modeval" value="${own ? 'own' : 'biz'}">
-    <div class="bc-own" style="${own ? '' : 'display:none'}">${catPicker('r-' + c.id, followsBiz(c) ? '' : catOf(c), 'No category')}</div></div>`; }).join('')}`;
+    <div class="bc-own" style="${own ? '' : 'display:none'}">${catPicker('r-' + c.id, followsBiz(c) ? '' : catOf(c), null)}</div></div>`; }).join('')}`;
   openSheet('Categories — ' + b.name, body, () => {
     let n = 0;
-    const bpick = rtVal($('#sheet'), 'bizr'); const nr = RATING_SET.has(bpick) ? bpick : null; const nbc = bpick && !RATING_SET.has(bpick) ? [bpick] : [];
+    const bpick = rtVal($('#sheet'), 'bizr');
+    if (!bpick) { toast('Choose a category for the business'); return false; }
+    const noCat = [...document.querySelectorAll('#sheet [data-bccontact]')].filter((row) => row.querySelector('.bc-modeval').value === 'own' && !rtVal(row, 'r-' + row.dataset.bccontact));
+    if (noCat.length) { toast('Choose a category for ' + noCat.map((row) => fullName(D.contacts.find((x) => x.id === row.dataset.bccontact))).join(', ')); return false; } const nr = RATING_SET.has(bpick) ? bpick : null; const nbc = bpick && !RATING_SET.has(bpick) ? [bpick] : [];
     const oldBc = b.cats || []; let bch = false;
     if (nr !== (b.rating || null) || nbc.slice().sort().join() !== oldBc.slice().sort().join()) { b.rating = nr; b.cats = nbc; b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict' && f.type !== 'catpick'); touch(b); bch = true; reindex(); }
     document.querySelectorAll('#sheet [data-bccontact]').forEach((row) => {
@@ -1092,7 +1102,8 @@ document.addEventListener('click', (e) => {
 });
 function runBulk(t, op) {
   const sel = jobs().filter((j) => j.type === t && S.jobSel.has(j.key)); if (!sel.length) return;
-  const label = bulkOps(t, sel).find((o) => o.op === op)?.label || op;
+  const jbCat = op === 'setcat' ? ($('#jb-cat') || {}).value : null;
+  const label = op === 'setcat' ? 'Set category to ' + tagName(jbCat) : bulkOps(t, sel).find((o) => o.op === op)?.label || op;
   
   D.dismissed = D.dismissed || {};
   sel.forEach((j) => {
@@ -1110,6 +1121,7 @@ function runBulk(t, op) {
     else if (op === 'blockyes' && j.block) setBlocked(j.block, true);
     else if (op === 'blockno' && j.block) setBlocked(j.block, false);
     else if (op === 'usephoto' && j.photoSuggest) { const c = D.contacts.find((x) => x.id === j.id); if (c) { c.photoChoice = j.photoSuggest; touch(c); } }
+    else if (op === 'setcat' && jbCat) { const c = D.contacts.find((x) => x.id === j.id); if (c) setOne(c, jbCat); }
     else if (op === 'sheepreg') { const c = D.contacts.find((x) => x.id === j.id); if (c) { setCats(c, [...effCats(c).filter((x) => x !== 'sheepocc' && x !== 'sheep'), 'sheepreg']); c.flags = (c.flags || []).filter((x) => x.type !== 'sheepconfirm'); } }
     else if (op === 'noprimreq' || op === 'nonclient') { const b = IDX.biz.get(j.id); if (b) { b.primaryRequired = false; if (op === 'nonclient') b.type = 'nonclient'; touch(b); } }
   });
@@ -1136,7 +1148,7 @@ function renderJobs() {
     const isOpen = !!S.jobOpen[t]; // folded unless you open it
     const nSel = g.filter((j) => S.jobSel.has(j.key)).length; const ops = bulkOps(t, g.filter((j) => S.jobSel.has(j.key)));
     html += `<details class="jobgroup" data-type="${t}" ${isOpen ? 'open' : ''}><summary><input type="checkbox" class="jobcheck" data-act="job-selall" data-type="${t}" title="Select all" ${nSel && nSel === g.length ? 'checked' : ''}><span style="color:var(--red)">${ICONS.flag}</span><span style="flex:1">${h(JOB_TYPES[t].t)}</span><span class="count">${g.length}</span></summary>`;
-    if (nSel) html += `<div class="bulkbar"><b>${nSel} selected</b>${ops.map((o) => `<button class="btn small ${o.green ? 'greenbtn' : ''}" data-act="job-bulk" data-type="${t}" data-op="${o.op}">${h(o.label)}</button>`).join('') || '<span class="hint">Nothing can be done to all of these at once — use each job\'s own buttons.</span>'}<button class="btn small" data-act="job-selnone" data-type="${t}">Clear selection</button></div>`;
+    if (nSel) html += `<div class="bulkbar"><b>${nSel} selected</b>${t === 'nocat' ? `<select id="jb-cat" style="padding:6px;border:1px solid var(--line);border-radius:8px">${[...RATINGS, ...D.tags.filter((x) => x.group === 'client').map((x) => x.id)].map((v) => `<option value="${v}">${h(tagName(v))}</option>`).join('')}</select>` : ''}${ops.map((o) => `<button class="btn small ${o.green ? 'greenbtn' : ''}" data-act="job-bulk" data-type="${t}" data-op="${o.op}">${h(o.label)}</button>`).join('') || '<span class="hint">Nothing can be done to all of these at once — use each job\'s own buttons.</span>'}<button class="btn small" data-act="job-selnone" data-type="${t}">Clear selection</button></div>`;
     g.forEach((j) => {
       html += `<div class="job ${S.jobSel.has(j.key) ? 'jobsel' : ''}"><input type="checkbox" class="jobcheck" data-act="job-sel" data-key="${h(j.key)}" ${S.jobSel.has(j.key) ? 'checked' : ''} aria-label="Select this job"><div class="t"><div class="who">${h(j.who)}</div><div class="note">${h(j.note)}</div>${j.suggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${j.suggest.km} km return (${h(j.suggest.why)})</div>` : ''}${j.photoSuggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${h(tagName(j.photoSuggest))} photo</div>` : ''}<div class="acts">
       ${t === 'conflict' ? '' : `<button class="btn small" data-act="job-open" data-kind="${j.kind}" data-id="${j.id}" ${j.fid ? `data-fid="${j.fid}"` : ''}>Make a change</button>`}
@@ -1150,8 +1162,9 @@ function renderJobs() {
         <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fb.id}" data-other="${fa.id}">${j.pair.same ? "Same farm — merge, keep 2's details" : "Same yards used by both businesses — keep 2's details"}</button>`; })() : ''}
       ${j.dupe ? (() => { const x = j.dupe, isC = x.kind === 'contact'; const A = isC ? D.contacts.find((c) => c.id === x.a) : IDX.biz.get(x.a), B = isC ? D.contacts.find((c) => c.id === x.b) : IDX.biz.get(x.b); const nm = (r) => h(isC ? fullName(r) : r.name);
         return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">Merge into 1 (${nm(A)})</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">Merge into 2 (${nm(B)})</button>`; })() : ''}
+      ${j.nocat ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.nocat}">Choose categories for the business…</button>` : ''}
       ${j.catdiff ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.catdiff.bid}">Choose categories…</button>` : ''}
-      ${j.catdiff ? [...new Set((IDX.bizContacts.get(j.catdiff.bid) || []).map(catOf))].map((v) => `<button class="btn small" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${v}" data-on="1">Everyone: ${h(v ? tagName(v) : 'no category')}</button>`).join('') : ''}
+      ${j.catdiff ? [...new Set((IDX.bizContacts.get(j.catdiff.bid) || []).map(catOf))].filter(Boolean).map((v) => `<button class="btn small" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${v}" data-on="1">Everyone: ${h(v ? tagName(v) : 'no category')}</button>`).join('') : ''}
       ${j.pick ? j.pick.alts.map((v) => `<button class="btn small" data-act="catpick-use" data-kind="${j.pick.kind}" data-id="${j.pick.id}" data-tag="${v}">↩ Keep previous category: ${h(tagName(v))}</button>`).join('') : ''}
       ${j.cat ? `<button class="btn small greenbtn" data-act="cat-apply" data-cid="${j.cat.cid}" data-at="${j.cat.at}">✓ Yes — change them too</button>` : ''}
       ${j.block ? `<button class="btn small greenbtn" data-act="block-yes" data-cid="${j.block}">✓ Yes — number blocked</button>${(D.contacts.find((x) => x.id === j.block) || { tags: [] }).tags.includes('blockedn') ? '' : `<button class="btn small" data-act="block-no" data-cid="${j.block}">Not yet</button>`}` : ''}
@@ -1640,7 +1653,7 @@ function advEditSheet() {
   ${BULK_OPS.map(([op, label, hint]) => `<label class="bkop"><input type="radio" name="bkop" value="${op}"><span><b>${h(label)}</b>${hint ? `<br><span class="hint">${h(hint)}</span>` : ''}</span></label>`).join('')}
   <div id="bk-step2" style="display:none;margin-top:12px"><div class="lbl" style="font-size:15px">2. Choose</div>
     <div data-need="cat"><div class="hint" style="margin-bottom:6px">Tick one or more</div><div class="checks big">${cats.map((t) => `<label><input type="checkbox" data-bkcat="${t.id}">${h(t.name)}</label>`).join('')}</div></div>
-    <div data-need="setcat"><div class="checks big" data-rtgroup="bkc">${[['=biz', 'Same as business'], ['', 'No category'], ...RATINGS.map((x) => [x, tagName(x)]), ...cats.map((t) => [t.id, t.name])].map(([v, l]) => `<label class="${v === '' || v === '=biz' || RATING_SET.has(v) ? 'rt' : ''}"><input type="checkbox" data-rt="${v}" ${v === '=biz' ? 'checked' : ''}>${h(l)}</label>`).join('')}</div>
+    <div data-need="setcat"><div class="checks big" data-rtgroup="bkc">${[['=biz', 'Same as business'], ...RATINGS.map((x) => [x, tagName(x)]), ...cats.map((t) => [t.id, t.name])].map(([v, l]) => `<label class="${v === '' || v === '=biz' || RATING_SET.has(v) ? 'rt' : ''}"><input type="checkbox" data-rt="${v}" ${v === '=biz' ? 'checked' : ''}>${h(l)}</label>`).join('')}</div>
       <div class="hint" style="margin-top:6px">Tick one — this replaces their current category.</div>
       <div id="bk-reasonwrap" style="display:none;margin-top:8px"><label class="lbl" style="color:var(--red-ink)" id="bk-reasonlbl">Reason (required)</label><textarea id="bk-reason" class="warn" style="width:100%;min-height:60px;padding:8px;border-radius:9px;border:1px solid #f3b3b6;font-size:16px"></textarea></div></div>
     <div data-need="tag"><div class="hint" style="margin-bottom:6px">Tick one or more</div><div class="checks big">${addl.map((t) => `<label><input type="checkbox" data-bktag="${t.id}">${h(t.name)}</label>`).join('')}</div></div>
@@ -1663,6 +1676,7 @@ async function advBulkApply(op, list) {
   const ticked = (attr) => [...document.querySelectorAll(`#sheet [${attr}]`)].filter((i) => i.checked).map((i) => i.getAttribute(attr));
   const tagsT = ticked('data-bktag'), pickC = rtVal($('#sheet'), 'bkc');
   if (tagsT.includes('pa') && tagsT.includes('pi')) { toast('Choose Primary (active) or Primary (inactive) — not both'); return false; }
+  if (op === 'setcat' && !pickC) { toast('Tick a category'); return false; }
   if ((pickC === 'inactive' || pickC === 'dna') && !$('#bk-reason').value.trim()) { toast('Please add the reason'); return false; }
   if ((op === 'tag-add' || op === 'tag-remove') && !tagsT.length) { toast('Tick at least one tag'); return false; }
   let biz = null;
