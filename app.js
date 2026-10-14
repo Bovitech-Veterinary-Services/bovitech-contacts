@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.6 (15 Oct 2026)';
+const APP_VERSION = '4.7 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -618,7 +618,7 @@ function farmCard(b, f, withFlags = true) {
   ${f.seeWarning ? `<div class="body" style="margin-top:4px;font-weight:700">⚠ Farm warnings: ${h(f.warning || 'check farm info')}</div>` : ''}
   ${f.info ? `<div class="body" style="margin-top:4px;font-size:14.5px">${h(f.info)}</div>` : ''}
   ${withFlags ? flagLines('business', b.id, f.id) : ''}
-  <div class="actions" style="margin:8px 0 0">${f.lat != null ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">+ Route</button>` : ''}<button class="btn small" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}">Edit ${locWord(b).toLowerCase()}</button></div></div>`;
+  <div class="actions" style="margin:8px 0 0">${f.lat != null ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">+ Add to route</button>` : ''}<button class="btn small" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}">Edit ${locWord(b).toLowerCase()}</button></div></div>`;
 }
 function bizDetail(b) {
   const cs = IDX.bizContacts.get(b.id) || [];
