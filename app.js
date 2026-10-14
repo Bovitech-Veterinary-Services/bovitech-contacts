@@ -1158,5 +1158,10 @@ window.addEventListener('popstate', () => { if (document.body.classList.contains
   D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || [];
   reindex(); net(); renderAll();
   Sync.start();
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.SEED) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.SEED) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+    let reloaded = false; // a new version took over: reload once so it is used straight away
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded && !SHEET) { reloaded = true; location.reload(); } });
+  }
 })();
