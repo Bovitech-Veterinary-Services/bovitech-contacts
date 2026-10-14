@@ -233,7 +233,7 @@ function missingInfo(c) {
   if (!bs.some((b) => b.farms.some((f) => f.lat != null))) m.push('farm GPS pin');
   if (!bs.some((b) => b.pics.length)) m.push('PIC');
   if (!bs.some((b) => b.patientIds.length)) m.push('patient ID');
-  if (!contactRatings(c).length) m.push('client rating');
+  if (!contactRatings(c).length) m.push('contact category (A+ to C)');
   return m;
 }
 function computeJobs() {
@@ -395,7 +395,7 @@ function renderDetail() {
   document.body.classList.add('show-detail');
 }
 function phoneLinks(list, sms) {
-  return list.map((p) => `<div class="kv"><div class="k">${h(p.label || '')}</div><div class="v"><a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">${h(p.value)}</a>${sms ? ` · <a href="sms:${h(p.value.replace(/[^\d+]/g, ''))}">send SMS</a>` : ''}</div></div>`).join('');
+  return list.map((p) => `<div class="kv"><div class="k">${h(p.label || '')}</div><div class="v"><a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">${h(p.value)}</a> · <a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">call client</a>${sms ? ` · <a href="sms:${h(p.value.replace(/[^\d+]/g, ''))}">send SMS</a>` : ''}</div></div>`).join('');
 }
 function flagLines(kind, id, fid) {
   return jobs().filter((j) => j.kind === kind && j.id === id && (fid === undefined || j.fid === fid)).map((j) => `<div class="flagline"><span style="color:var(--red)">${ICONS.flag}</span><div>${h(j.note)}</div></div>`).join('');
@@ -474,7 +474,7 @@ function editContact(c) {
   const isNew = !c;
   const wasInactive = !!(c && c.tags.includes('inactive'));
   c = c || { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [] };
-  const groups = [['client', 'Contact category (sets the photo)'], ['additional', 'Additional tags']];
+  const groups = [['client', 'Contact category (sets the photo) — A+ to C are set on the business'], ['additional', 'Additional tags']];
   const { dr, ptags } = photoCandidates(c);
   const photoOpts = [['auto', 'Automatic' + (needsPhotoChoice(c) ? ' (needs choosing)' : '')], ...[...new Set([...dr, ...c.tags.filter((t) => tagPhotoSrc(t))])].map((t) => [t, tagName(t)])];
   const cands = [...new Set([...dr, ...ptags])];
@@ -486,8 +486,8 @@ function editContact(c) {
   <div class="grid2"><div class="f"><label>Middle / nickname</label><input id="e-middle" value="${h(c.middle)}"></div><div class="f"><label>Role / position</label><input id="e-role" value="${h(c.role)}"></div></div>
   <div class="f"><label>Businesses</label><div id="e-links">${c.links.map((l) => linkRow(l.bid)).join('')}</div>
     <input id="e-bizsearch" placeholder="Search to link a business, or type a new business name"><div id="e-bizres"></div>
-    <div class="hint">Ratings belong to the business — set them on the business. A contact linked to several businesses shows each rating.</div></div>
-  ${c.tags.filter((t) => RATING_SET.has(t)).length ? `<div class="f"><label>Rating (contact has no business)</label><select id="e-rating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${c.tags.includes(r) ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>` : (c.links.length ? '' : `<div class="f"><label>Rating (contact has no business)</label><select id="e-rating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}">${tagName(r)}</option>`).join('')}</select></div>`)}
+    <div class="hint">A+, A, B and C belong to the business — set them on the business. A contact linked to several businesses shows each one.</div></div>
+  ${c.tags.filter((t) => RATING_SET.has(t)).length ? `<div class="f"><label>Contact category A+ to C (contact has no business)</label><select id="e-rating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${c.tags.includes(r) ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>` : (c.links.length ? '' : `<div class="f"><label>Contact category A+ to C (contact has no business)</label><select id="e-rating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}">${tagName(r)}</option>`).join('')}</select></div>`)}
   ${groups.map(([g, l]) => `<div class="f"><span class="lbl">${l}</span><div class="checks">${D.tags.filter((t) => t.group === g && (t.id !== 'sheep' || c.tags.includes('sheep'))).map((t) => `<label><input type="checkbox" data-tag="${t.id}" ${c.tags.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div></div>`).join('')}
   <div class="f"><label>Mobile numbers</label>${repRows('mob', c.mobiles, [{ k: 'value', ph: '04xx xxx xxx', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Landline numbers</label>${repRows('land', c.landlines, [{ k: 'value', ph: '08 xxxx xxxx', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
@@ -548,7 +548,7 @@ function editBiz(b) {
   b = b || { id: uid('b'), name: '', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null };
   const body = `<div class="f"><label>Business name</label><input id="e-bname" value="${h(b.name)}"></div>
   ${(IDX.bizContacts.get(b.id) || []).length ? `<div class="f"><label>Primary contact</label><select id="e-bprimary"><option value="">— choose —</option>${(IDX.bizContacts.get(b.id) || []).map((c) => `<option value="${c.id}" ${primaryOf(b)?.id === c.id ? 'selected' : ''}>${h(fullName(c))}</option>`).join('')}</select></div>` : ''}
-  <div class="f"><label>Rating</label><select id="e-brating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${b.rating === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>
+  <div class="f"><label>Contact category (A+ / A / B / C)</label><select id="e-brating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${b.rating === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>
   <div class="f"><label>PICs</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2 }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
   <div class="f"><label>General info</label><textarea id="e-binfo">${h(b.info)}</textarea></div>
@@ -788,7 +788,7 @@ function renderSettings() {
   const st = D.settings;
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Settings</h2>
   <div class="card"><h3><span class="sp">Tags &amp; photos</span><button class="btn small" data-act="new-tag">+ New tag</button></h3>
-  ${['rating', 'client', 'additional'].map((g) => `<div class="lbl" style="margin-top:10px">${{ rating: 'Client rating', client: 'Contact category', additional: 'Additional tags' }[g]}</div>${D.tags.filter((t) => t.group === g).map((t) => { const src = tagPhotoSrc(t.id); const n = D.contacts.filter((c) => contactTagSet(c).has(t.id)).length; return `<div class="kv" style="align-items:center">${src ? `<img src="${src}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : '<span style="width:36px;height:36px;border-radius:50%;background:#eee;display:inline-block"></span>'}<div class="v">${h(t.name)} <span class="hint">${n} contact${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="edit-tag" data-id="${t.id}">Edit</button></div>`; }).join('')}`).join('')}</div>
+  ${['client', 'additional'].map((g) => `<div class="lbl" style="margin-top:10px">${{ client: 'Contact category', additional: 'Additional tags' }[g]}${g === 'client' ? ' <span class="hint">(A+ to C are set on the business)</span>' : ''}</div>${D.tags.filter((t) => (g === 'client' ? t.group === 'rating' || t.group === 'client' : t.group === g)).map((t) => { const src = tagPhotoSrc(t.id); const n = D.contacts.filter((c) => contactTagSet(c).has(t.id)).length; return `<div class="kv" style="align-items:center">${src ? `<img src="${src}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : '<span style="width:36px;height:36px;border-radius:50%;background:#eee;display:inline-block"></span>'}<div class="v">${h(t.name)} <span class="hint">${n} contact${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="edit-tag" data-id="${t.id}">Edit</button></div>`; }).join('')}`).join('')}</div>
   <div class="card"><h3>Homebase</h3><div class="f"><label>Address</label><input id="s-homeaddr" value="${h(st.home.address)}"></div><div class="f"><label>GPS</label><input id="s-homegps" value="${st.home.lat}, ${st.home.lng}"></div><button class="btn small" data-act="save-home">Save homebase</button></div>
   <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, and plan the most efficient route.</div></div>
   ${syncSettingsCard()}
@@ -799,7 +799,7 @@ function editTag(t) {
   const isNew = !t; t = t || { id: uid('t'), name: '', group: 'client', photo: null };
   const src = tagPhotoSrc(t.id);
   openSheet(isNew ? 'New tag' : 'Edit tag', `<div class="f"><label>Tag name</label><input id="t-name" value="${h(t.name)}"></div>
-  <div class="f"><label>Type</label><select id="t-group" ${RATING_SET.has(t.id) ? 'disabled' : ''}><option value="client" ${t.group === 'client' ? 'selected' : ''}>Contact category (sets the photo)</option><option value="additional" ${t.group === 'additional' ? 'selected' : ''}>Additional tag (no photo)</option>${RATING_SET.has(t.id) ? '<option selected>Client rating</option>' : ''}</select></div>
+  <div class="f"><label>Type</label><select id="t-group" ${RATING_SET.has(t.id) ? 'disabled' : ''}><option value="client" ${t.group === 'client' ? 'selected' : ''}>Contact category (sets the photo)</option><option value="additional" ${t.group === 'additional' ? 'selected' : ''}>Additional tag (no photo)</option>${RATING_SET.has(t.id) ? '<option selected>Contact category — set on the business</option>' : ''}</select></div>
   <div class="f"><label>Photo</label>${src ? `<img src="${src}" style="width:90px;height:90px;border-radius:50%;object-fit:cover;display:block;margin-bottom:6px">` : ''}<input type="file" id="t-photo" accept="image/*">${src ? '<label style="display:block;margin-top:6px"><input type="checkbox" id="t-nophoto"> Remove photo</label>' : ''}</div>
   ${!isNew && !t.photo?.match?.(/^(a|aplus|b|c)$/) && !RATING_SET.has(t.id) ? `<button class="btn" data-act="del-tag" data-id="${t.id}" style="color:var(--red)">Delete tag</button>` : ''}`, async () => {
     const name = val('t-name'); if (!name) { toast('Enter a name'); return false; }
@@ -1101,6 +1101,7 @@ function migrate() {
   const bvs = D.tags.find((t) => t.id === 'bvs'); if (bvs && bvs.name === 'Bovitech Veterinary Services') { bvs.name = 'Bovitech Veterinary Services staff'; touch(bvs); ch = true; }
   const fam = D.tags.find((t) => t.id === 'family');
   if (fam && !D.contacts.some((c) => c.tags.includes('family'))) { D.tags = D.tags.filter((t) => t.id !== 'family'); D.deleted.push({ id: 'family', kind: 'tags', at: Date.now() }); ch = true; }
+  D.tags.forEach((t) => { if ((t.id === 'blockedc' || t.id === 'blockedn') && t.group !== 'additional') { t.group = 'additional'; touch(t); ch = true; } });
   if (D.tags.some((t) => t.id === 'sheep')) {
     D.contacts.forEach((c) => { if (c.tags.includes('sheep')) { c.tags = c.tags.filter((t) => t !== 'sheep'); if (!c.tags.includes('sheepocc') && !c.tags.includes('sheepreg')) c.tags.push('sheepocc'); c.flags = (c.flags || []).filter((f) => f.type !== 'sheep'); c.flags.push({ type: 'sheepconfirm' }); touch(c); } });
     D.tags = D.tags.filter((t) => t.id !== 'sheep'); D.deleted.push({ id: 'sheep', kind: 'tags', at: Date.now() }); ch = true;
