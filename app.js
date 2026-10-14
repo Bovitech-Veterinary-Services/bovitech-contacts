@@ -7,7 +7,15 @@ const RATINGS = ['aplus', 'a', 'b', 'c'];
 const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
-const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // Inactive is overridden by every other tag
+const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
+const APP_VERSION = '1.8 (14 Oct 2026)';
+// current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
+function photoOrder() {
+  const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
+  const saved = (D.settings.photoPriority || PHOTO_PRIORITY).filter((id) => withPhoto.includes(id));
+  return [...saved, ...withPhoto.filter((id) => !saved.includes(id))];
+}
+const prioIdx = (id) => { const o = photoOrder(); const i = o.indexOf(id); return i < 0 ? 999 : i; };
 const MAX_STOPS = 9;
 const ICONS = {
   contacts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7"/><path d="M17 4a4 4 0 0 1 0 8M22 21c0-3-1.5-5.5-4-6.5"/></svg>',
@@ -123,7 +131,7 @@ function photoSpec(c) {
     parts = dr.slice(0, 2).map((r) => ({ tag: r, label: ratingLabel(c, r) }));
   } else {
     const cands = [...dr, ...ptags].filter((t) => tagPhotoSrc(t));
-    cands.sort((a, b) => PHOTO_PRIORITY.indexOf(a) - PHOTO_PRIORITY.indexOf(b));
+    cands.sort((a, b) => prioIdx(a) - prioIdx(b));
     if (cands.length) parts = [{ tag: cands[0] }];
   }
   const initials = ((c.first || '')[0] || '') + ((c.last || '')[0] || '');
@@ -272,7 +280,7 @@ function computeJobs() {
   // contacts
   D.contacts.forEach((c) => {
     const who = fullName(c);
-    if (needsPhotoChoice(c)) { const { dr, ptags } = photoCandidates(c); const cands = [...dr, ...ptags].sort((a, b) => PHOTO_PRIORITY.indexOf(a) - PHOTO_PRIORITY.indexOf(b)); add({ type: 'photo', kind: 'contact', id: c.id, who, note: 'Has more than one tag with a photo (' + [...dr, ...ptags].map(tagName).join(', ') + ') — choose one, or a split photo', photoSuggest: cands[0] }); }
+    if (needsPhotoChoice(c)) { const { dr, ptags } = photoCandidates(c); const cands = [...dr, ...ptags].sort((a, b) => prioIdx(a) - prioIdx(b)); add({ type: 'photo', kind: 'contact', id: c.id, who, note: 'Has more than one tag with a photo (' + [...dr, ...ptags].map(tagName).join(', ') + ') — choose one, or a split photo', photoSuggest: cands[0] }); }
     if (c.tags.includes('sheep')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Choose Sheep only (regular) or Sheep only (occasional)' });
     (c.flags || []).forEach((fl) => {
       if (fl.type === 'sheepconfirm' && c.tags.includes('sheepocc')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Set to Sheep only (occasional) for now — change to regular if needed' });
@@ -811,9 +819,13 @@ function renderSettings() {
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Settings</h2>
   <div class="card"><h3><span class="sp">Tags &amp; photos</span><button class="btn small" data-act="new-tag">+ New tag</button></h3>
   ${['client', 'additional'].map((g) => `<div class="lbl" style="margin-top:10px">${{ client: 'Contact category', additional: 'Additional tags' }[g]}${g === 'client' ? ' <span class="hint">(A+ to C are set on the business)</span>' : ''}</div>${D.tags.filter((t) => (g === 'client' ? t.group === 'rating' || t.group === 'client' : t.group === g)).map((t) => { const src = tagPhotoSrc(t.id); const n = D.contacts.filter((c) => contactTagSet(c).has(t.id)).length; return `<div class="kv" style="align-items:center">${src ? `<img src="${src}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : '<span style="width:36px;height:36px;border-radius:50%;background:#eee;display:inline-block"></span>'}<div class="v">${h(t.name)} <span class="hint">${n} contact${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="edit-tag" data-id="${t.id}">Edit</button></div>`; }).join('')}`).join('')}</div>
+  <div class="card"><h3>Photo priority</h3><div class="hint" style="margin-bottom:6px">When a contact has more than one tag with a photo and nobody has chosen one, the tag highest on this list is shown. Use the arrows to reorder. Changes apply on every device.</div>
+  ${photoOrder().map((id, i, arr) => `<div class="kv" style="align-items:center"><span style="width:22px;color:var(--ink3);font-weight:600">${i + 1}</span><img src="${tagPhotoSrc(id)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover"><div class="v">${h(tagName(id))}</div><button class="btn small" data-act="prio" data-id="${id}" data-dir="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="prio" data-id="${id}" data-dir="1" ${i < arr.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button></div>`).join('')}
+  ${D.settings.photoPriority ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="prio-reset">Reset to default order</button></div>' : ''}</div>
   <div class="card"><h3>Homebase</h3><div class="f"><label>Address</label><input id="s-homeaddr" value="${h(st.home.address)}"></div><div class="f"><label>GPS</label><input id="s-homegps" value="${st.home.lat}, ${st.home.lng}"></div><button class="btn small" data-act="save-home">Save homebase</button></div>
   <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, and plan the most efficient route.</div></div>
   ${syncSettingsCard()}
+  <div class="card"><h3>App version</h3><div class="kv"><div class="k">Version</div><div class="v">${APP_VERSION}</div></div><div class="actions"><button class="btn small" data-act="app-refresh">⟳ Close and reopen on the latest version</button></div></div>
   <div class="card"><h3>Backup</h3><div class="actions"><button class="btn" data-act="export">Download backup</button><label class="btn">Restore backup<input type="file" accept=".json" data-act="import" style="display:none"></label></div><div class="hint">Data imported from Google Contacts on ${h(D.importedAt || '14 Oct 2026')}.</div></div>
   </div>`;
 }
@@ -1116,6 +1128,18 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+/* ---------------- refresh: close and reopen the app on the newest version ---------------- */
+async function refreshApp() {
+  if (!navigator.onLine) { toast("You're offline — can't check for a newer version right now"); return; }
+  toast('Getting the latest version…');
+  clearTimeout(saveTimer); await Store.set('data', D); // contacts and unsynced changes stay on the device
+  try {
+    if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.update().catch(() => {}))); }
+    if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } // only the saved app files, not your data
+  } catch (e) { }
+  location.reload();
+}
+
 /* ---------------- data migrations (run on load and after sync; safe to repeat) ---------------- */
 function migrate() {
   if (!D || !D.contacts.length) return false;
@@ -1206,6 +1230,9 @@ document.addEventListener('click', async (e) => {
         other.lat = keep.lat; other.lng = keep.lng; if (keep.gKm != null) { other.gKm = keep.gKm; other.gMin = keep.gMin; } touch(bo); toast('Pins matched — check the km if they differ');
       }
       changed(); break; }
+    case 'prio': { const o = photoOrder(); const i = o.indexOf(d.id), j = i + +d.dir; if (i < 0 || j < 0 || j >= o.length) break; [o[i], o[j]] = [o[j], o[i]]; D.settings.photoPriority = o; touch(D.settings); photoCache.clear(); changed(); break; }
+    case 'prio-reset': delete D.settings.photoPriority; touch(D.settings); photoCache.clear(); changed(); break;
+    case 'app-refresh': refreshApp(); break;
     case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); changed(); toast('Photo set'); } break; }
     case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id)); changed(); break; }
     case 'check-dist': checkAllDistances(); break;
