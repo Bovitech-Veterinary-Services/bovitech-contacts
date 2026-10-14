@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '3.5 (15 Oct 2026)';
+const APP_VERSION = '3.6 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -217,7 +217,7 @@ function parseQuery(q) {
 }
 function contactHay(c) {
   if (IDX.hay.has(c.id)) return IDX.hay.get(c.id);
-  const bs = bizOf(c); const parts = [fullName(c), c.role, c.info, c.warnings, ...c.postal];
+  const bs = bizOf(c); const parts = [fullName(c), c.role, c.info, c.warnings, c.sideNotes, ...c.postal];
   c.tags.forEach((t) => parts.push(tagName(t)));
   contactRatings(c).forEach((r) => parts.push(tagName(r.rating)));
   [...c.mobiles, ...c.landlines].forEach((p) => parts.push(p.value, p.value.replace(/\D/g, ''), p.value.replace(/\D/g, '').replace(/^61/, '0')));
@@ -489,7 +489,7 @@ function renderContactList() {
 /* ---------------- business list ---------------- */
 function bizHay(b) {
   if (IDX.bhay.has(b.id)) return IDX.bhay.get(b.id);
-  const parts = [b.name, b.info, b.warnings, b.rating ? tagName(b.rating) : ''];
+  const parts = [b.name, b.info, b.warnings, b.sideNotes, b.rating ? tagName(b.rating) : ''];
   b.pics.forEach((p) => parts.push(p.value)); b.patientIds.forEach((p) => parts.push(p.label, p.value)); b.farms.forEach((f) => parts.push(f.name, f.address, f.info));
   (IDX.bizContacts.get(b.id) || []).forEach((c) => parts.push(fullName(c)));
   const s = parts.filter(Boolean).join(' \u0001 ').toLowerCase(); IDX.bhay.set(b.id, s); return s;
@@ -516,9 +516,10 @@ function renderBizList() {
 /* ---------------- detail views ---------------- */
 function renderDetail() {
   const el = $('#detail');
+  el.classList.remove('dna');
   if (!S.sel) { el.innerHTML = `<div class="empty" style="padding-top:80px">Select a ${S.tab === 'biz' ? 'business' : 'contact'} to see details.</div>`; document.body.classList.remove('show-detail'); return; }
-  if (S.sel.kind === 'contact') { const c = D.contacts.find((x) => x.id === S.sel.id); if (!c) { S.sel = null; return renderDetail(); } el.innerHTML = contactDetail(c); }
-  else { const b = IDX.biz.get(S.sel.id); if (!b) { S.sel = null; return renderDetail(); } el.innerHTML = bizDetail(b); }
+  if (S.sel.kind === 'contact') { const c = D.contacts.find((x) => x.id === S.sel.id); if (!c) { S.sel = null; return renderDetail(); } el.classList.toggle('dna', effTags(c).includes('dna')); el.innerHTML = contactDetail(c); }
+  else { const b = IDX.biz.get(S.sel.id); if (!b) { S.sel = null; return renderDetail(); } el.classList.toggle('dna', (b.cats || []).includes('dna')); el.innerHTML = bizDetail(b); }
   document.body.classList.add('show-detail');
 }
 function phoneLinks(list, sms) {
@@ -531,13 +532,18 @@ function contactDetail(c) {
   const bs = bizOf(c);
   const tags = effTags(c).filter((t) => !RATING_SET.has(t));
   const cflags = jobs().filter((j) => j.kind === 'contact' && j.id === c.id);
+  const dna = effTags(c).includes('dna');
   let html = `<div class="d-wrap"><button class="back" data-act="back">‹ Back</button>
+  ${dna ? `<div class="dnabanner">⛔ DO NOT ANSWER — NO FUTURE SERVICE</div>` : ''}
   <div class="hero">${contactPhotoImg(c, '', 320)}<div><h2>${h(fullName(c))}</h2><div class="sub">${h(c.role || '')}${c.role && bs.length ? ' · ' : ''}${h(bs.map((b) => b.name).join(', '))}</div>
   <div style="margin-top:6px">${contactRatings(c).map((r) => rbadge(r.rating) + (r.biz && bs.length > 1 ? `<span style="font-size:13px;color:var(--ink3);margin-right:8px">${h(r.biz.name)}</span>` : '')).join('')}</div></div></div>
   <div class="actions"><button class="btn primary" data-act="edit-contact" data-id="${c.id}">Edit</button><button class="btn" data-act="star" data-id="${c.id}">${c.starred ? '★ Starred' : '☆ Star'}</button>${c.mobiles[0] ? `<a class="btn" href="tel:${h(c.mobiles[0].value.replace(/[^\d+]/g, ''))}">Call</a>` : ''}</div>`;
   html += cflags.map((j) => `<div class="flagline"><span style="color:var(--red)">${ICONS.flag}</span><div>${h(j.note)}</div></div>`).join('');
   if (hasWarning(c)) {
-    html += `<div class="card warn"><h3>⚠ Warnings</h3>${c.warnings ? `<div class="body">${h(c.warnings)}</div>` : ''}${bs.filter((b) => b.warnings).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.warnings)}</div>`).join('')}</div>`;
+    html += `<div class="card warn"><h3>⚠ General warnings</h3>${c.warnings ? `<div class="body">${h(c.warnings)}</div>` : ''}${bs.filter((b) => b.warnings).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.warnings)}</div>`).join('')}</div>`;
+  }
+  if ((c.sideNotes || '').trim() || bs.some((b) => (b.sideNotes || '').trim())) {
+    html += `<div class="card side"><h3>📝 Side notes</h3>${c.sideNotes ? `<div class="body">${h(c.sideNotes)}</div>` : ''}${bs.filter((b) => b.sideNotes).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.sideNotes)}</div>`).join('')}</div>`;
   }
   html += `<div class="card"><h3>Contact</h3>${phoneLinks(c.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), true)}${phoneLinks(c.landlines.map((p) => ({ ...p, label: p.label || 'Landline' })))}${c.emails.map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div></div>`).join('')}${c.postal.map((p) => `<div class="kv"><div class="k">Postal</div><div class="v">${h(p)}</div></div>`).join('')}${!c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length ? '<div class="hint">No contact details yet.</div>' : ''}</div>`;
   if (tags.length) html += `<div class="card"><h3>Categories and tags</h3><div class="tagrow">${tags.map(tagPill).join('')}</div>${followsBiz(c) && effCats(c).length ? '<div class="hint" style="margin-top:6px">Categories follow the business</div>' : c.ownCats && bs.length ? '<div class="hint" style="margin-top:6px">This contact has its own categories (different to the business)</div>' : ''}</div>`;
@@ -559,7 +565,7 @@ function farmCard(b, f, withFlags = true) {
   ${f.sharedWith && IDX.farmBiz.get(f.sharedWith) ? `<div class="hint">Same yards also used by ${h(IDX.farmBiz.get(f.sharedWith).name)}</div>` : ''}
   <div class="meta">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">📍 ${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}</a>` : '<span>No GPS pin</span>'}
   <span>${verify ? '<span class="verify">Distance requires verification</span> ' : ''}${fmtKm(f)}</span>${f.driveMin != null ? `<span>🚗 ${fmtMin(f.driveMin)} each way</span>` : ''}</div>
-  ${f.seeWarning ? `<div class="body" style="margin-top:4px;font-weight:700">⚠ ${h(f.warning || 'Warning — check farm info')}</div>` : ''}
+  ${f.seeWarning ? `<div class="body" style="margin-top:4px;font-weight:700">⚠ Farm warnings: ${h(f.warning || 'check farm info')}</div>` : ''}
   ${f.info ? `<div class="body" style="margin-top:4px;font-size:14.5px">${h(f.info)}</div>` : ''}
   ${withFlags ? flagLines('business', b.id, f.id) : ''}
   <div class="actions" style="margin:8px 0 0">${f.lat != null ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">+ Route</button>` : ''}<button class="btn small" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}">Edit ${locWord(b).toLowerCase()}</button></div></div>`;
@@ -570,7 +576,9 @@ function bizDetail(b) {
   <div class="hero" style="display:block"><h2>${b.rating ? rbadge(b.rating) : ''}${h(b.name)}</h2><div class="sub">${isClientBiz(b) ? 'Client business' : 'Non-client business (industry)'} · ${cs.length} contact${cs.length === 1 ? '' : 's'} · ${b.farms.length} ${locWord(b, b.farms.length !== 1).toLowerCase()}</div></div>
   <div class="actions"><button class="btn primary" data-act="edit-biz" data-id="${b.id}">Edit</button><button class="btn" data-act="add-farm" data-bid="${b.id}">+ ${locWord(b)}</button>${b.farms.some((f) => f.lat != null) ? `<button class="btn" data-act="route-add-biz" data-bid="${b.id}">+ All farms to route</button>` : ''}</div>`;
   html += flagLines('business', b.id).replace(/<div class="flagline">/g, '<div class="flagline">');
-  if (b.warnings) html += `<div class="card warn"><h3>⚠ Warnings</h3><div class="body">${h(b.warnings)}</div></div>`;
+  if ((b.cats || []).includes('dna')) html += `<div class="dnabanner">⛔ DO NOT ANSWER — NO FUTURE SERVICE</div>`;
+  if (b.warnings) html += `<div class="card warn"><h3>⚠ General warnings</h3><div class="body">${h(b.warnings)}</div></div>`;
+  if (b.sideNotes) html += `<div class="card side"><h3>📝 Side notes</h3><div class="body">${h(b.sideNotes)}</div></div>`;
   html += `<div class="card"><h3><span class="sp">Contact category</span><button class="btn small" data-act="cat-edit" data-bid="${b.id}">Change…</button></h3>${b.rating || (b.cats || []).length ? `<div class="tagrow">${[...(b.rating ? [b.rating] : []), ...(b.cats || [])].map(tagPill).join('')}</div>` : '<div class="hint">None set.</div>'}${cs.filter((c) => c.ownCats || ownRating(c)).length ? `<div class="hint" style="margin-top:6px">Own categories: ${h(cs.filter((c) => c.ownCats || ownRating(c)).map((c) => c.first).join(', '))}</div>` : ''}</div>`;
   html += `<div class="card"><h3>Contacts</h3>${cs.map((c) => `<div style="display:flex;align-items:center"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(c.role || '')} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}" title="Unlink from this business">Unlink</button></div>`).join('') || '<div class="hint">No contacts linked.</div>'}
   <input id="biz-linksearch" data-bid="${b.id}" placeholder="+ Link a contact — search by name or phone" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="biz-linkres"></div>
@@ -634,7 +642,8 @@ function editContact(c) {
   <div class="f"><label>Email</label>${repRows('email', c.emails, [{ k: 'value', ph: 'name@example.com', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Postal address</label>${repRows('postal', c.postal.map((p) => ({ value: p })), [{ k: 'value', ph: 'PO Box / street, town, postcode' }])}</div>
   <div class="f"><label>General info</label>${richEditor('e-info', c)}</div>
-  <div class="f"><label style="color:var(--red-ink)">Warnings (show in red, add "CHECK WARNING" to photo)</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
+  <div class="f"><label style="color:var(--red-ink)">General warnings (red — adds "CHECK WARNING" to the photo). Farm warnings go on the farm.</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
+  <div class="f"><label style="color:#7a5a00">Side notes (yellow — important but not a warning, e.g. don't mention X, dog bites)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
   <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${(c.photoChoice || 'auto') === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
     <input type="file" id="e-photofile" accept="image/*" style="margin-top:6px;${c.photoChoice === 'custom' ? '' : 'display:none'}"><div class="hint">Photos come from the tags automatically. If a contact has two businesses with different ratings, the photo is split and labelled with each business.</div></div>
   <div class="f"><label><input type="checkbox" id="e-star" ${c.starred ? 'checked' : ''}> Starred (show at top of list)</label></div>
@@ -642,7 +651,7 @@ function editContact(c) {
   openSheet(isNew ? 'New contact' : 'Edit contact', body, async () => {
     const first = val('e-first'), last = val('e-last');
     if (!first && !last) { toast('Enter a name'); return false; }
-    Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), ...readRich('e-info'), warnings: $('#e-warn').value.trim(), starred: $('#e-star').checked });
+    Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), ...readRich('e-info'), warnings: $('#e-warn').value.trim(), sideNotes: $('#e-side').value.trim(), starred: $('#e-star').checked });
     c.links = [...document.querySelectorAll('#e-links [data-bid]')].map((el) => ({ bid: el.dataset.bid }));
     const newBiz = [...document.querySelectorAll('#e-links [data-newbiz]')];
     newBiz.forEach((el) => { const b = newBusiness(el.dataset.newbiz); c.links.push({ bid: b.id }); });
@@ -702,7 +711,8 @@ function editBiz(b) {
   <div class="f client-only"><label>Property Identification Code (PIC)</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2 }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f client-only"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
   <div class="f"><label>General info</label>${richEditor('e-binfo', b)}</div>
-  <div class="f"><label style="color:var(--red-ink)">Warnings (shown in red on every linked contact)</label><textarea id="e-bwarn" class="warn">${h(b.warnings)}</textarea></div>
+  <div class="f"><label style="color:var(--red-ink)">General warnings (red — shown on every linked contact). Farm warnings go on the farm.</label><textarea id="e-bwarn" class="warn">${h(b.warnings)}</textarea></div>
+  <div class="f"><label style="color:#7a5a00">Side notes (yellow — shown on every linked contact)</label><textarea id="e-bside" class="sidenote">${h(b.sideNotes || '')}</textarea></div>
   <div class="hint">Farms are added and edited from the business page.</div>
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-biz" data-id="${b.id}" style="color:var(--red)">Delete business</button></div>`}`;
   openSheet(isNew ? 'New business' : 'Edit business', body, () => {
@@ -716,7 +726,7 @@ function editBiz(b) {
       if (!oldBc.includes('inactive') && b.cats.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); touch(c); }
       if (!oldBc.includes('dna') && b.cats.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); touch(c); }
     });
-    Object.assign(b, { name, rating: newRating, pics: readRep('pic'), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim() });
+    Object.assign(b, { name, rating: newRating, pics: readRep('pic'), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim(), sideNotes: $('#e-bside').value.trim() });
     touch(b); if (isNew) D.businesses.push(b);
     S.sel = { kind: 'business', id: b.id }; if (isNew) S.tab = 'biz';
     return true;
@@ -747,8 +757,8 @@ function editFarm(b, f) {
   <div><button class="btn small" type="button" data-act="calc-dist">Calculate with Google Maps</button> <span class="hint" id="e-calchint"></span></div>
   <div id="e-verify"></div>
   <div class="f" style="margin-top:10px"><label>${locWord(b)} info</label><textarea id="e-finfo">${h(f.info)}</textarea></div>
-  <div class="f"><label class="checks"><label><input type="checkbox" id="e-fwarn" ${f.seeWarning ? 'checked' : ''}> Apply a warning to this ${locWord(b).toLowerCase()}</label></label>
-  <div id="e-fwarnbox" style="margin-top:8px;${f.seeWarning ? '' : 'display:none'}"><label style="color:var(--red-ink)">Farm warning</label><textarea id="e-fwarntext" class="warn" placeholder="e.g. Crush has no proper vet gate — take care">${h(f.warning || '')}</textarea></div></div>
+  <div class="f"><label class="checks"><label><input type="checkbox" id="e-fwarn" ${f.seeWarning ? 'checked' : ''}> Add ${isClientBiz(b) ? 'farm' : 'location'} warnings</label></label>
+  <div id="e-fwarnbox" style="margin-top:8px;${f.seeWarning ? '' : 'display:none'}"><label style="color:var(--red-ink)">${isClientBiz(b) ? 'Farm' : 'Location'} warnings (shown in red with this ${isClientBiz(b) ? 'farm' : 'location'})</label><textarea id="e-fwarntext" class="warn" placeholder="e.g. Crush has no proper vet gate — take care">${h(f.warning || '')}</textarea></div></div>
   ${f.importedLabel ? `<div class="hint">Original Google Contacts label: ${h(f.importedLabel)}</div>` : ''}
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-farm" data-bid="${b.id}" data-fid="${f.id}" style="color:var(--red)">Delete farm</button></div>`}`;
   openSheet(isNew ? 'New ' + locWord(b).toLowerCase() + ' — ' + b.name : 'Edit ' + locWord(b).toLowerCase(), body, () => {
@@ -1402,9 +1412,9 @@ document.addEventListener('click', async (e) => {
 });
 
 /* ---------------- advanced search ---------------- */
-const ADV_FIELDS = [['name', 'Name'], ['business', 'Business name'], ['role', 'Role / position'], ['phone', 'Phone numbers'], ['email', 'Email'], ['postal', 'Postal address'], ['farm', 'Farm name / address / info'], ['pic', 'Property Identification Code (PIC)'], ['pid', 'Patient ID'], ['info', 'General info'], ['warnings', 'Warnings'], ['tags', 'Tag names']];
+const ADV_FIELDS = [['name', 'Name'], ['business', 'Business name'], ['role', 'Role / position'], ['phone', 'Phone numbers'], ['email', 'Email'], ['postal', 'Postal address'], ['farm', 'Farm name / address / info'], ['pic', 'Property Identification Code (PIC)'], ['pid', 'Patient ID'], ['info', 'General info'], ['warnings', 'Warnings (general + farm)'], ['side', 'Side notes'], ['tags', 'Tag names']];
 const ADV_MISSING = [['email', 'No email'], ['phone', 'No phone number'], ['mobile', 'No mobile'], ['business', 'No business'], ['pin', 'No farm GPS pin'], ['km', 'A farm with no km'], ['pic', 'No PIC'], ['pid', 'No patient ID'], ['rating', 'No A+ to C category'], ['primary', 'Business has no primary contact']];
-function advDefault() { return { all: '', any: '', none: '', phrase: '', fields: [], tAll: [], tAny: [], tNone: [], warn: '', farmWarn: '', starred: '', multi: '', split: '', flagged: '', isPrimary: '', btype: '', missing: [], kmMin: '', kmMax: '', minMax: '', nearKm: '', near: { type: 'home' }, sort: 'first' }; }
+function advDefault() { return { all: '', any: '', none: '', phrase: '', fields: [], tAll: [], tAny: [], tNone: [], warn: '', farmWarn: '', starred: '', multi: '', split: '', flagged: '', isPrimary: '', btype: '', missing: [], kmOp: '', kmVal: '', kmOp2: '', kmVal2: '', minOp: '', minVal: '', minOp2: '', minVal2: '', nearKm: '', near: { type: 'home' }, sort: 'first' }; }
 S.adv = advDefault();
 function advFieldText(c, f) {
   const bs = bizOf(c); const farms = bs.flatMap((b) => b.farms);
@@ -1419,6 +1429,7 @@ function advFieldText(c, f) {
     case 'pic': return bs.flatMap((b) => b.pics.map((p) => p.value + ' ' + p.label)).join(' ');
     case 'pid': return bs.flatMap((b) => b.patientIds.map((p) => p.value + ' ' + p.label)).join(' ');
     case 'info': return [c.info, ...bs.map((b) => b.info)].join(' ');
+    case 'side': return [c.sideNotes, ...bs.map((b) => b.sideNotes)].join(' ');
     case 'warnings': return [c.warnings, ...bs.map((b) => b.warnings), ...farms.filter((x) => x.seeWarning).map((x) => x.warning || '')].join(' ');
     case 'tags': return [...contactTagSet(c)].map(tagName).join(' ');
   }
@@ -1459,9 +1470,8 @@ function advMatch(c, A) {
     if (m === 'primary' && (!bs.length || bs.every((b) => primaryOf(b)))) return false;
   }
   const farmTests = [];
-  if (A.kmMin !== '') farmTests.push((f) => f.kmReturn != null && f.kmReturn >= +A.kmMin);
-  if (A.kmMax !== '') farmTests.push((f) => f.kmReturn != null && f.kmReturn <= +A.kmMax);
-  if (A.minMax !== '') farmTests.push((f) => f.driveMin != null && f.driveMin <= +A.minMax);
+  const cmp = (op, a, b) => (op === '<' ? a < b : op === '≤' ? a <= b : op === '>' ? a > b : op === '≥' ? a >= b : op === '=' ? Math.abs(a - b) < 0.5 : true);
+  [['kmOp', 'kmVal', 'kmReturn'], ['kmOp2', 'kmVal2', 'kmReturn'], ['minOp', 'minVal', 'driveMin'], ['minOp2', 'minVal2', 'driveMin']].forEach(([o, v, field]) => { if (A[o] && A[v] !== '') farmTests.push((f) => f[field] != null && cmp(A[o], f[field], +A[v])); });
   if (A.nearKm !== '') { const ctr = advCentre(A); if (ctr) farmTests.push((f) => f.lat != null && hav(ctr, f) <= +A.nearKm); }
   if (farmTests.length && !farms.some((f) => farmTests.every((t) => t(f)))) return false;
   return true;
@@ -1474,6 +1484,10 @@ function advTagPicker(key, label) {
   return `<div class="f"><span class="lbl">${label}</span><div class="checks">${D.tags.map((t) => `<label><input type="checkbox" data-advtag="${key}" value="${t.id}" ${sel.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div></div>`;
 }
 const ynSel = (key, label) => `<div class="f"><label>${label}</label><select data-adv="${key}"><option value="">Either</option><option value="yes" ${S.adv[key] === 'yes' ? 'selected' : ''}>Yes</option><option value="no" ${S.adv[key] === 'no' ? 'selected' : ''}>No</option></select></div>`;
+const OPS = [['', '—'], ['<', '< less than'], ['≤', '≤ up to'], ['=', '= exactly'], ['≥', '≥ at least'], ['>', '> more than']];
+const numFilter = (label, k, ph) => { const A = S.adv; const opSel = (key) => `<select data-adv="${key}" style="padding:8px;border:1px solid var(--line);border-radius:9px;font-size:16px">${OPS.map(([v, l]) => `<option value="${v}" ${A[key] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  return `<div class="f"><label>${label}</label><div class="search">${opSel(k + 'Op')}<input type="number" data-adv="${k}Val" value="${h(A[k + 'Val'])}" placeholder="${ph}" style="flex:1;min-width:0"></div>
+  <div class="search" style="margin-top:6px"><span class="hint" style="align-self:center">and</span>${opSel(k + 'Op2')}<input type="number" data-adv="${k}Val2" value="${h(A[k + 'Val2'])}" placeholder="optional" style="flex:1;min-width:0"></div></div>`; };
 function renderAdvanced() {
   const A = S.adv; const nf = A.near.type === 'farm' ? IDX.farms.get(A.near.fid) : null;
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Advanced search</h2>
@@ -1492,9 +1506,9 @@ function renderAdvanced() {
     ${ynSel('warn', 'Has warnings')}${ynSel('farmWarn', 'Has a farm warning')}${ynSel('starred', 'Starred')}${ynSel('multi', 'More than one A+ to C category')}${ynSel('split', 'Split photo')}${ynSel('flagged', 'On the Jobs list')}${ynSel('isPrimary', 'Is a primary contact')}<div class="f"><label>Business type</label><select data-adv="btype"><option value="">Either</option><option value="client" ${S.adv.btype === 'client' ? 'selected' : ''}>Client business</option><option value="nonclient" ${S.adv.btype === 'nonclient' ? 'selected' : ''}>Non-client (industry)</option></select></div></div>
   </details>
   <details class="card" ${A.missing.length ? 'open' : ''}><summary style="font-weight:700;cursor:pointer">Missing information</summary><div class="checks" style="margin-top:8px">${ADV_MISSING.map(([k, l]) => `<label><input type="checkbox" data-advmiss value="${k}" ${A.missing.includes(k) ? 'checked' : ''}>${l}</label>`).join('')}</div></details>
-  <details class="card" ${A.kmMin || A.kmMax || A.minMax || A.nearKm ? 'open' : ''}><summary style="font-weight:700;cursor:pointer">Distance and location</summary>
-    <div class="grid2" style="margin-top:8px"><div class="f"><label>Travel at least (km return)</label><input type="number" data-adv="kmMin" value="${h(A.kmMin)}"></div><div class="f"><label>Travel at most (km return)</label><input type="number" data-adv="kmMax" value="${h(A.kmMax)}"></div></div>
-    <div class="f"><label>Drive time at most (minutes each way)</label><input type="number" data-adv="minMax" value="${h(A.minMax)}"></div>
+  <details class="card" ${A.kmVal || A.kmVal2 || A.minVal || A.minVal2 || A.nearKm ? 'open' : ''}><summary style="font-weight:700;cursor:pointer">Distance and location</summary>
+    ${numFilter('Travel (km return)', 'km', 'e.g. 80')}
+    ${numFilter('Drive time (minutes each way)', 'min', 'e.g. 45')}
     <div class="f"><label>Has a farm within (km, straight line)</label><input type="number" data-adv="nearKm" value="${h(A.nearKm)}" placeholder="e.g. 10"></div>
     <div class="f"><span class="lbl">…of</span><div class="seg"><button class="${A.near.type === 'home' ? 'on' : ''}" data-act="adv-near" data-v="home">Homebase</button><button class="${A.near.type === 'farm' ? 'on' : ''}" data-act="adv-near" data-v="farm">A client's farm</button></div>
     ${A.near.type === 'farm' ? `<input id="adv-nearsearch" placeholder="Search clients, businesses or farms" value="${nf ? h(farmLabel(nf)) : ''}" style="margin-top:6px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="adv-nearres"></div>` : ''}</div>
@@ -1517,7 +1531,7 @@ const advPick = () => { const r = advResults(); return S.advSel && S.advSel.size
 const BULK_OPS = [
   ['cat-add', 'Add a contact category', 'e.g. give them all "Pay up front"', 'cat'],
   ['cat-remove', 'Remove a contact category', 'e.g. take "Inactive" off them all', 'cat'],
-  ['rating', 'Set A+ / A / B / C', 'their own A+ to C, or back to "same as business"', 'rating'],
+  ['setcat', 'Set category', 'choose exactly which categories they have — A+ to C and all the others', 'setcat'],
   ['cat-biz', 'Categories back to "Same as business"', 'they follow their business again', ''],
   ['tag-add', 'Add an additional tag', 'ICE, Check who to bill, Primary…', 'tag'],
   ['tag-remove', 'Remove an additional tag', '', 'tag'],
@@ -1535,7 +1549,9 @@ function advEditSheet() {
   ${BULK_OPS.map(([op, label, hint]) => `<label class="bkop"><input type="radio" name="bkop" value="${op}"><span><b>${h(label)}</b>${hint ? `<br><span class="hint">${h(hint)}</span>` : ''}</span></label>`).join('')}
   <div id="bk-step2" style="display:none;margin-top:12px"><div class="lbl" style="font-size:15px">2. Choose</div>
     <div data-need="cat">${sel('bk-cat', cats.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join(''))}</div>
-    <div data-need="rating">${sel('bk-rating', `<option value="">Same as business</option>${RATINGS.map((x) => `<option value="${x}">${tagName(x)}</option>`).join('')}`)}</div>
+    <div data-need="setcat"><div class="lbl">A+ / A / B / C</div>${sel('bk-rating', `<option value="">Same as business</option>${RATINGS.map((x) => `<option value="${x}">${tagName(x)}</option>`).join('')}`)}
+      <div class="lbl" style="margin-top:8px">Other categories — tick exactly what they should have</div><div class="checks">${cats.map((t) => `<label><input type="checkbox" data-bksetcat="${t.id}">${h(t.name)}</label>`).join('')}</div>
+      <div class="hint" style="margin-top:6px">This replaces their current categories with exactly these.</div></div>
     <div data-need="tag">${sel('bk-tag', addl.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join(''))}</div>
     <div data-need="biz"><input id="bk-biz" list="bk-bizlist" placeholder="Start typing a business name" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><datalist id="bk-bizlist">${D.businesses.map((b) => `<option value="${h(b.name)}">`).join('')}</datalist></div>
   </div>
@@ -1564,7 +1580,7 @@ async function advBulkApply(op, list) {
     if (op === 'cat-add') setCats(c, [...effCats(c), cat]);
     else if (op === 'cat-remove') setCats(c, effCats(c).filter((t) => t !== cat));
     else if (op === 'cat-biz') { if (c.ownCats || c.tags.some(isCatTag)) { c.tags = c.tags.filter((t) => !isCatTag(t)); c.ownCats = false; touch(c); } }
-    else if (op === 'rating') { if (ownRating(c) !== (rt || null)) { c.tags = c.tags.filter((t) => !RATING_SET.has(t)); if (rt) c.tags.push(rt); touch(c); } }
+    else if (op === 'setcat') { const want = [...document.querySelectorAll('#sheet [data-bksetcat]')].filter((i) => i.checked).map((i) => i.dataset.bksetcat); c.tags = c.tags.filter((t) => !RATING_SET.has(t)); if (rt) c.tags.push(rt); setCats(c, want); }
     else if (op === 'tag-add') { if (!c.tags.includes(tag)) { c.tags.push(tag); touch(c); } }
     else if (op === 'tag-remove') { if (c.tags.includes(tag)) { c.tags = c.tags.filter((t) => t !== tag); touch(c); } }
     else if (op === 'star' || op === 'unstar') { if (!!c.starred !== (op === 'star')) { c.starred = op === 'star'; touch(c); } }
@@ -1573,7 +1589,7 @@ async function advBulkApply(op, list) {
     if (!before.includes('inactive') && after.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); }
     if (!before.includes('dna') && after.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); }
   });
-  const label = BULK_OPS.find((o) => o[0] === op)[1] + (op.startsWith('cat-a') || op === 'cat-remove' ? ` "${tagName(cat)}"` : op.startsWith('tag') ? ` "${tagName(tag)}"` : op === 'rating' ? ` to ${rt ? tagName(rt) : 'same as business'}` : op === 'link' ? ` ${biz.name}` : '');
+  const label = BULK_OPS.find((o) => o[0] === op)[1] + (op.startsWith('cat-a') || op === 'cat-remove' ? ` "${tagName(cat)}"` : op.startsWith('tag') ? ` "${tagName(tag)}"` : op === 'setcat' ? ` to ${[rt ? tagName(rt) : '', ...[...document.querySelectorAll('#sheet [data-bksetcat]')].filter((i) => i.checked).map((i) => tagName(i.dataset.bksetcat))].filter(Boolean).join(', ') || 'none'}` : op === 'link' ? ` ${biz.name}` : '');
   NEXT_LOG_LABEL = `Search: ${label} (${list.length})`; photoCache.clear(); Sync.soon();
   const items = diffTouched(false); if (!items.length) { toast('Nothing to change — they already have that'); return false; }
   S.advSelPending = true; return true;
@@ -1751,7 +1767,7 @@ function previewHtml(items) {
   return `<p style="font-size:16px">${n} ${n === 1 ? 'item' : 'items'} will change. Please check, then confirm:</p><div style="max-height:55dvh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:#fff">${items.slice(0, 60).map((it) => `<div style="padding:6px 0;border-top:1px solid #f0ede8"><div style="font-weight:700">${h(it.name || '')} <span class="hint">${what[it.kind] || ''}</span></div>${it.created ? '<div class="hint">New — will be added</div>' : changeRows(it)}</div>`).join('')}${n > 60 ? `<div class="hint" style="padding:6px 0">…and ${n - 60} more</div>` : ''}</div>`;
 }
 function baseline() { DISMISS_SNAP = JSON.stringify(D.dismissed || {}); BASE.clear(); KINDS.forEach((k) => D[k].forEach((r) => BASE.set(k + ':' + r.id, stable(plain(r))))); BASE.set('settings', stable(plain(D.settings))); TOUCHED.clear(); PENDING_DEL = []; }
-const FIELD_NAMES = { first: 'first name', last: 'surname', middle: 'middle name', role: 'role', links: 'businesses', tags: 'tags', mobiles: 'mobile', landlines: 'landline', emails: 'email', postal: 'postal address', info: 'general info', warnings: 'warnings', starred: 'starred', photoChoice: 'photo', photoData: 'photo', flags: 'job flags', name: 'name', rating: 'A+ to C category', pics: 'PIC', patientIds: 'patient IDs', farms: 'farms / locations', primaryContact: 'primary contact', primaryRequired: 'primary contact required', type: 'business type', group: 'tag type', photo: 'photo', home: 'homebase', mapsKey: 'Google Maps key', photoPriority: 'photo priority', createdAt: 'created' };
+const FIELD_NAMES = { first: 'first name', last: 'surname', middle: 'middle name', role: 'role', links: 'businesses', tags: 'tags', mobiles: 'mobile', landlines: 'landline', emails: 'email', postal: 'postal address', info: 'general info', warnings: 'general warnings', starred: 'starred', photoChoice: 'photo', photoData: 'photo', sideNotes: 'side notes', flags: 'job flags', name: 'name', rating: 'A+ to C category', pics: 'PIC', patientIds: 'patient IDs', farms: 'farms / locations', primaryContact: 'primary contact', primaryRequired: 'primary contact required', type: 'business type', group: 'tag type', photo: 'photo', home: 'homebase', mapsKey: 'Google Maps key', photoPriority: 'photo priority', createdAt: 'created' };
 function diffTouched(commit) {
   const items = [];
   TOUCHED.forEach((r) => {
@@ -1895,6 +1911,10 @@ function migrate() {
     D.tags = D.tags.filter((t) => t.id !== 'sheep'); D.deleted.push({ id: 'sheep', kind: 'tags', at: Date.now() }); ch = true;
   }
   reindex();
+  if (!D.settings.nfsMoved) { // the Do-not-answer banner replaces this line in the warnings
+    D.contacts.forEach((c) => { if (!c.warnings || !/\*+\s*no future service\s*\*+/i.test(c.warnings)) return; c.warnings = c.warnings.replace(/\*+\s*no future service\s*\*+/gi, '').split('\n').map((l) => l.trim()).filter(Boolean).join('\n'); touch(c); });
+    D.settings.nfsMoved = true; touch(D.settings); ch = true;
+  }
   if (!D.settings.catsV2) { // businesses get categories; contacts that match their business follow it
     D.businesses.forEach((b) => {
       if (b.cats) return; const cs = D.contacts.filter((c) => c.links.some((l) => l.bid === b.id)); const isC = (t) => IDX.tags.get(t)?.group === 'client';
