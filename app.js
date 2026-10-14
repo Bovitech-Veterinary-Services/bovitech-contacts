@@ -74,6 +74,9 @@ function reindex() {
   D.contacts.forEach((c) => c.links.forEach((l) => { if (bizContacts.has(l.bid)) bizContacts.get(l.bid).push(c); }));
   IDX = { biz, tags, farms, farmBiz, bizContacts, hay: new Map(), bhay: new Map() };
 }
+// alphabetical, but names starting with a letter come before names starting with a number/symbol
+const alphaKey = (str) => { const t = (str || '').trim().toLowerCase(); return (/^[a-z]/.test(t) ? '1' : '2') + t; };
+const alphaCmp = (a, b) => alphaKey(a).localeCompare(alphaKey(b), 'en', { numeric: true });
 const fullName = (c) => [c.first, c.middle && !/^\(/.test(c.middle) ? c.middle : '', c.last].filter(Boolean).join(' ') + (c.middle && /^\(/.test(c.middle) ? ' ' + c.middle : '');
 const bizOf = (c) => c.links.map((l) => IDX.biz.get(l.bid)).filter(Boolean);
 const tagName = (id) => IDX.tags.get(id)?.name || id;
@@ -217,9 +220,25 @@ function filteredContacts() {
 }
 
 /* ---------------- job list (things needing attention) ---------------- */
+function primaryOf(b) {
+  const cs = IDX.bizContacts.get(b.id) || [];
+  if (b.primaryContact && cs.some((c) => c.id === b.primaryContact)) return cs.find((c) => c.id === b.primaryContact);
+  return cs.find((c) => c.tags.includes('pa')) || cs.find((c) => c.tags.includes('pi')) || null;
+}
+function missingInfo(c) {
+  const bs = bizOf(c); const m = [];
+  if (!c.emails.length) m.push('email');
+  if (!c.mobiles.length && !c.landlines.length) m.push('phone number');
+  if (!bs.length) m.push('business');
+  if (!bs.some((b) => b.farms.some((f) => f.lat != null))) m.push('farm GPS pin');
+  if (!bs.some((b) => b.pics.length)) m.push('PIC');
+  if (!bs.some((b) => b.patientIds.length)) m.push('patient ID');
+  if (!contactRatings(c).length) m.push('client rating');
+  return m;
+}
 function computeJobs() {
   const jobs = []; const dis = D.dismissed || {};
-  const add = (j) => { j.key = j.type + ':' + (j.fid || j.id); if (!dis[j.key]) jobs.push(j); };
+  const add = (j) => { j.key = j.key || j.type + ':' + (j.fid || j.id); if (!dis[j.key]) jobs.push(j); };
   // farms
   const byGps = new Map();
   D.businesses.forEach((b) => {
@@ -232,6 +251,7 @@ function computeJobs() {
       if (f.lat != null && f.kmReturn != null) { const k = f.lat.toFixed(3) + ',' + f.lng.toFixed(3); if (!byGps.has(k)) byGps.set(k, []); byGps.get(k).push({ b, f }); }
     });
     (b.flags || []).forEach((fl) => add({ type: fl.type, kind: 'business', id: b.id, who: b.name, note: fl.note }));
+    if (!primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
   });
   byGps.forEach((arr) => {
     const kms = [...new Set(arr.map((x) => x.f.kmReturn))];
@@ -242,6 +262,11 @@ function computeJobs() {
     const who = fullName(c);
     if (needsPhotoChoice(c)) { const { dr, ptags } = photoCandidates(c); add({ type: 'photo', kind: 'contact', id: c.id, who, note: 'Has more than one tag with a photo (' + [...dr, ...ptags].map(tagName).join(', ') + ') — choose one, or a split photo' }); }
     if (c.tags.includes('sheep')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Choose Sheep only (regular) or Sheep only (occasional)' });
+    (c.flags || []).forEach((fl) => {
+      if (fl.type === 'sheepconfirm' && c.tags.includes('sheepocc')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Set to Sheep only (occasional) for now — change to regular if needed' });
+      if (fl.type === 'ezyvet') add({ type: 'ezyvet', key: 'ezyvet:' + c.id + ':' + fl.at, kind: 'contact', id: c.id, who, note: 'Marked inactive ' + new Date(fl.at).toLocaleDateString('en-AU') + ' — check the client has been inactivated in ezyVet' });
+    });
+    if (c.createdAt) { const miss = missingInfo(c); if (miss.length) add({ type: 'newinfo', kind: 'contact', id: c.id, who, note: 'Missing: ' + miss.join(', ') }); }
     (c.flags || []).forEach((fl) => { if (fl.type === 'multirating') add({ type: 'multirating', kind: 'contact', id: c.id, who, note: fl.note }); });
   });
   (D.conflicts || []).forEach((cf) => add({ type: 'conflict', kind: cf.kind === 'businesses' ? 'business' : 'contact', id: cf.key, who: cf.who, note: 'Changed on two devices while offline — choose which version to keep', data: cf }));
@@ -256,7 +281,10 @@ const JOB_TYPES = {
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
   nokm: { t: 'No distance recorded', manual: true },
   photo: { t: 'Choose which photo to show', manual: false },
-  sheep: { t: 'Sheep only — regular or occasional?', manual: false },
+  ezyvet: { t: 'Check client has been inactivated in ezyVet', manual: true, btn: 'Done in ezyVet' },
+  newinfo: { t: 'New contact — information missing', manual: true, btn: 'Not needed' },
+  noprimary: { t: 'Business has no primary contact', manual: true },
+  sheep: { t: 'Sheep only — regular or occasional?', manual: true, btn: 'Confirmed' },
   multirating: { t: 'Specify rating for each business', manual: true },
   ratingconflict: { t: 'Business has conflicting ratings', manual: true },
   noname: { t: 'Business created from a contact name — check', manual: true },
@@ -266,10 +294,10 @@ function jobs() { if (!JOBS_CACHE) JOBS_CACHE = computeJobs(); return JOBS_CACHE
 function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind === kind || (kind === 'contact' && false))); }
 
 /* ---------------- rendering: shell ---------------- */
-const TABS = [['contacts', 'Contacts'], ['biz', 'Businesses'], ['route', 'Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
+const TABS = [['contacts', 'Contacts'], ['biz', 'Businesses'], ['route', 'Plan Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
 function renderTabs() {
   const n = jobs().length;
-  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
+  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
 function changed() { JOBS_CACHE = null; reindex(); save(); renderAll(); }
 function renderAll() {
@@ -296,8 +324,8 @@ function sortContacts(arr) {
   const rOrder = (g) => { const i = ['A+ client', 'A client', 'B client', 'C client'].findIndex((x) => g.startsWith(x)); return i < 0 ? 9 : i; };
   return arr.map((c) => ({ c, g: groupOf(c), n: nm(c) })).sort((x, y) => {
     if (x.c.starred !== y.c.starred) return x.c.starred ? -1 : 1;
-    if (x.g !== y.g) { if (S.sort === 'rating') { const d = rOrder(x.g) - rOrder(y.g); if (d) return d; } return (x.g || '').localeCompare(y.g || ''); }
-    return x.n.localeCompare(y.n);
+    if (x.g !== y.g) { if (S.sort === 'rating') { const d = rOrder(x.g) - rOrder(y.g); if (d) return d; } return alphaCmp(x.g || '', y.g || ''); }
+    return alphaCmp(x.n, y.n);
   });
 }
 function tagChips() {
@@ -345,7 +373,7 @@ function renderBizList() {
   const keepFocus = document.activeElement && document.activeElement.id === 'bq';
   const pq = parseQuery(S.bq);
   let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq));
-  rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || a.name.localeCompare(b.name));
+  rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || alphaCmp(a.name, b.name));
   let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses, farms, PICs…" value="${h(S.bq)}" autocomplete="off"><button class="btn primary" data-act="new-biz">+ New</button></div>
   <div class="row2"><span>${rows.length} businesses</span><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
   rows.slice(0, 400).forEach((b) => {
@@ -367,7 +395,7 @@ function renderDetail() {
   document.body.classList.add('show-detail');
 }
 function phoneLinks(list, sms) {
-  return list.map((p) => `<div class="kv"><div class="k">${h(p.label || '')}</div><div class="v"><a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">${h(p.value)}</a>${sms ? ` · <a href="sms:${h(p.value.replace(/[^\d+]/g, ''))}">text</a>` : ''}</div></div>`).join('');
+  return list.map((p) => `<div class="kv"><div class="k">${h(p.label || '')}</div><div class="v"><a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">${h(p.value)}</a>${sms ? ` · <a href="sms:${h(p.value.replace(/[^\d+]/g, ''))}">send SMS</a>` : ''}</div></div>`).join('');
 }
 function flagLines(kind, id, fid) {
   return jobs().filter((j) => j.kind === kind && j.id === id && (fid === undefined || j.fid === fid)).map((j) => `<div class="flagline"><span style="color:var(--red)">${ICONS.flag}</span><div>${h(j.note)}</div></div>`).join('');
@@ -414,7 +442,7 @@ function bizDetail(b) {
   <div class="actions"><button class="btn primary" data-act="edit-biz" data-id="${b.id}">Edit</button><button class="btn" data-act="add-farm" data-bid="${b.id}">+ Farm</button>${b.farms.some((f) => f.lat != null) ? `<button class="btn" data-act="route-add-biz" data-bid="${b.id}">+ All farms to route</button>` : ''}</div>`;
   html += flagLines('business', b.id).replace(/<div class="flagline">/g, '<div class="flagline">');
   if (b.warnings) html += `<div class="card warn"><h3>⚠ Warnings</h3><div class="body">${h(b.warnings)}</div></div>`;
-  html += `<div class="card"><h3>Contacts</h3>${cs.map((c) => `<div class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}</div><div class="hint">${h(c.role || '')} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div>`).join('') || '<div class="hint">No contacts linked.</div>'}</div>`;
+  html += `<div class="card"><h3>Contacts</h3>${cs.map((c) => `<div class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(c.role || '')} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div>`).join('') || '<div class="hint">No contacts linked.</div>'}</div>`;
   html += `<div class="card"><h3>PICs</h3>${b.pics.map((p) => `<div class="kv"><div class="k">${h(p.label || 'PIC')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
   html += `<div class="card"><h3>Patient IDs</h3>${b.patientIds.map((p) => `<div class="kv"><div class="k">${h(p.label || 'ID')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
   html += `<div class="card"><h3>Farms</h3>${b.farms.map((f) => farmCard(b, f)).join('') || '<div class="hint">No farms yet.</div>'}</div>`;
@@ -444,8 +472,9 @@ const val = (id) => ($('#' + id) ? $('#' + id).value.trim() : '');
 
 function editContact(c) {
   const isNew = !c;
+  const wasInactive = !!(c && c.tags.includes('inactive'));
   c = c || { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [] };
-  const groups = [['client', 'Client tags (set the photo)'], ['additional', 'Additional tags (no photo)']];
+  const groups = [['client', 'Contact category (sets the photo)'], ['additional', 'Additional tags']];
   const { dr, ptags } = photoCandidates(c);
   const photoOpts = [['auto', 'Automatic' + (needsPhotoChoice(c) ? ' (needs choosing)' : '')], ...[...new Set([...dr, ...c.tags.filter((t) => tagPhotoSrc(t))])].map((t) => [t, tagName(t)])];
   const cands = [...new Set([...dr, ...ptags])];
@@ -486,6 +515,8 @@ function editContact(c) {
     if (c.photoChoice === 'custom' && file) c.photoData = await fileToDataUrl(file, 480);
     if (c.photoChoice === 'custom' && !c.photoData) c.photoChoice = 'auto';
     c.flags = (c.flags || []).filter((f) => f.type !== 'multirating' || c.links.length > 1);
+    if (!wasInactive && c.tags.includes('inactive')) c.flags.push({ type: 'ezyvet', at: Date.now() });
+    if (isNew) c.createdAt = Date.now();
     touch(c);
     if (isNew) D.contacts.push(c);
     S.sel = { kind: 'contact', id: c.id };
@@ -516,6 +547,7 @@ function editBiz(b) {
   const isNew = !b;
   b = b || { id: uid('b'), name: '', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null };
   const body = `<div class="f"><label>Business name</label><input id="e-bname" value="${h(b.name)}"></div>
+  ${(IDX.bizContacts.get(b.id) || []).length ? `<div class="f"><label>Primary contact</label><select id="e-bprimary"><option value="">— choose —</option>${(IDX.bizContacts.get(b.id) || []).map((c) => `<option value="${c.id}" ${primaryOf(b)?.id === c.id ? 'selected' : ''}>${h(fullName(c))}</option>`).join('')}</select></div>` : ''}
   <div class="f"><label>Rating</label><select id="e-brating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${b.rating === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>
   <div class="f"><label>PICs</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2 }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
@@ -527,6 +559,7 @@ function editBiz(b) {
     const name = val('e-bname'); if (!name) { toast('Enter a business name'); return false; }
     const newRating = $('#e-brating').value || null;
     if (newRating !== b.rating) b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict');
+    const pSel = $('#e-bprimary'); if (pSel) { b.primaryContact = pSel.value || null; const pc = D.contacts.find((x) => x.id === b.primaryContact); if (pc && !pc.tags.includes('pa') && !pc.tags.includes('pi')) { pc.tags.push('pa'); touch(pc); } }
     Object.assign(b, { name, rating: newRating, pics: readRep('pic'), patientIds: readRep('pid'), info: $('#e-binfo').value.trim(), warnings: $('#e-bwarn').value.trim() });
     touch(b); if (isNew) D.businesses.push(b);
     S.sel = { kind: 'business', id: b.id }; if (isNew) S.tab = 'biz';
@@ -755,7 +788,7 @@ function renderSettings() {
   const st = D.settings;
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Settings</h2>
   <div class="card"><h3><span class="sp">Tags &amp; photos</span><button class="btn small" data-act="new-tag">+ New tag</button></h3>
-  ${['rating', 'client', 'additional'].map((g) => `<div class="lbl" style="margin-top:10px">${{ rating: 'Client rating', client: 'Client tags', additional: 'Additional tags (never change the photo)' }[g]}</div>${D.tags.filter((t) => t.group === g).map((t) => { const src = tagPhotoSrc(t.id); const n = D.contacts.filter((c) => contactTagSet(c).has(t.id)).length; return `<div class="kv" style="align-items:center">${src ? `<img src="${src}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : '<span style="width:36px;height:36px;border-radius:50%;background:#eee;display:inline-block"></span>'}<div class="v">${h(t.name)} <span class="hint">${n} contact${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="edit-tag" data-id="${t.id}">Edit</button></div>`; }).join('')}`).join('')}</div>
+  ${['rating', 'client', 'additional'].map((g) => `<div class="lbl" style="margin-top:10px">${{ rating: 'Client rating', client: 'Contact category', additional: 'Additional tags' }[g]}</div>${D.tags.filter((t) => t.group === g).map((t) => { const src = tagPhotoSrc(t.id); const n = D.contacts.filter((c) => contactTagSet(c).has(t.id)).length; return `<div class="kv" style="align-items:center">${src ? `<img src="${src}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : '<span style="width:36px;height:36px;border-radius:50%;background:#eee;display:inline-block"></span>'}<div class="v">${h(t.name)} <span class="hint">${n} contact${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="edit-tag" data-id="${t.id}">Edit</button></div>`; }).join('')}`).join('')}</div>
   <div class="card"><h3>Homebase</h3><div class="f"><label>Address</label><input id="s-homeaddr" value="${h(st.home.address)}"></div><div class="f"><label>GPS</label><input id="s-homegps" value="${st.home.lat}, ${st.home.lng}"></div><button class="btn small" data-act="save-home">Save homebase</button></div>
   <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, and plan the most efficient route.</div></div>
   ${syncSettingsCard()}
@@ -766,7 +799,7 @@ function editTag(t) {
   const isNew = !t; t = t || { id: uid('t'), name: '', group: 'client', photo: null };
   const src = tagPhotoSrc(t.id);
   openSheet(isNew ? 'New tag' : 'Edit tag', `<div class="f"><label>Tag name</label><input id="t-name" value="${h(t.name)}"></div>
-  <div class="f"><label>Type</label><select id="t-group" ${RATING_SET.has(t.id) ? 'disabled' : ''}><option value="client" ${t.group === 'client' ? 'selected' : ''}>Client tag (can set the photo)</option><option value="additional" ${t.group === 'additional' ? 'selected' : ''}>Additional tag (no photo)</option>${RATING_SET.has(t.id) ? '<option selected>Client rating</option>' : ''}</select></div>
+  <div class="f"><label>Type</label><select id="t-group" ${RATING_SET.has(t.id) ? 'disabled' : ''}><option value="client" ${t.group === 'client' ? 'selected' : ''}>Contact category (sets the photo)</option><option value="additional" ${t.group === 'additional' ? 'selected' : ''}>Additional tag (no photo)</option>${RATING_SET.has(t.id) ? '<option selected>Client rating</option>' : ''}</select></div>
   <div class="f"><label>Photo</label>${src ? `<img src="${src}" style="width:90px;height:90px;border-radius:50%;object-fit:cover;display:block;margin-bottom:6px">` : ''}<input type="file" id="t-photo" accept="image/*">${src ? '<label style="display:block;margin-top:6px"><input type="checkbox" id="t-nophoto"> Remove photo</label>' : ''}</div>
   ${!isNew && !t.photo?.match?.(/^(a|aplus|b|c)$/) && !RATING_SET.has(t.id) ? `<button class="btn" data-act="del-tag" data-id="${t.id}" style="color:var(--red)">Delete tag</button>` : ''}`, async () => {
     const name = val('t-name'); if (!name) { toast('Enter a name'); return false; }
@@ -918,7 +951,7 @@ const Sync = {
           if (m2.version !== meta.version) { D.sync.version = null; continue; }
           await this.upload(meta.id);
         } else D.sync.last = Date.now();
-        if (changes) { photoCache.clear(); JOBS_CACHE = null; reindex(); renderAll(); }
+        if (changes) { photoCache.clear(); JOBS_CACHE = null; reindex(); migrate(); renderAll(); }
         break;
       }
       save(); this.set(D.conflicts.length ? 'conflict' : 'ok');
@@ -937,12 +970,12 @@ function renderSyncPill() {
   else if (cf) { t = `${cf} sync conflict${cf > 1 ? 's' : ''}`; cls = 'warn'; }
   else switch (Sync.state) {
     case 'syncing': t = 'Syncing…'; break;
-    case 'offline': t = n ? `Offline · ${n} to sync` : 'Offline'; cls = 'off'; break;
-    case 'signin': t = n ? `Tap to sync (${n})` : 'Tap to sync'; cls = 'off'; break;
+    case 'offline': t = n ? `Offline · ${n} to sync` : 'Offline'; cls = n ? 'warn' : 'off'; break;
+    case 'signin': t = n ? `${n} to sync — click to sync` : 'Click to sync'; cls = n ? 'warn' : 'off'; break;
     case 'setup': t = 'Sign in to sync'; cls = 'off'; break;
     case 'error': t = 'Sync error — tap'; cls = 'warn'; break;
     case 'empty': t = 'No contacts yet'; cls = 'off'; break;
-    default: t = n ? `${n} to sync` : 'Synced';
+    default: t = n ? `${n} to sync — click to sync` : 'Synced'; if (n) cls = 'warn';
   }
   sp.textContent = t; sp.className = 'pill ' + cls; sp.dataset.act = 'sync-now'; sp.style.cursor = 'pointer'; sp.title = Sync.msg || (D.sync.last ? 'Last synced ' + new Date(D.sync.last).toLocaleString('en-AU') : '');
 }
@@ -1061,6 +1094,21 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+/* ---------------- data migrations (run on load and after sync; safe to repeat) ---------------- */
+function migrate() {
+  if (!D || !D.contacts.length) return false;
+  let ch = false;
+  const bvs = D.tags.find((t) => t.id === 'bvs'); if (bvs && bvs.name === 'Bovitech Veterinary Services') { bvs.name = 'Bovitech Veterinary Services staff'; touch(bvs); ch = true; }
+  const fam = D.tags.find((t) => t.id === 'family');
+  if (fam && !D.contacts.some((c) => c.tags.includes('family'))) { D.tags = D.tags.filter((t) => t.id !== 'family'); D.deleted.push({ id: 'family', kind: 'tags', at: Date.now() }); ch = true; }
+  if (D.tags.some((t) => t.id === 'sheep')) {
+    D.contacts.forEach((c) => { if (c.tags.includes('sheep')) { c.tags = c.tags.filter((t) => t !== 'sheep'); if (!c.tags.includes('sheepocc') && !c.tags.includes('sheepreg')) c.tags.push('sheepocc'); c.flags = (c.flags || []).filter((f) => f.type !== 'sheep'); c.flags.push({ type: 'sheepconfirm' }); touch(c); } });
+    D.tags = D.tags.filter((t) => t.id !== 'sheep'); D.deleted.push({ id: 'sheep', kind: 'tags', at: Date.now() }); ch = true;
+  }
+  if (ch) { JOBS_CACHE = null; reindex(); photoCache.clear(); save(); }
+  return ch;
+}
+
 /* ---------------- events ---------------- */
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]'); if (!el) return;
@@ -1145,7 +1193,7 @@ document.addEventListener('change', async (e) => {
     try { const js = JSON.parse(await t.files[0].text()); if (!js.contacts || !js.businesses) throw new Error('Not a backup file'); if (!confirm('Replace all data on this device with this file?')) return;
       const keepSync = D.sync; D = js; D.sync = keepSync || {}; D.deleted = D.deleted || []; D.conflicts = []; D.dismissed = D.dismissed || {}; D.firstRun = false; D.importedAt = D.importedAt || new Date().toLocaleDateString('en-AU');
       [...D.contacts, ...D.businesses, ...D.tags, D.settings].forEach((r) => (r._dirty = true));
-      changed(); toast('Data loaded'); Sync.soon(); } catch (err) { toast('Could not restore: ' + err.message); }
+      reindex(); migrate(); changed(); toast('Data loaded'); Sync.soon(); } catch (err) { toast('Could not restore: ' + err.message); }
   }
 });
 function net() { const n = $('#net'); n.textContent = navigator.onLine ? 'Online' : 'Offline'; n.className = 'pill' + (navigator.onLine ? '' : ' off'); }
@@ -1157,6 +1205,7 @@ window.addEventListener('popstate', () => { if (document.body.classList.contains
   D = await Store.get('data');
   if (!D) { D = await loadSeed(); D.dismissed = D.dismissed || {}; await Store.set('data', D); }
   D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || [];
+  reindex(); migrate();
   reindex(); net(); renderAll();
   Sync.start();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.SEED) {
