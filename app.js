@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '2.9 (14 Oct 2026)';
+const APP_VERSION = '3.0 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -336,7 +336,7 @@ const JOB_TYPES = {
   kmverify: { t: 'Distance requires verification', manual: false },
   kmconflict: { t: 'Same farm, different km on different contacts', manual: true },
   dupe: { t: 'Possible duplicates', manual: false },
-  nearpin: { t: 'Same GPS pin on two farms — same farm or different farm?', manual: false },
+  nearpin: { t: 'Same GPS pin on two farms — same yards or different?', manual: false },
   nogps: { t: 'Farm address with no GPS pin', manual: true },
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
   nokm: { t: 'No distance recorded', manual: true },
@@ -517,6 +517,7 @@ function farmCard(b, f, withFlags = true) {
   const verify = f.kmStatus === 'needs-verify';
   return `<div class="farm ${f.seeWarning ? 'red' : ''}"><div class="fn">${f.seeWarning ? '⚠ ' : ''}${h(f.name || locWord(b))}</div>
   ${f.address ? `<div>${h(f.address)}</div>` : ''}
+  ${f.sharedWith && IDX.farmBiz.get(f.sharedWith) ? `<div class="hint">Same yards also used by ${h(IDX.farmBiz.get(f.sharedWith).name)}</div>` : ''}
   <div class="meta">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">📍 ${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}</a>` : '<span>No GPS pin</span>'}
   <span>${verify ? '<span class="verify">Distance requires verification</span> ' : ''}${fmtKm(f)}</span>${f.driveMin != null ? `<span>🚗 ${fmtMin(f.driveMin)} each way</span>` : ''}</div>
   ${f.seeWarning ? `<div class="body" style="margin-top:4px;font-weight:700">⚠ ${h(f.warning || 'Warning — check farm info')}</div>` : ''}
@@ -860,10 +861,20 @@ function bulkOps(t, sel) {
   if (t === 'blockcheck') ops.push({ op: 'blockyes', label: '✓ Yes — numbers blocked', green: true }, { op: 'blockno', label: 'Not yet' });
   if (t === 'sheep') ops.push({ op: 'sheepreg', label: 'Change all to Sheep only (regular)' });
   if (t === 'noprimary') ops.push({ op: 'noprimreq', label: 'Primary contact not required' }, { op: 'nonclient', label: 'Make non-client (industry) businesses' });
-  if (t === 'nearpin') ops.push({ op: 'dismiss', label: 'Different farms' });
+  if (t === 'nearpin') ops.push({ op: 'samefarm1', label: "Same yards used by both businesses (keep 1's details)" }, { op: 'dismiss', label: 'Different farms' });
   if (t === 'dupe') ops.push({ op: 'dismiss', label: 'Not duplicates' });
   if (JOB_TYPES[t].manual) ops.push({ op: 'dismiss', label: JOB_TYPES[t].btn || 'Mark resolved - changes not required' });
   const seen = new Set(); return ops.filter((o) => (seen.has(o.op) ? false : seen.add(o.op)));
+}
+function shareFarm(keep, other) {
+  other.lat = keep.lat; other.lng = keep.lng;
+  if (keep.kmReturn != null) { other.kmReturn = keep.kmReturn; other.kmStatus = keep.kmStatus === 'needs-verify' ? 'needs-verify' : 'verified'; }
+  if (keep.driveMin != null) other.driveMin = keep.driveMin;
+  if (keep.gKm != null) { other.gKm = keep.gKm; other.gMin = keep.gMin; }
+  if (!other.address && keep.address) other.address = keep.address;
+  other.flags = (other.flags || []).filter((x) => x.type !== 'kmcheck');
+  other.sharedWith = keep.id; touch(IDX.farmBiz.get(other.id));
+  if (!keep.sharedWith) { keep.sharedWith = other.id; touch(IDX.farmBiz.get(keep.id)); }
 }
 function runBulk(t, op) {
   const sel = jobs().filter((j) => j.type === t && S.jobSel.has(j.key)); if (!sel.length) return;
@@ -876,6 +887,10 @@ function runBulk(t, op) {
       if (t === 'signfix') { const f = IDX.farms.get(j.fid); if (f) { f.flags = (f.flags || []).filter((x) => x.type !== 'signfix'); touch(IDX.farmBiz.get(f.id)); } }
     } else if (op === 'usekm' && j.suggest) {
       j.suggest.fids.forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = j.suggest.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(fid)); });
+    } else if (op === 'samefarm1' && j.pair) {
+      const keep = IDX.farms.get(j.pair.a), other = IDX.farms.get(j.pair.b);
+      if (keep && other && IDX.farmBiz.get(keep.id) !== IDX.farmBiz.get(other.id)) shareFarm(keep, other);
+      D.dismissed[j.key] = Date.now(); D._dismissDirty = true;
     } else if (op === 'catapply' && j.cat) applyCat(j.cat.cid, j.cat.at);
     else if (op === 'blockyes' && j.block) setBlocked(j.block, true);
     else if (op === 'blockno' && j.block) setBlocked(j.block, false);
@@ -916,8 +931,8 @@ function renderJobs() {
       ${!j.suggest && j.needsLookup && D.settings.mapsKey ? `<button class="btn small" data-act="lookup-km" data-fids="${j.needsLookup.join(',')}">Get Google Maps suggestion</button>` : ''}
       ${j.pair ? (() => { const fa = IDX.farms.get(j.pair.a), fb = IDX.farms.get(j.pair.b); return `<a class="btn small greenbtn" href="https://www.google.com/maps/dir/?api=1&origin=${fa.lat},${fa.lng}&destination=${fb.lat},${fb.lng}&travelmode=walking" target="_blank" rel="noopener">🗺 View both pins on Google Maps</a><a class="btn small" href="${gmapsPin(fa)}" target="_blank" rel="noopener">View pin 1</a><a class="btn small" href="${gmapsPin(fb)}" target="_blank" rel="noopener">View pin 2</a>
         <button class="btn small" data-act="pin-diff" data-key="${h(j.key)}">Different farms</button>
-        <button class="btn small" data-act="pin-same" data-keep="${fa.id}" data-other="${fb.id}">Same farm — use pin 1</button>
-        <button class="btn small" data-act="pin-same" data-keep="${fb.id}" data-other="${fa.id}">Same farm — use pin 2</button>`; })() : ''}
+        <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fa.id}" data-other="${fb.id}">${j.pair.same ? "Same farm — merge, keep 1's details" : "Same yards used by both businesses — keep 1's details"}</button>
+        <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fb.id}" data-other="${fa.id}">${j.pair.same ? "Same farm — merge, keep 2's details" : "Same yards used by both businesses — keep 2's details"}</button>`; })() : ''}
       ${j.dupe ? (() => { const x = j.dupe, isC = x.kind === 'contact'; const A = isC ? D.contacts.find((c) => c.id === x.a) : IDX.biz.get(x.a), B = isC ? D.contacts.find((c) => c.id === x.b) : IDX.biz.get(x.b); const nm = (r) => h(isC ? fullName(r) : r.name);
         return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">Merge into 1 (${nm(A)})</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">Merge into 2 (${nm(B)})</button>`; })() : ''}
       ${j.catdiff ? j.catdiff.tags.map((x) => `<button class="btn small ${x.has * 2 >= x.of ? 'greenbtn' : ''}" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${x.t}" data-on="1">Give everyone ${h(tagName(x.t))}</button><button class="btn small ${x.has * 2 < x.of ? 'greenbtn' : ''}" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${x.t}" data-on="0">Remove ${h(tagName(x.t))} from everyone</button>`).join('') : ''}
@@ -1720,8 +1735,10 @@ document.addEventListener('click', async (e) => {
         if (!keep.address) keep.address = other.address; if (!keep.name) keep.name = other.name;
         if (keep.kmReturn == null) keep.kmReturn = other.kmReturn; if (keep.driveMin == null) keep.driveMin = other.driveMin;
         toTrash('farm', other, { bid: bk.id, bname: bk.name }); bk.farms = bk.farms.filter((f) => f.id !== other.id); S.route.stops = S.route.stops.filter((s) => s.fid !== other.id); touch(bk); toast('Farms merged');
-      } else { // different businesses (e.g. a leased block): keep both, put them on the same pin
-        other.lat = keep.lat; other.lng = keep.lng; if (keep.gKm != null) { other.gKm = keep.gKm; other.gMin = keep.gMin; } touch(bo); toast('Pins matched — check the km if they differ');
+      } else { // different businesses (e.g. a leased or share-farmed block): both keep their entry, with the same pin, km and drive time
+        shareFarm(keep, other);
+        D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true;
+        toast(`Same yards used by ${bk.name} and ${bo.name} — pin, km and drive time copied.`);
       }
       changed(); break; }
     case 'prio': { const o = photoOrder(); const i = o.indexOf(d.id), j = i + +d.dir; if (i < 0 || j < 0 || j >= o.length) break; [o[i], o[j]] = [o[j], o[i]]; D.settings.photoPriority = o; touch(D.settings); photoCache.clear(); changed(); break; }
