@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '3.7 (15 Oct 2026)';
+const APP_VERSION = '3.8 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -339,7 +339,7 @@ function computeJobs() {
       note: diff.map((t) => { const has = cs.filter((c) => ec.get(c).includes(t)), not = cs.filter((c) => !ec.get(c).includes(t)); return `${tagName(t)}: ${has.map((c) => c.first).join(', ')} — but not ${not.map((c) => c.first).join(', ')}`; }).join(' • ') + '. Update them so they match?',
       catdiff: { bid: b.id, tags: diff.map((t) => ({ t, has: cs.filter((c) => ec.get(c).includes(t)).length, of: cs.length })) } });
   });
-  (D.conflicts || []).forEach((cf) => add({ type: 'conflict', kind: cf.kind === 'businesses' ? 'business' : 'contact', id: cf.key, who: cf.who, note: 'Changed on two devices while offline — choose which version to keep', data: cf }));
+  (D.conflicts || []).forEach((cf) => add({ type: 'conflict', kind: cf.kind === 'businesses' ? 'business' : 'contact', id: cf.key, who: cf.who, note: 'Changed on two devices while offline — differences below. Choose which version to keep:', data: cf }));
   return jobs;
 }
 const JOB_TYPES = {
@@ -1054,7 +1054,7 @@ function renderJobs() {
     g.forEach((j) => {
       html += `<div class="job ${S.jobSel.has(j.key) ? 'jobsel' : ''}"><input type="checkbox" class="jobcheck" data-act="job-sel" data-key="${h(j.key)}" ${S.jobSel.has(j.key) ? 'checked' : ''} aria-label="Select this job"><div class="t"><div class="who">${h(j.who)}</div><div class="note">${h(j.note)}</div>${j.suggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${j.suggest.km} km return (${h(j.suggest.why)})</div>` : ''}${j.photoSuggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${h(tagName(j.photoSuggest))} photo</div>` : ''}<div class="acts">
       ${t === 'conflict' ? '' : `<button class="btn small" data-act="job-open" data-kind="${j.kind}" data-id="${j.id}" ${j.fid ? `data-fid="${j.fid}"` : ''}>Make a change</button>`}
-      ${t === 'conflict' ? `<button class="btn small red" data-act="conflict-open" data-key="${h(j.data.key)}">Resolve</button>` : ''}
+      ${t === 'conflict' ? `</div><div style="width:100%">${conflictDiff(j.data)}` : ''}
       ${j.suggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-km" data-km="${j.suggest.km}" data-fids="${j.suggest.fids.join(',')}">✓ Use suggested: ${j.suggest.km} km</button>` : ''}
       ${j.suggest && IDX.farms.get(j.suggest.fids[0])?.lat != null ? `<a class="btn small" href="${gmapsRoute(IDX.farms.get(j.suggest.fids[0]))}" target="_blank" rel="noopener">🗺 View suggested route</a>` : ''}
       ${!j.suggest && j.needsLookup && D.settings.mapsKey ? `<button class="btn small" data-act="lookup-km" data-fids="${j.needsLookup.join(',')}">Get Google Maps suggestion</button>` : ''}
@@ -1319,20 +1319,23 @@ function syncSettingsCard() {
   ${gp.on ? `<div class="kv"><div class="k">Status</div><div class="v">${h(gp.msg || 'Waiting')}</div></div><div class="actions"><button class="btn small" data-act="gpush-now">Update Google Contacts now</button></div>` : ''}
   <div class="f" style="margin-top:10px"><label>This device's name (shown in the change log)</label><div class="search"><input id="s-devname" value="${h(deviceName())}" placeholder="e.g. Amelia's phone"><button class="btn small" data-act="devname-save">Save</button></div></div></div>`;
 }
-function conflictSheet(cf) {
+const FRIENDLY = { first: 'First name', last: 'Surname', middle: 'Middle name', role: 'Role', links: 'Businesses', tags: 'Categories / tags', mobiles: 'Mobile', landlines: 'Landline', emails: 'Email', postal: 'Postal address', info: 'General info', warnings: 'General warnings', sideNotes: 'Side notes', dnaReason: 'Do not answer reason', starred: 'Starred', photoChoice: 'Photo', name: 'Name', rating: 'A+ to C', cats: 'Categories', pics: 'PIC', patientIds: 'Patient IDs', farms: 'Farms', primaryContact: 'Primary contact', type: 'Business type' };
+function conflictDiff(cf) {
   const cur = (D[cf.kind] || []).find((r) => r.id === cf.id);
-  const fields = new Set([...Object.keys(cf.mine), ...Object.keys(cur || {})].filter((k) => !k.startsWith('_') && k !== 'flags'));
-  const show = (v) => (v == null ? '—' : typeof v === 'object' ? (Array.isArray(v) ? v.map((x) => (typeof x === 'object' ? x.value || x.name || x.bid && (IDX.biz.get(x.bid)?.name) || JSON.stringify(x) : tagName(x))).join(', ') : JSON.stringify(v)) : String(v));
-  const showFarms = (fs) => (fs || []).map((f) => `${f.name || 'Farm'}: ${f.address || ''} ${f.lat != null ? `(${f.lat}, ${f.lng})` : ''} ${f.kmReturn ?? ''}km ${f.seeWarning ? '⚠' : ''} ${f.info || ''}`).join('\n');
+  const skip = new Set(['flags', 'infoHtml', 'ownCats', 'gid', 'gKm', 'gMin', 'gAt', 'sharedWith', 'createdAt']);
+  const fields = new Set([...Object.keys(cf.mine), ...Object.keys(cur || {})].filter((k) => !k.startsWith('_') && !skip.has(k)));
+  const show = (k, v) => (v == null || v === '' ? '—' : k === 'farms' ? v.map((f) => `${f.name || 'Farm'}${f.address ? ': ' + f.address : ''}${f.kmReturn != null ? ' — ' + f.kmReturn + ' km' : ''}${f.seeWarning ? ' ⚠' : ''}`).join('\n') : typeof v === 'object' ? (Array.isArray(v) ? v.map((x) => (typeof x === 'object' ? x.value || x.name || (x.bid && IDX.biz.get(x.bid)?.name) || JSON.stringify(x) : tagName(x))).join(', ') : JSON.stringify(v)) : k === 'rating' ? tagName(v) : String(v));
   let rows = '';
   fields.forEach((k) => {
-    const a = k === 'farms' ? showFarms(cf.mine[k]) : show(cf.mine[k]), b = cur ? (k === 'farms' ? showFarms(cur[k]) : show(cur[k])) : '(deleted)';
-    if (a !== b) rows += `<div class="kv" style="display:block"><div class="k" style="width:auto;font-weight:700">${h(k)}</div><div class="grid2"><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px">${h(a)}</div><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px">${h(b)}</div></div></div>`;
+    const a = show(k, cf.mine[k]), b = cur ? show(k, cur[k]) : '(deleted)';
+    if (a !== b) rows += `<div style="margin-top:8px"><div class="lbl">${h(FRIENDLY[k] || k)}</div><div class="grid2"><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:14.5px">${h(a)}</div><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:14.5px">${h(b)}</div></div></div>`;
   });
-  openSheet('Sync conflict — ' + cf.who, `<p>This was changed on two devices before they synced. Choose which version to keep. Differences only:</p>
-  <div class="grid2" style="font-weight:700"><div>This device ${cf.mineAt ? '(' + new Date(cf.mineAt).toLocaleString('en-AU') + ')' : ''}</div><div>${cf.deletedElsewhere ? 'Other device deleted it' : 'Other device ' + (cf.theirsAt ? '(' + new Date(cf.theirsAt).toLocaleString('en-AU') + ')' : '')}</div></div>
-  ${rows || '<div class="hint">No visible differences.</div>'}
-  <div class="actions" style="margin-top:12px"><button class="btn primary" data-act="conflict-keep" data-key="${h(cf.key)}" data-v="mine">Keep this device's version</button><button class="btn" data-act="conflict-keep" data-key="${h(cf.key)}" data-v="theirs">${cf.deletedElsewhere ? 'Keep it deleted' : "Keep the other version"}</button></div>`, () => true);
+  return `<div class="grid2" style="font-weight:700;font-size:14px;margin-top:6px"><div>This device${cf.mineAt ? '<br><span class="hint">' + new Date(cf.mineAt).toLocaleString('en-AU') + '</span>' : ''}</div><div>${cf.deletedElsewhere ? 'Other device deleted it' : 'Other device' + (cf.theirsAt ? '<br><span class="hint">' + new Date(cf.theirsAt).toLocaleString('en-AU') + '</span>' : '')}</div></div>
+  ${rows || '<div class="hint" style="margin-top:6px">No visible differences.</div>'}
+  <div class="actions" style="margin-top:10px"><button class="btn small primary" data-act="conflict-keep" data-key="${h(cf.key)}" data-v="mine">Keep this device's version</button><button class="btn small" data-act="conflict-keep" data-key="${h(cf.key)}" data-v="theirs">${cf.deletedElsewhere ? 'Keep it deleted' : 'Keep the other version'}</button></div>`;
+}
+function conflictSheet(cf) {
+  openSheet('Sync conflict — ' + cf.who, `<p>This was changed on two devices before they synced. Choose which version to keep. Differences only:</p>${conflictDiff(cf)}`, () => true);
   $('#sheet-save').style.display = 'none';
 }
 
@@ -1410,7 +1413,7 @@ document.addEventListener('click', async (e) => {
       const rec = { ...cf.mine, _rev: cur ? cur._rev : cf.mine._rev }; touch(rec);
       if (j >= 0) arr[j] = rec; else { arr.push(rec); D.deleted = D.deleted.filter((x) => x.id !== cf.id); }
     }
-    D.conflicts.splice(i, 1); closeSheet(); changed(); toast('Conflict resolved'); Sync.soon();
+    D.conflicts.splice(i, 1); if (SHEET) closeSheet(); S.skipConfirm = true; changed(); toast('Conflict resolved'); Sync.soon();
   }
 });
 
@@ -1884,7 +1887,7 @@ async function checkLatest() {
     const v = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json();
     S.latest = v.version; const newer = v.version && v.version !== APP_VERSION.split(' ')[0];
     const b = document.querySelector('header [data-act=app-refresh]');
-    if (b) { b.classList.toggle('update', newer); b.title = newer ? `Version ${v.version} is available — tap to update` : 'Close and reopen the app on the latest version'; b.innerHTML = newer ? '⟳<span> Update available</span>' : '⟳<span> Refresh app</span>'; }
+    if (b) { b.classList.toggle('update', newer); b.title = newer ? `Version ${v.version} is available — tap to update` : 'Close and reopen the app on the latest version'; b.innerHTML = newer ? `⟳ <b>v${APP_VERSION.split(' ')[0]}</b><span> → v${h(v.version)} available</span>` : `⟳ v${APP_VERSION.split(' ')[0]}`; }
     if (newer && !S.toldLatest) { S.toldLatest = true; toast(`A newer version (${v.version}) is ready — tap ⟳ Update`); }
   } catch (e) { }
 }
@@ -2102,6 +2105,7 @@ try { history.replaceState({ bvt: 0 }, ''); } catch (e) { }
   reindex(); net(); renderAll();
   Sync.start();
   checkLatest();
+  { const b = document.querySelector('header [data-act=app-refresh]'); if (b) b.innerHTML = `⟳ v${APP_VERSION.split(' ')[0]}`; }
   if (location.search.includes('v=')) history.replaceState(history.state, '', location.pathname);
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.SEED) {
     const hadController = !!navigator.serviceWorker.controller;
