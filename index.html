@@ -175,6 +175,9 @@ details.jobgroup>summary::-webkit-details-marker{display:none}
 .jobcheck{width:20px;height:20px;flex:none;margin:2px 0 0;accent-color:var(--ink);cursor:pointer}
 .job.jobsel{background:#fffbea}
 .bulkbar{position:sticky;top:0;z-index:4;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 12px;background:#fff3c4;border-bottom:1px solid #e8c440}
+.bkop{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer}
+.bkop input{margin-top:3px;width:18px;height:18px;flex:none}
+.bkop.on{border-color:var(--ink);box-shadow:inset 3px 0 0 var(--red);background:#fffdf7}
 .greenbtn{background:var(--green-bg)!important;border-color:var(--green)!important}
 .count{background:var(--red);color:#fff;border-radius:99px;font-size:12px;padding:1px 8px}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;z-index:99;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
@@ -184,6 +187,7 @@ details.jobgroup>summary::-webkit-details-marker{display:none}
 <body>
 <div class="app">
   <header class="top">
+    <button class="hbtn" id="hdr-back" data-act="nav-back" style="display:none;font-size:15px;padding:5px 12px" aria-label="Back">‹ Back</button>
     <img src="img/icon-192.png" alt="">
     <h1>Bovitech Contacts</h1>
     <span id="net" class="pill">Online</span>

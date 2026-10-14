@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '3.4 (15 Oct 2026)';
+const APP_VERSION = '3.5 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -374,7 +374,33 @@ function renderTabs() {
   const n = jobs().length;
   $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
-function changed() { JOBS_CACHE = null; reindex(); logChanges(NEXT_LOG_LABEL); NEXT_LOG_LABEL = null; save(); renderAll(); }
+async function changed() {
+  JOBS_CACHE = null; reindex();
+  if (!S.skipConfirm && BASE.size && !PENDING_DEL.length && typeof diffTouched === 'function') {
+    const items = diffTouched(false);
+    if (items.length) {
+      const ok = await askBox(NEXT_LOG_LABEL ? 'Confirm: ' + NEXT_LOG_LABEL.replace(/^Jobs: |^Search: /, '') : 'Confirm changes', previewHtml(items), 'Yes — save these changes');
+      if (!ok) { S.advSelPending = false; revertTouched(); NEXT_LOG_LABEL = null; JOBS_CACHE = null; reindex(); photoCache.clear(); renderAll(); toast('Cancelled — nothing was changed'); return false; }
+    }
+  }
+  S.skipConfirm = false; if (S.advSelPending) { S.advSel.clear(); S.advSelPending = false; } logChanges(NEXT_LOG_LABEL); NEXT_LOG_LABEL = null; DISMISS_SNAP = JSON.stringify(D.dismissed || {}); save(); renderAll(); return true;
+}
+/* ---------------- confirm pop-up (replaces the browser's confirm box; phone Back = cancel) ---------------- */
+let CONFIRM = null;
+function askBox(title, html, okLabel = 'Yes — go ahead', danger = false) {
+  return new Promise((res) => {
+    const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'askbox'; bg.style.zIndex = 80;
+    bg.innerHTML = `<div class="sheet" style="max-width:620px"><div class="sheet-h"><button class="btn" data-act="ask-no">‹ Back</button><h2>${h(title)}</h2></div><div class="form">${html}
+      <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button><button class="btn" data-act="ask-no">Cancel — don't change anything</button></div></div></div>`;
+    document.body.appendChild(bg); CONFIRM = { res }; try { history.pushState({ ask: 1 }, ''); } catch (e) { } updateBackBtn();
+  });
+}
+function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
+document.addEventListener('click', (e) => { const el = e.target.closest('[data-act=ask-yes],[data-act=ask-no]'); if (!el) return; e.stopPropagation(); closeAsk(el.dataset.act === 'ask-yes'); }, true);
+const askText = (t) => `<p style="font-size:16px;line-height:1.45;white-space:pre-wrap">${h(t)}</p>`;
+async function ask(msg, okLabel, danger) { const ok = await askBox('Please confirm', askText(msg), okLabel || 'Yes — go ahead', danger); if (ok) { S.skipConfirm = true; setTimeout(() => (S.skipConfirm = false), 0); } return ok; } // already confirmed → no second pop-up
+function updateBackBtn() { const b = $('#hdr-back'); if (b) b.style.display = CONFIRM || SHEET || (NAV.stack && NAV.stack.length) ? '' : 'none'; }
+
 /* ---------------- back navigation (in-app Back button + phone/browser back) ---------------- */
 const NAV = { last: null, stack: [], restoring: false, ignorePop: 0 };
 const navKey = () => S.tab + '|' + (S.sel ? S.sel.kind + ':' + S.sel.id : '');
@@ -387,6 +413,7 @@ function navRecord() {
   if (!NAV.last || k !== NAV.last.key) NAV.last = { key: k, tab: S.tab, sel: S.sel ? { ...S.sel } : null, scroll: 0, dscroll: 0 };
 }
 function navBack() {
+  if (CONFIRM) { closeAsk(false); return; }
   if (SHEET) { closeSheet(); return; }
   if (NAV.stack.length) { history.back(); return; } // popstate does the work
   S.sel = null; document.body.classList.remove('show-detail'); renderAll();
@@ -397,7 +424,7 @@ function navRestore() {
   NAV.last = prev; requestAnimationFrame(() => { $('#list').scrollTop = prev.scroll || 0; $('#detail').scrollTop = prev.dscroll || 0; });
 }
 function renderAll() {
-  navRecord();
+  navRecord(); updateBackBtn();
   renderTabs();
   const main = $('#main');
   main.classList.toggle('single', ['search', 'route', 'jobs', 'settings'].includes(S.tab));
@@ -560,11 +587,11 @@ let SHEET = null; // {type, rec, ...}
 function openSheet(title, body, onSave, extraBtns = '') {
   closeSheet();
   const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'sheet';
-  bg.innerHTML = `<div class="sheet"><div class="sheet-h"><button class="btn" data-act="sheet-cancel">Cancel</button><h2>${h(title)}</h2>${extraBtns}<button class="btn primary" data-act="sheet-save" id="sheet-save">Save</button></div><div class="form">${body}</div></div>`;
-  document.body.appendChild(bg); SHEET = { onSave }; try { history.pushState({ sheet: 1 }, ''); } catch (e) { }
+  bg.innerHTML = `<div class="sheet"><div class="sheet-h"><button class="btn" data-act="sheet-cancel">‹ Back</button><h2>${h(title)}</h2>${extraBtns}<button class="btn primary" data-act="sheet-save" id="sheet-save">Save</button></div><div class="form">${body}</div></div>`;
+  document.body.appendChild(bg); SHEET = { onSave }; try { history.pushState({ sheet: 1 }, ''); } catch (e) { } updateBackBtn();
   bg.addEventListener('click', (e) => { if (e.target === bg) closeSheet(); });
 }
-function closeSheet() { const s = $('#sheet'); if (s) s.remove(); if (SHEET && !SHEET.popped) { NAV.ignorePop++; history.back(); } SHEET = null; }
+function closeSheet() { const s = $('#sheet'); if (s) s.remove(); if (SHEET && !SHEET.popped) { NAV.ignorePop++; history.back(); } SHEET = null; updateBackBtn(); }
 function repRows(name, rows, fields) {
   // fields: [{k, ph, w, opts}]
   const row = (r = {}) => `<div class="rep" data-rep="${name}">${fields.map((f) => f.opts ? `<select data-k="${f.k}" style="flex:${f.w || 1}">${f.opts.map((o) => `<option ${o === (r[f.k] || '') ? 'selected' : ''}>${h(o)}</option>`).join('')}${r[f.k] && !f.opts.includes(r[f.k]) ? `<option selected>${h(r[f.k])}</option>` : ''}</select>` : `<input data-k="${f.k}" placeholder="${h(f.ph || '')}" value="${h(r[f.k] || '')}" style="flex:${f.w || 1}" ${f.list ? `list="${f.list}"` : ''}>`).join('')}<button class="x" type="button" data-act="rep-del" title="Remove">×</button></div>`;
@@ -968,7 +995,7 @@ document.addEventListener('click', (e) => {
 function runBulk(t, op) {
   const sel = jobs().filter((j) => j.type === t && S.jobSel.has(j.key)); if (!sel.length) return;
   const label = bulkOps(t, sel).find((o) => o.op === op)?.label || op;
-  if (!confirm(`${label.replace(/^✓ /, '')} — ${sel.length} job${sel.length === 1 ? '' : 's'}?`)) return;
+  
   D.dismissed = D.dismissed || {};
   sel.forEach((j) => {
     if (op === 'dismiss') {
@@ -1210,6 +1237,7 @@ const Sync = {
   },
   async run(interactive) {
     if (!this.enabled() || this.busy) return;
+    if (CONFIRM) { this.soon(); return; } // don't upload changes that haven't been confirmed yet
     if (!navigator.onLine) { this.set('offline'); return; }
     if (!GAuth.valid() && !interactive) { this.set(D.sync.email ? 'signin' : 'setup'); return; }
     this.busy = true; this.set('syncing');
@@ -1358,7 +1386,7 @@ document.addEventListener('click', async (e) => {
     if (window.SEED) { toast('Syncing works in the installed app, not the preview'); return; }
     if (!Sync.enabled()) { toast('Google sign-in is not set up yet'); return; }
     await Sync.run(true); if (Sync.state === 'error') toast(Sync.msg); renderAll();
-  } else if (a === 'g-signout') { if (confirm('Sign out of Google on this device? Contacts stay on the device.')) { GAuth.signOut(); D.sync.email = null; Sync.set('setup'); save(); renderAll(); } }
+  } else if (a === 'g-signout') { if (await ask('Sign out of Google on this device? Contacts stay on the device.', 'Yes — sign out')) { GAuth.signOut(); D.sync.email = null; Sync.set('setup'); save(); renderAll(); } }
   else if (a === 'gpush-toggle') { GContacts.st.on = el.checked; GContacts.persist(); renderAll(); if (el.checked) { await Sync.run(true); GContacts.maybeRun(); } }
   else if (a === 'gpush-now') { try { await GAuth.get(true); GContacts.run(); toast('Updating Google Contacts in the background'); } catch (err) { toast(err.message); } }
   else if (a === 'conflict-open') { const cf = D.conflicts.find((x) => x.key === d.key); if (cf) conflictSheet(cf); }
@@ -1479,42 +1507,76 @@ function renderAdvResults() {
   S.advSel = S.advSel || new Set(); const ids = new Set(r.map((c) => c.id)); [...S.advSel].forEach((id) => { if (!ids.has(id)) S.advSel.delete(id); });
   const nSel = S.advSel.size; const cats = D.tags.filter((t) => t.group === 'client'), addl = D.tags.filter((t) => t.group === 'additional');
   let html = `<div class="card"><h3><input type="checkbox" class="jobcheck" data-act="adv-selall" title="Select all results" ${nSel && nSel === r.length ? 'checked' : ''}><span class="sp">${r.length} contact${r.length === 1 ? '' : 's'} found${nSel ? ` · ${nSel} selected` : ''}</span>${r.length ? `<button class="btn small" data-act="adv-route">+ Farms to route</button><button class="btn small" data-act="adv-csv">Download list</button>` : ''}</h3>
-  ${nSel ? `<div class="bulkbar" style="border-radius:9px;margin:0 0 8px"><b style="width:100%">Change the ${nSel} selected contact${nSel === 1 ? '' : 's'}:</b>
-    <select id="bk-cat">${cats.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join('')}</select><button class="btn small" data-act="adv-bulk" data-op="cat-add">Add category</button><button class="btn small" data-act="adv-bulk" data-op="cat-remove">Remove category</button><button class="btn small" data-act="adv-bulk" data-op="cat-biz">Categories "same as business"</button>
-    <select id="bk-rating"><option value="">A+ to C same as business</option>${RATINGS.map((x) => `<option value="${x}">${tagName(x)}</option>`).join('')}</select><button class="btn small" data-act="adv-bulk" data-op="rating">Set A+ to C</button>
-    <select id="bk-tag">${addl.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join('')}</select><button class="btn small" data-act="adv-bulk" data-op="tag-add">Add tag</button><button class="btn small" data-act="adv-bulk" data-op="tag-remove">Remove tag</button>
-    <button class="btn small" data-act="adv-bulk" data-op="star">★ Star</button><button class="btn small" data-act="adv-bulk" data-op="unstar">Unstar</button>
-    <input id="bk-biz" list="bk-bizlist" placeholder="Business name…" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px"><datalist id="bk-bizlist">${D.businesses.map((b) => `<option value="${h(b.name)}">`).join('')}</datalist><button class="btn small" data-act="adv-bulk" data-op="link">Link to business</button>
-    <button class="btn small" data-act="adv-bulk" data-op="trash" style="color:var(--red)">Move to trash</button><button class="btn small" data-act="adv-selnone">Clear selection</button></div>` : ''}
+  ${nSel ? `<div class="bulkbar" style="border-radius:9px;margin:0 0 8px;justify-content:space-between"><b>${nSel} contact${nSel === 1 ? '' : 's'} selected</b><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn primary" data-act="adv-edit" style="font-size:16px">✏️ Edit selected…</button><button class="btn small" data-act="adv-selnone">Clear selection</button></span></div>` : `<div class="hint" style="margin:-2px 0 8px">Tick contacts (or the box above to tick them all) to edit several at once.</div>`}
   <ul class="list">`;
   r.slice(0, 300).forEach((c) => { const bs = bizOf(c); html += `<li class="item ${S.advSel.has(c.id) ? 'jobsel' : ''}" data-act="open" data-kind="contact" data-id="${c.id}"><input type="checkbox" class="jobcheck" data-act="adv-sel" data-id="${c.id}" ${S.advSel.has(c.id) ? 'checked' : ''} aria-label="Select">${contactPhotoImg(c)}<div class="t"><div class="n">${c.starred ? '<span class="star">★</span> ' : ''}${h(fullName(c))}</div><div class="s">${distinctRatings(c).map(rbadge).join('')}${h(bs.map((b) => b.name).join(', ') || c.role || '')}</div></div>${hasWarning(c) ? '<span class="wdot"></span>' : ''}</li>`; });
   if (r.length > 300) html += `<li class="empty">Showing the first 300 — narrow the search, or download the full list.</li>`;
   return html + '</ul></div>';
 }
 const advPick = () => { const r = advResults(); return S.advSel && S.advSel.size ? r.filter((c) => S.advSel.has(c.id)) : r; }; // selected, or all results
-function advBulk(op) {
+const BULK_OPS = [
+  ['cat-add', 'Add a contact category', 'e.g. give them all "Pay up front"', 'cat'],
+  ['cat-remove', 'Remove a contact category', 'e.g. take "Inactive" off them all', 'cat'],
+  ['rating', 'Set A+ / A / B / C', 'their own A+ to C, or back to "same as business"', 'rating'],
+  ['cat-biz', 'Categories back to "Same as business"', 'they follow their business again', ''],
+  ['tag-add', 'Add an additional tag', 'ICE, Check who to bill, Primary…', 'tag'],
+  ['tag-remove', 'Remove an additional tag', '', 'tag'],
+  ['link', 'Link them to a business', 'pick an existing business or type a new name', 'biz'],
+  ['star', 'Star them', 'show at the top of the contacts list', ''],
+  ['unstar', 'Unstar them', '', ''],
+  ['trash', 'Move them to the trash', 'can be restored from Settings → Trash', ''],
+];
+function advEditSheet() {
   const list = D.contacts.filter((c) => S.advSel.has(c.id)); if (!list.length) return;
-  const cat = $('#bk-cat')?.value, tag = $('#bk-tag')?.value, rt = $('#bk-rating')?.value;
-  const what = { 'cat-add': `Add ${tagName(cat)}`, 'cat-remove': `Remove ${tagName(cat)}`, 'cat-biz': 'Set categories to "same as business"', rating: rt ? `Set A+ to C to ${tagName(rt)}` : 'Set A+ to C to "same as business"', 'tag-add': `Add tag ${tagName(tag)}`, 'tag-remove': `Remove tag ${tagName(tag)}`, star: 'Star', unstar: 'Unstar', link: 'Link to business', trash: 'Move to trash' }[op];
+  const cats = D.tags.filter((t) => t.group === 'client'), addl = D.tags.filter((t) => t.group === 'additional');
+  const sel = (id, opts) => `<select id="${id}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px">${opts}</select>`;
+  const body = `<div class="hint" style="margin-bottom:8px">Editing: ${h(list.slice(0, 8).map(fullName).join(', '))}${list.length > 8 ? ` and ${list.length - 8} more` : ''}</div>
+  <div class="lbl" style="font-size:15px">1. What do you want to change?</div>
+  ${BULK_OPS.map(([op, label, hint]) => `<label class="bkop"><input type="radio" name="bkop" value="${op}"><span><b>${h(label)}</b>${hint ? `<br><span class="hint">${h(hint)}</span>` : ''}</span></label>`).join('')}
+  <div id="bk-step2" style="display:none;margin-top:12px"><div class="lbl" style="font-size:15px">2. Choose</div>
+    <div data-need="cat">${sel('bk-cat', cats.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join(''))}</div>
+    <div data-need="rating">${sel('bk-rating', `<option value="">Same as business</option>${RATINGS.map((x) => `<option value="${x}">${tagName(x)}</option>`).join('')}`)}</div>
+    <div data-need="tag">${sel('bk-tag', addl.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join(''))}</div>
+    <div data-need="biz"><input id="bk-biz" list="bk-bizlist" placeholder="Start typing a business name" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><datalist id="bk-bizlist">${D.businesses.map((b) => `<option value="${h(b.name)}">`).join('')}</datalist></div>
+  </div>
+  <div class="hint" style="margin-top:12px">Next you'll see exactly what will change for each contact before anything is saved.</div>`;
+  openSheet(`Edit ${list.length} contact${list.length === 1 ? '' : 's'}`, body, async () => {
+    const op = (document.querySelector('#sheet [name=bkop]:checked') || {}).value; if (!op) { toast('Choose what to change first'); return false; }
+    return advBulkApply(op, list);
+  });
+  $('#sheet-save').textContent = 'Next — check changes';
+}
+document.addEventListener('change', (e) => {
+  if (e.target.name !== 'bkop') return; const need = BULK_OPS.find((o) => o[0] === e.target.value)[3];
+  document.querySelectorAll('#sheet .bkop').forEach((l) => l.classList.toggle('on', l.contains(e.target)));
+  $('#bk-step2').style.display = need ? '' : 'none'; document.querySelectorAll('#bk-step2 [data-need]').forEach((d) => (d.style.display = d.dataset.need === need ? '' : 'none'));
+});
+async function advBulkApply(op, list) {
+  const cat = $('#bk-cat').value, tag = $('#bk-tag').value, rt = $('#bk-rating').value;
   let biz = null;
-  if (op === 'link') { const nm = $('#bk-biz').value.trim(); if (!nm) { toast('Type or pick a business name'); return; } biz = D.businesses.find((b) => b.name.toLowerCase() === nm.toLowerCase()); if (!biz && !confirm(`"${nm}" doesn't exist yet. Create it?`)) return; if (!biz) biz = newBusiness(nm); }
-  if (!confirm(`${what}${biz ? ' ' + biz.name : ''} — ${list.length} contact${list.length === 1 ? '' : 's'}?`)) return;
+  if (op === 'link') { const nm = $('#bk-biz').value.trim(); if (!nm) { toast('Type or pick a business name'); return false; } biz = D.businesses.find((b) => b.name.toLowerCase() === nm.toLowerCase()); if (!biz) { if (!(await askBox('New business?', askText(`"${nm}" doesn't exist yet. Create it and link the contacts to it?`), 'Yes — create it'))) return false; biz = newBusiness(nm); } }
+  if (op === 'trash') {
+    if (!(await ask(`Move these ${list.length} contacts to the trash?\n\n${list.slice(0, 15).map(fullName).join(', ')}${list.length > 15 ? ` and ${list.length - 15} more` : ''}\n\nThey can be restored from Settings → Trash.`, 'Yes — move to trash', true))) return false;
+    list.forEach((c) => trashContact(c)); S.advSel.clear(); NEXT_LOG_LABEL = `Search: moved ${list.length} contacts to the trash`; return true;
+  }
   list.forEach((c) => {
     const before = effCats(c);
     if (op === 'cat-add') setCats(c, [...effCats(c), cat]);
     else if (op === 'cat-remove') setCats(c, effCats(c).filter((t) => t !== cat));
-    else if (op === 'cat-biz') { c.tags = c.tags.filter((t) => !isCatTag(t)); c.ownCats = false; touch(c); }
-    else if (op === 'rating') { c.tags = c.tags.filter((t) => !RATING_SET.has(t)); if (rt) c.tags.push(rt); touch(c); }
+    else if (op === 'cat-biz') { if (c.ownCats || c.tags.some(isCatTag)) { c.tags = c.tags.filter((t) => !isCatTag(t)); c.ownCats = false; touch(c); } }
+    else if (op === 'rating') { if (ownRating(c) !== (rt || null)) { c.tags = c.tags.filter((t) => !RATING_SET.has(t)); if (rt) c.tags.push(rt); touch(c); } }
     else if (op === 'tag-add') { if (!c.tags.includes(tag)) { c.tags.push(tag); touch(c); } }
     else if (op === 'tag-remove') { if (c.tags.includes(tag)) { c.tags = c.tags.filter((t) => t !== tag); touch(c); } }
-    else if (op === 'star' || op === 'unstar') { c.starred = op === 'star'; touch(c); }
+    else if (op === 'star' || op === 'unstar') { if (!!c.starred !== (op === 'star')) { c.starred = op === 'star'; touch(c); } }
     else if (op === 'link') { if (!c.links.some((l) => l.bid === biz.id)) { c.links.push({ bid: biz.id }); touch(c); } }
-    else if (op === 'trash') { trashContact(c); return; }
     const after = effCats(c);
     if (!before.includes('inactive') && after.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); }
     if (!before.includes('dna') && after.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); }
   });
-  S.advSel.clear(); NEXT_LOG_LABEL = `Search: ${what}${biz ? ' ' + biz.name : ''} (${list.length})`; photoCache.clear(); Sync.soon(); changed(); toast(`Done — ${list.length} contact${list.length === 1 ? '' : 's'}`);
+  const label = BULK_OPS.find((o) => o[0] === op)[1] + (op.startsWith('cat-a') || op === 'cat-remove' ? ` "${tagName(cat)}"` : op.startsWith('tag') ? ` "${tagName(tag)}"` : op === 'rating' ? ` to ${rt ? tagName(rt) : 'same as business'}` : op === 'link' ? ` ${biz.name}` : '');
+  NEXT_LOG_LABEL = `Search: ${label} (${list.length})`; photoCache.clear(); Sync.soon();
+  const items = diffTouched(false); if (!items.length) { toast('Nothing to change — they already have that'); return false; }
+  S.advSelPending = true; return true;
 }
 function refreshAdv() { const el = $('#adv-results'); if (el) el.innerHTML = renderAdvResults(); }
 document.addEventListener('input', (e) => {
@@ -1538,7 +1600,7 @@ document.addEventListener('click', (e) => {
   else if (a === 'adv-sel') { e.stopPropagation(); el.checked ? S.advSel.add(el.dataset.id) : S.advSel.delete(el.dataset.id); refreshAdv(); }
   else if (a === 'adv-selall') { advResults().forEach((c) => (el.checked ? S.advSel.add(c.id) : S.advSel.delete(c.id))); refreshAdv(); }
   else if (a === 'adv-selnone') { S.advSel.clear(); refreshAdv(); }
-  else if (a === 'adv-bulk') advBulk(el.dataset.op);
+  else if (a === 'adv-edit') advEditSheet();
   else if (a === 'adv-route') {
     const fids = []; advPick().forEach((c) => bizOf(c).forEach((b) => b.farms.forEach((f) => { if (f.lat != null && !fids.includes(f.id)) fids.push(f.id); })));
     const before = S.route.stops.length; fids.forEach((fid) => addStop(fid, true));
@@ -1570,7 +1632,7 @@ function restoreTrash(tid) {
   if (t.kind === 'contact') { const c = { ...t.rec, id: uid('c') }; c.links = c.links.filter((l) => IDX.biz.has(l.bid)); touch(c); D.contacts.push(c); S.sel = { kind: 'contact', id: c.id }; S.tab = 'contacts'; }
   if (t.kind === 'business') { const b = { ...t.rec, id: uid('b') }; touch(b); D.businesses.push(b); (t.linked || []).forEach((cid) => { const c = D.contacts.find((x) => x.id === cid); if (c && !c.links.some((l) => l.bid === b.id)) { c.links.push({ bid: b.id }); touch(c); } }); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
   if (t.kind === 'farm') { const b = IDX.biz.get(t.bid); if (!b) { toast('Its business has been deleted — restore the business first'); return; } b.farms.push({ ...t.rec }); touch(b); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
-  Object.assign(t, { removed: true, rec: null }); D._trashDirty = true; changed(); toast('Restored');
+  Object.assign(t, { removed: true, rec: null }); D._trashDirty = true; S.skipConfirm = true; changed(); toast('Restored');
 }
 function trashLabel(t) { const r = t.rec || {}; return t.kind === 'contact' ? fullName(r) : t.kind === 'business' ? r.name : (t.bname || '') + ' — ' + (r.name || r.address || 'farm'); }
 function renderTrash() {
@@ -1652,7 +1714,7 @@ document.addEventListener('click', (e) => {
 });
 
 /* ---------------- change log with undo (synced) ---------------- */
-const LOG_SKIP = new Set(['gid', 'gKm', 'gMin', 'gAt', 'infoHtml']); // computed/duplicate fields not shown in the log
+const LOG_SKIP = new Set(['gid', 'gKm', 'gMin', 'gAt', 'infoHtml', 'ownCats', 'sharedWith']); // computed/duplicate fields not shown in the log
 const BASE = new Map(); const TOUCHED = new Set(); let PENDING_DEL = [];
 const deviceName = () => { try { return localStorage.getItem('bvt-devname') || 'Device ' + DEVICE.slice(-4); } catch (e) { return 'Device'; } };
 // key-order-independent JSON so {value,label} and {label,value} count as the same
@@ -1661,22 +1723,59 @@ const plain = (r) => { const o = {}; Object.keys(r).forEach((k) => { if (!k.star
 const recKind = (r) => (r === D.settings ? 'settings' : D.contacts.includes(r) ? 'contacts' : D.businesses.includes(r) ? 'businesses' : D.tags.includes(r) ? 'tags' : null);
 const recKeyOf = (kind, r) => (kind === 'settings' ? 'settings' : kind + ':' + r.id);
 const recName = (kind, r) => (kind === 'contacts' ? fullName(r) : kind === 'settings' ? 'Settings' : r.name || '');
-function baseline() { BASE.clear(); KINDS.forEach((k) => D[k].forEach((r) => BASE.set(k + ':' + r.id, stable(plain(r))))); BASE.set('settings', stable(plain(D.settings))); TOUCHED.clear(); PENDING_DEL = []; }
+let DISMISS_SNAP = '{}';
+function revertTouched() { // put back everything changed since the last save (used when a change is cancelled)
+  TOUCHED.forEach((r) => {
+    const kind = recKind(r); if (!kind) return; const was = BASE.get(recKeyOf(kind, r));
+    if (was === undefined) { if (kind !== 'settings') D[kind] = D[kind].filter((x) => x !== r); return; }
+    const old = JSON.parse(was); Object.keys(r).forEach((k) => { if (!k.startsWith('_')) delete r[k]; }); Object.assign(r, old);
+  });
+  TOUCHED.clear(); try { D.dismissed = JSON.parse(DISMISS_SNAP); } catch (e) { }
+}
+// the "field: old → new" lines shown in the confirm pop-up and the change log
+function changeRows(it) {
+  const row = (label, a, b) => `<div style="font-size:14.5px"><span class="hint">${h(label)}:</span> <s style="color:var(--red-ink)">${h(String(a).slice(0, 200))}</s> → <b style="color:#0d5c20">${h(String(b).slice(0, 200))}</b></div>`;
+  const names = (l) => l.map(tagName).join(', ') || 'none';
+  let out = '';
+  if (it.show) {
+    const [cb, ca] = it.show.categories, [tb, ta] = it.show.tags, [fb, fa] = it.show.follows;
+    if (cb.slice().sort().join() !== ca.slice().sort().join()) out += row('contact category', names(cb), names(ca));
+    if (fb !== fa) out += row('categories', fb ? 'same as business' : 'own', fa ? 'same as business' : 'own');
+    if (tb.slice().sort().join() !== ta.slice().sort().join()) out += row('additional tags', names(tb), names(ta));
+  }
+  Object.keys(it.after).filter((f) => !LOG_SKIP.has(f) && !(it.show && f === 'tags')).forEach((f) => { out += row(FIELD_NAMES[f] || f, fmtField(f, it.before[f]), fmtField(f, it.after[f])); });
+  return out || '<div class="hint">No visible change</div>';
+}
+function previewHtml(items) {
+  const n = items.length; const what = { contacts: 'contact', businesses: 'business', tags: 'tag', settings: 'setting' };
+  return `<p style="font-size:16px">${n} ${n === 1 ? 'item' : 'items'} will change. Please check, then confirm:</p><div style="max-height:55dvh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:#fff">${items.slice(0, 60).map((it) => `<div style="padding:6px 0;border-top:1px solid #f0ede8"><div style="font-weight:700">${h(it.name || '')} <span class="hint">${what[it.kind] || ''}</span></div>${it.created ? '<div class="hint">New — will be added</div>' : changeRows(it)}</div>`).join('')}${n > 60 ? `<div class="hint" style="padding:6px 0">…and ${n - 60} more</div>` : ''}</div>`;
+}
+function baseline() { DISMISS_SNAP = JSON.stringify(D.dismissed || {}); BASE.clear(); KINDS.forEach((k) => D[k].forEach((r) => BASE.set(k + ':' + r.id, stable(plain(r))))); BASE.set('settings', stable(plain(D.settings))); TOUCHED.clear(); PENDING_DEL = []; }
 const FIELD_NAMES = { first: 'first name', last: 'surname', middle: 'middle name', role: 'role', links: 'businesses', tags: 'tags', mobiles: 'mobile', landlines: 'landline', emails: 'email', postal: 'postal address', info: 'general info', warnings: 'warnings', starred: 'starred', photoChoice: 'photo', photoData: 'photo', flags: 'job flags', name: 'name', rating: 'A+ to C category', pics: 'PIC', patientIds: 'patient IDs', farms: 'farms / locations', primaryContact: 'primary contact', primaryRequired: 'primary contact required', type: 'business type', group: 'tag type', photo: 'photo', home: 'homebase', mapsKey: 'Google Maps key', photoPriority: 'photo priority', createdAt: 'created' };
-function logChanges(label) {
-  if (!D || !BASE.size) return;
+function diffTouched(commit) {
   const items = [];
   TOUCHED.forEach((r) => {
     const kind = recKind(r); if (!kind) return;
     const key = recKeyOf(kind, r); const now = plain(r); const nowS = stable(now); const was = BASE.get(key);
     if (was === nowS) return;
-    BASE.set(key, nowS);
+    if (commit) BASE.set(key, nowS);
     if (was === undefined) { items.push({ kind, id: r.id, name: recName(kind, r), created: true, after: now }); return; }
     const old = JSON.parse(was); const before = {}, after = {};
     new Set([...Object.keys(old), ...Object.keys(now)]).forEach((f) => { if (stable(old[f]) !== stable(now[f])) { before[f] = old[f] === undefined ? null : old[f]; after[f] = now[f] === undefined ? null : now[f]; } });
     if (!Object.keys(after).some((f) => !LOG_SKIP.has(f))) return; // only hidden fields changed
-    items.push({ kind, id: r.id, name: recName(kind, r), before, after });
+    const item = { kind, id: r.id, name: recName(kind, r), before, after };
+    if (kind === 'contacts' && ('tags' in after || 'ownCats' in after)) { // show categories in plain words
+      const effOf = (rec) => { const own = rec.ownCats || !(rec.links || []).length; const cats = own ? (rec.tags || []).filter(isCatTag) : [...new Set((rec.links || []).flatMap((l) => IDX.biz.get(l.bid)?.cats || []))]; const rt = (rec.tags || []).find((t) => RATING_SET.has(t)); const brt = rt ? [rt] : [...new Set((rec.links || []).map((l) => IDX.biz.get(l.bid)?.rating).filter(Boolean))]; return [...brt, ...cats]; };
+      const other = (rec) => (rec.tags || []).filter((t) => !isCatTag(t) && !RATING_SET.has(t));
+      item.show = { categories: [effOf(old), effOf(now)], tags: [other(old), other(now)], follows: [!old.ownCats && (old.links || []).length > 0, !now.ownCats && (now.links || []).length > 0] };
+    }
+    items.push(item);
   });
+  return items;
+}
+function logChanges(label) {
+  if (!D || !BASE.size) return;
+  const items = diffTouched(true);
   TOUCHED.clear();
   items.push(...PENDING_DEL); PENDING_DEL = [];
   if (!items.length) return;
@@ -1702,13 +1801,12 @@ function entrySummary(e) {
   if (e.label) return e.label;
   if (e.items.length === 1) { const it = e.items[0]; const what = { contacts: 'contact', businesses: 'business', tags: 'tag', settings: '' }[it.kind];
     if (it.created) return `Added ${what} ${it.name}`; if (it.deleted) return `Deleted ${what} ${it.name}`;
-    return `Changed ${what} ${it.name}`.replace('  ', ' ') + ' — ' + [...new Set(Object.keys(it.after).filter((f) => !LOG_SKIP.has(f)).map((f) => FIELD_NAMES[f] || f))].join(', '); }
+    return `Changed ${what} ${it.name}`.replace('  ', ' ') + ' — ' + ([...new Set(Object.keys(it.after).filter((f) => !LOG_SKIP.has(f)).map((f) => (f === 'tags' && it.show ? 'categories / tags' : FIELD_NAMES[f] || f)))].join(', ') || 'categories'); }
   const n = (k) => e.items.filter((i) => i.kind === k).length;
   return 'Changed ' + [['contacts', 'contact'], ['businesses', 'business'], ['tags', 'tag'], ['settings', 'settings']].filter(([k]) => n(k)).map(([k, w]) => (k === 'settings' ? 'settings' : n(k) + ' ' + w + (n(k) > 1 ? (w === 'business' ? 'es' : 's') : ''))).join(', ');
 }
 function renderLogDetails(e) {
-  return e.items.slice(0, 40).map((it) => `<div style="margin:6px 0 2px;font-weight:600">${h(it.name || '')}</div>` + (it.created ? '<div class="hint">Added</div>' : it.deleted ? '<div class="hint">Deleted (moved to trash)</div>' :
-    Object.keys(it.after).filter((f) => !LOG_SKIP.has(f)).map((f) => `<div style="font-size:14px"><span class="hint">${h(FIELD_NAMES[f] || f)}:</span> <s style="color:var(--red-ink)">${h(fmtField(f, it.before[f]).slice(0, 300))}</s> → <span style="color:#0d5c20">${h(fmtField(f, it.after[f]).slice(0, 300))}</span></div>`).join(''))).join('') + (e.items.length > 40 ? `<div class="hint">…and ${e.items.length - 40} more</div>` : '');
+  return e.items.slice(0, 40).map((it) => `<div style="margin:6px 0 2px;font-weight:600">${h(it.name || '')}</div>` + (it.created ? '<div class="hint">Added</div>' : it.deleted ? '<div class="hint">Deleted (moved to trash)</div>' : changeRows(it))).join('') + (e.items.length > 40 ? `<div class="hint">…and ${e.items.length - 40} more</div>` : '');
 }
 S.logShow = 30;
 function renderChangeLog() {
@@ -1717,12 +1815,12 @@ function renderChangeLog() {
   ${L.slice(0, S.logShow).map((e) => `<details style="border-top:1px solid #f0ede8;padding:8px 0"><summary style="cursor:pointer;list-style:none;display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><div style="font-weight:600;${e.undone ? 'text-decoration:line-through;color:var(--ink3)' : ''}">${h(entrySummary(e))}</div><div class="hint">${new Date(e.at).toLocaleString('en-AU')} · ${h(e.dev || '')}${e.undone ? ' · undone' : ''}${e.undoOf ? ' · undo' : ''}</div></div>${e.undone ? '' : `<button class="btn small" data-act="log-undo" data-id="${e.id}">↶ Undo</button>`}</summary><div style="padding:4px 0 0 4px">${renderLogDetails(e)}</div></details>`).join('') || '<div class="hint">No changes yet.</div>'}
   ${L.length > S.logShow ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="log-more">Show more</button></div>' : ''}</div>`;
 }
-function undoEntry(id) {
+async function undoEntry(id) {
   const e = (D.changelog || []).find((x) => x.id === id); if (!e || e.undone) return;
   const find = (it) => (it.kind === 'settings' ? D.settings : (D[it.kind] || []).find((r) => r.id === it.id));
   // has anything in this change been edited again since?
   const later = e.items.filter((it) => { const r = find(it); if (it.deleted) return false; if (it.created) return !r || stable(plain(r)) !== JSON.stringify(it.after); if (!r) return true; return Object.keys(it.after).some((f) => stable(r[f] === undefined ? null : r[f]) !== stable(it.after[f])); });
-  if (!confirm(`Undo "${entrySummary(e)}"?${later.length ? `\n\n${later.map((i) => i.name).slice(0, 5).join(', ')} ${later.length === 1 ? 'has' : 'have'} been changed again since — undo will also overwrite those later changes to the same fields.` : ''}`)) return;
+  if (!(await ask(`Undo "${entrySummary(e)}"?${later.length ? `\n\n${later.map((i) => i.name).slice(0, 5).join(', ')} ${later.length === 1 ? 'has' : 'have'} been changed again since — undo will also overwrite those later changes to the same fields.` : ''}`, 'Yes — undo it'))) return;
   const lbl = 'Undo: ' + entrySummary(e); NEXT_LOG_LABEL = lbl;
   e.items.forEach((it) => {
     const r = find(it);
@@ -1733,7 +1831,7 @@ function undoEntry(id) {
     touch(r);
   });
   e.undone = true; D._logDirty = true; photoCache.clear();
-  NEXT_LOG_LABEL = lbl; changed(); toast('Undone');
+  NEXT_LOG_LABEL = lbl; S.skipConfirm = true; changed(); toast('Undone');
 }
 let NEXT_LOG_LABEL = null;
 document.addEventListener('click', (ev) => {
@@ -1828,7 +1926,7 @@ document.addEventListener('click', async (e) => {
       if (!['contacts', 'biz'].includes(S.tab)) { S.backTo = S.tab; S.tab = d.kind === 'business' ? 'biz' : 'contacts'; }
       S.sel = { kind: d.kind, id: d.id }; renderAll(); $('#detail').scrollTop = 0; break;
     }
-    case 'back': navBack(); break;
+    case 'back': case 'nav-back': navBack(); break;
     case 'quick': S.quick[d.v] = !S.quick[d.v]; renderContactList(); break;
     case 'tagf': { const cur = S.tagF[d.v]; if (!cur) S.tagF[d.v] = 'inc'; else if (cur === 'inc') S.tagF[d.v] = 'exc'; else delete S.tagF[d.v]; renderContactList(); break; }
     case 'clear': e.preventDefault(); S.q = ''; S.tagF = {}; S.quick = {}; renderContactList(); break;
@@ -1841,14 +1939,14 @@ document.addEventListener('click', async (e) => {
     case 'edit-farm': editFarm(IDX.biz.get(d.bid), IDX.farms.get(d.fid)); break;
     case 'calc-dist': SHEET && SHEET.calc && SHEET.calc(); break;
     case 'sheet-cancel': closeSheet(); break;
-    case 'sheet-save': { if (!SHEET) break; const ok = await SHEET.onSave(); if (ok !== false) { closeSheet(); changed(); toast('Saved'); } break; }
+    case 'sheet-save': { if (!SHEET) break; const ok = await SHEET.onSave(); if (ok !== false) { const done = await changed(); if (done) { closeSheet(); toast('Saved'); } } break; }
     case 'rep-add': { const tpl = document.querySelector(`#sheet template[data-reptpl="${d.rep}"]`); document.querySelector(`#sheet [data-repwrap="${d.rep}"]`).insertAdjacentHTML('beforeend', tpl.innerHTML); break; }
     case 'rep-del': el.closest('.rep').remove(); break;
     case 'link-biz': $('#e-links').insertAdjacentHTML('beforeend', linkRow(d.bid)); $('#e-bizsearch').value = ''; $('#e-bizres').innerHTML = ''; break;
     case 'link-newbiz': $('#e-links').insertAdjacentHTML('beforeend', linkRow(null, d.name)); $('#e-bizsearch').value = ''; $('#e-bizres').innerHTML = ''; break;
-    case 'del-contact': if (confirm('Move this contact to the trash? You can restore it from Settings → Trash.')) { trashContact(D.contacts.find((c) => c.id === d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
-    case 'del-biz': if (confirm('Move this business and its farms to the trash? Contacts stay. You can restore it from Settings → Trash.')) { trashBiz(IDX.biz.get(d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
-    case 'del-farm': if (confirm('Move this farm to the trash? You can restore it from Settings → Trash.')) { const b = IDX.biz.get(d.bid); trashFarm(b, IDX.farms.get(d.fid)); closeSheet(); changed(); toast('Moved to trash'); } break;
+    case 'del-contact': if (await ask(`Move ${fullName(D.contacts.find((c) => c.id === d.id))} to the trash?\n\nYou can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { trashContact(D.contacts.find((c) => c.id === d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
+    case 'del-biz': if (await ask(`Move ${IDX.biz.get(d.id).name} and its farms to the trash?\n\nIts contacts stay. You can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { trashBiz(IDX.biz.get(d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
+    case 'del-farm': if (await ask(`Move ${IDX.farms.get(d.fid)?.name || 'this farm'} (${IDX.biz.get(d.bid).name}) to the trash?\n\nYou can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { const b = IDX.biz.get(d.bid); trashFarm(b, IDX.farms.get(d.fid)); closeSheet(); changed(); toast('Moved to trash'); } break;
     case 'route-add': addStop(d.fid); break;
     case 'route-add-biz': IDX.biz.get(d.bid).farms.filter((f) => f.lat != null).forEach((f) => addStop(f.id, true)); toast('Added to route'); renderTabs(); break;
     case 'rs-up': case 'rs-down': { const i = +d.i, j = a === 'rs-up' ? i - 1 : i + 1; const s = S.route.stops; [s[i], s[j]] = [s[j], s[i]]; S.route.mode = 'order'; renderAll(); break; }
@@ -1872,7 +1970,7 @@ document.addEventListener('click', async (e) => {
     case 'pin-same': {
       const keep = IDX.farms.get(d.keep), other = IDX.farms.get(d.other); const bk = IDX.farmBiz.get(keep.id), bo = IDX.farmBiz.get(other.id);
       if (bk === bo) { // same business: merge the two entries into one
-        if (!confirm('Merge these into one farm? Names, info and warnings are combined and the extra entry is removed.')) break;
+        if (!(await ask(`Merge "${other.name || 'farm'}" into "${keep.name || 'farm'}" (${bk.name})?\n\nNames, info and warnings are combined and the extra entry goes to the trash.`, 'Yes — merge'))) break;
         const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
         keep.info = join(keep.info, other.info); keep.warning = join(keep.warning, other.warning); keep.seeWarning = keep.seeWarning || other.seeWarning;
         if (!keep.address) keep.address = other.address; if (!keep.name) keep.name = other.name;
@@ -1884,19 +1982,19 @@ document.addEventListener('click', async (e) => {
         toast(`Same yards used by ${bk.name} and ${bo.name} — pin, km and drive time copied.`);
       }
       changed(); break; }
-    case 'prio': { const o = photoOrder(); const i = o.indexOf(d.id), j = i + +d.dir; if (i < 0 || j < 0 || j >= o.length) break; [o[i], o[j]] = [o[j], o[i]]; D.settings.photoPriority = o; touch(D.settings); photoCache.clear(); changed(); break; }
+    case 'prio': { const o = photoOrder(); const i = o.indexOf(d.id), j = i + +d.dir; if (i < 0 || j < 0 || j >= o.length) break; [o[i], o[j]] = [o[j], o[i]]; D.settings.photoPriority = o; touch(D.settings); photoCache.clear(); S.skipConfirm = true; changed(); break; }
     case 'prio-reset': delete D.settings.photoPriority; touch(D.settings); photoCache.clear(); changed(); break;
     case 'app-refresh': refreshApp(); break;
-    case 'trash-restore': restoreTrash(d.tid); break;
-    case 'trash-empty': if (confirm('Permanently delete everything in the trash? This cannot be undone.')) { D.trash.forEach((t) => { if (!t.removed) Object.assign(t, { removed: true, rec: null }); }); D._trashDirty = true; changed(); } break;
+    case 'trash-restore': { const t = (D.trash || []).find((x) => x.tid === d.tid); if (t && await ask(`Restore ${trashLabel(t)} from the trash?`, 'Yes — restore')) restoreTrash(d.tid); break; }
+    case 'trash-empty': if (await ask('Permanently delete everything in the trash?\n\nThis cannot be undone.', 'Yes — delete permanently', true)) { D.trash.forEach((t) => { if (!t.removed) Object.assign(t, { removed: true, rec: null }); }); D._trashDirty = true; changed(); } break;
     case 'dupe-not': D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); changed(); break;
     case 'dupe-merge': {
       const isC = d.kind === 'contact'; const keep = isC ? D.contacts.find((x) => x.id === d.keep) : IDX.biz.get(d.keep); const other = isC ? D.contacts.find((x) => x.id === d.other) : IDX.biz.get(d.other);
       if (!keep || !other) break;
-      if (!confirm(`Merge "${isC ? fullName(other) : other.name}" into "${isC ? fullName(keep) : keep.name}"? Everything is combined into one; the extra one goes to the trash.`)) break;
+      if (!(await ask(`Merge "${isC ? fullName(other) : other.name}" into "${isC ? fullName(keep) : keep.name}"?\n\nEverything is combined into one; the extra one goes to the trash.`, 'Yes — merge'))) break;
       isC ? mergeContacts(keep, other) : mergeBiz(keep, other); changed(); toast('Merged'); break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); if (c && !c.links.some((l) => l.bid === d.bid)) { c.links.push({ bid: d.bid }); touch(c); changed(); toast(fullName(c) + ' linked'); } break; }
-    case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && confirm(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
+    case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && await ask(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
     case 'cat-all': { const cs = IDX.bizContacts.get(d.bid) || []; let n = 0; cs.forEach((c) => { const has = effCats(c).includes(d.tag); if (d.on === '1' && !has) { setCats(c, [...effCats(c), d.tag]); n++; } if (d.on === '0' && has) { setCats(c, effCats(c).filter((t) => t !== d.tag)); n++; } });
       NEXT_LOG_LABEL = `${d.on === '1' ? 'Gave' : 'Removed'} ${tagName(d.tag)} ${d.on === '1' ? 'to' : 'from'} everyone at ${IDX.biz.get(d.bid)?.name || ''}`; photoCache.clear(); Sync.soon(); changed(); toast('Updated ' + n + ' contact' + (n === 1 ? '' : 's')); break; }
@@ -1908,9 +2006,9 @@ document.addEventListener('click', async (e) => {
     case 'check-dist': checkAllDistances(); break;
     case 'new-tag': editTag(null); break;
     case 'edit-tag': editTag(IDX.tags.get(d.id)); break;
-    case 'del-tag': if (confirm('Delete this tag? It will be removed from all contacts.')) { D.tags = D.tags.filter((t) => t.id !== d.id); (D.deleted = D.deleted || []).push({ id: d.id, kind: 'tags', at: Date.now() }); D.contacts.forEach((c) => { if (c.tags.includes(d.id)) { c.tags = c.tags.filter((t) => t !== d.id); touch(c); } }); closeSheet(); changed(); } break;
-    case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); save(); toast('Homebase saved'); break; }
-    case 'save-key': D.settings.mapsKey = val('s-mapskey'); touch(D.settings); save(); toast('Key saved'); renderAll(); break;
+    case 'del-tag': if (await ask(`Delete the tag "${tagName(d.id)}"?\n\nIt will be removed from ${D.contacts.filter((c) => contactTagSet(c).has(d.id)).length} contacts.`, 'Yes — delete tag', true)) { D.tags = D.tags.filter((t) => t.id !== d.id); (D.deleted = D.deleted || []).push({ id: d.id, kind: 'tags', at: Date.now() }); D.contacts.forEach((c) => { if (c.tags.includes(d.id)) { c.tags = c.tags.filter((t) => t !== d.id); touch(c); } }); closeSheet(); changed(); } break;
+    case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); if (await changed()) toast('Homebase saved'); break; }
+    case 'save-key': D.settings.mapsKey = val('s-mapskey'); touch(D.settings); if (await changed()) toast('Key saved'); break;
     case 'export': { const blob = new Blob([JSON.stringify(D)], { type: 'application/json' }); const u = URL.createObjectURL(blob); const l = document.createElement('a'); l.href = u; l.download = `bovitech-contacts-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(l); l.click(); l.remove(); break; }
   }
 });
@@ -1939,7 +2037,7 @@ document.addEventListener('change', async (e) => {
   if (t.dataset.act === 'sort') { S.sort = t.value; renderContactList(); }
   if (t.dataset.act === 'bsort') { S.bsort = t.value; renderBizList(); }
   if (t.dataset.act === 'import' && t.files[0]) {
-    try { const js = JSON.parse(await t.files[0].text()); if (!js.contacts || !js.businesses) throw new Error('Not a backup file'); if (!confirm('Replace all data on this device with this file?')) return;
+    try { const js = JSON.parse(await t.files[0].text()); if (!js.contacts || !js.businesses) throw new Error('Not a backup file'); if (!(await ask('Replace all data on this device with this file?', 'Yes — replace'))) return;
       const keepSync = D.sync; D = js; D.sync = keepSync || {}; D.deleted = D.deleted || []; D.conflicts = []; D.dismissed = D.dismissed || {}; D.firstRun = false; D.importedAt = D.importedAt || new Date().toLocaleDateString('en-AU');
       [...D.contacts, ...D.businesses, ...D.tags, D.settings].forEach((r) => (r._dirty = true));
       reindex(); migrate(); baseline(); changed(); toast('Data loaded'); Sync.soon(); } catch (err) { toast('Could not restore: ' + err.message); }
@@ -1949,6 +2047,7 @@ function net() { const n = $('#net'); n.textContent = navigator.onLine ? 'Online
 window.addEventListener('online', net); window.addEventListener('offline', net);
 window.addEventListener('popstate', () => {
   if (NAV.ignorePop) { NAV.ignorePop--; return; }
+  if (CONFIRM) { closeAsk(false, true); return; } // phone Back closes a confirm pop-up first
   if (SHEET) { SHEET.popped = true; closeSheet(); return; } // back closes an open edit screen first
   navRestore();
 });
