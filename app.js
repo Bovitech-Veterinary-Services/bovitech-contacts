@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '3.0 (14 Oct 2026)';
+const APP_VERSION = '3.1 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -876,6 +876,42 @@ function shareFarm(keep, other) {
   other.sharedWith = keep.id; touch(IDX.farmBiz.get(other.id));
   if (!keep.sharedWith) { keep.sharedWith = other.id; touch(IDX.farmBiz.get(keep.id)); }
 }
+// edit the contact categories of everyone at one business on one screen
+function editBizCats(bid) {
+  const b = IDX.biz.get(bid); const cs = IDX.bizContacts.get(bid) || []; const cats = D.tags.filter((t) => t.group === 'client');
+  const body = `<div class="hint" style="margin-bottom:8px">Tick the categories each person should have, or use the quick change to give or remove one category for several people at once.</div>
+  <div class="card" style="background:#fffbea"><h3>Quick change</h3>
+    <div class="search" style="flex-wrap:wrap"><select id="bc-tag" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:9px">${cats.map((t) => `<option value="${t.id}">${h(t.name)}</option>`).join('')}</select>
+    <button class="btn small" type="button" data-act="bc-quick" data-on="1">Add to ticked people</button><button class="btn small" type="button" data-act="bc-quick" data-on="0">Remove from ticked people</button></div>
+    <label style="display:block;margin-top:8px"><input type="checkbox" id="bc-all"> Tick everyone</label></div>
+  ${cs.map((c) => `<div class="card" data-bccontact="${c.id}"><h3 style="text-transform:none;letter-spacing:0;font-size:17px;color:var(--ink)"><input type="checkbox" class="bc-pick" data-cid="${c.id}" style="width:20px;height:20px"> <span class="sp">${h(fullName(c))}</span></h3>
+    <div class="checks">${cats.map((t) => `<label><input type="checkbox" data-bccat="${t.id}" ${c.tags.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div></div>`).join('')}`;
+  openSheet('Categories — ' + b.name, body, () => {
+    let n = 0;
+    document.querySelectorAll('#sheet [data-bccontact]').forEach((row) => {
+      const c = D.contacts.find((x) => x.id === row.dataset.bccontact); if (!c) return;
+      const want = [...row.querySelectorAll('[data-bccat]')].filter((i) => i.checked).map((i) => i.dataset.bccat);
+      const before = c.tags.filter((t) => IDX.tags.get(t)?.group === 'client');
+      if (before.slice().sort().join() === want.slice().sort().join()) return;
+      if (!before.includes('dna') && want.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); }
+      if (!before.includes('inactive') && want.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); }
+      c.tags = [...c.tags.filter((t) => IDX.tags.get(t)?.group !== 'client'), ...want]; touch(c); n++;
+    });
+    NEXT_LOG_LABEL = `Categories updated for ${n} contact${n === 1 ? '' : 's'} at ${b.name}`; photoCache.clear(); Sync.soon();
+    if (!n) toast('No changes'); return true;
+  });
+}
+document.addEventListener('change', (e) => { if (e.target.id === 'bc-all') document.querySelectorAll('#sheet .bc-pick').forEach((i) => (i.checked = e.target.checked)); });
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  if (el.dataset.act === 'cat-edit') editBizCats(el.dataset.bid);
+  if (el.dataset.act === 'bc-quick') {
+    const tag = $('#bc-tag').value; const picked = [...document.querySelectorAll('#sheet .bc-pick')].filter((i) => i.checked);
+    if (!picked.length) { toast('Tick the people first'); return; }
+    picked.forEach((p) => { const box = document.querySelector(`#sheet [data-bccontact="${p.dataset.cid}"] [data-bccat="${tag}"]`); if (box) box.checked = el.dataset.on === '1'; });
+    toast(`${el.dataset.on === '1' ? 'Added' : 'Removed'} — press Save to keep`);
+  }
+});
 function runBulk(t, op) {
   const sel = jobs().filter((j) => j.type === t && S.jobSel.has(j.key)); if (!sel.length) return;
   const label = bulkOps(t, sel).find((o) => o.op === op)?.label || op;
@@ -935,6 +971,7 @@ function renderJobs() {
         <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fb.id}" data-other="${fa.id}">${j.pair.same ? "Same farm — merge, keep 2's details" : "Same yards used by both businesses — keep 2's details"}</button>`; })() : ''}
       ${j.dupe ? (() => { const x = j.dupe, isC = x.kind === 'contact'; const A = isC ? D.contacts.find((c) => c.id === x.a) : IDX.biz.get(x.a), B = isC ? D.contacts.find((c) => c.id === x.b) : IDX.biz.get(x.b); const nm = (r) => h(isC ? fullName(r) : r.name);
         return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">Merge into 1 (${nm(A)})</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">Merge into 2 (${nm(B)})</button>`; })() : ''}
+      ${j.catdiff ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.catdiff.bid}">Choose categories…</button>` : ''}
       ${j.catdiff ? j.catdiff.tags.map((x) => `<button class="btn small ${x.has * 2 >= x.of ? 'greenbtn' : ''}" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${x.t}" data-on="1">Give everyone ${h(tagName(x.t))}</button><button class="btn small ${x.has * 2 < x.of ? 'greenbtn' : ''}" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${x.t}" data-on="0">Remove ${h(tagName(x.t))} from everyone</button>`).join('') : ''}
       ${j.cat ? `<button class="btn small greenbtn" data-act="cat-apply" data-cid="${j.cat.cid}" data-at="${j.cat.at}">✓ Yes — change them too</button>` : ''}
       ${j.block ? `<button class="btn small greenbtn" data-act="block-yes" data-cid="${j.block}">✓ Yes — number blocked</button>${(D.contacts.find((x) => x.id === j.block) || { tags: [] }).tags.includes('blockedn') ? '' : `<button class="btn small" data-act="block-no" data-cid="${j.block}">Not yet</button>`}` : ''}
