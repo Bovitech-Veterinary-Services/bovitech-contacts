@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '2.5 (14 Oct 2026)';
+const APP_VERSION = '2.6 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -314,6 +314,17 @@ function computeJobs() {
     if (c.createdAt) { const miss = missingInfo(c); if (miss.length) add({ type: 'newinfo', kind: 'contact', id: c.id, who, note: 'Missing: ' + miss.join(', ') }); }
     (c.flags || []).forEach((fl) => { if (fl.type === 'multirating') add({ type: 'multirating', kind: 'contact', id: c.id, who, note: fl.note }); });
   });
+  // contacts at the same business with different categories (skip businesses already being asked about via a category change)
+  const pendingBiz = new Set(); D.contacts.forEach((c) => (c.flags || []).forEach((f) => { if (f.type === 'catprop') (f.bids || []).forEach((b) => pendingBiz.add(b)); }));
+  const isCat = (t) => IDX.tags.get(t)?.group === 'client';
+  D.businesses.forEach((b) => {
+    const cs = IDX.bizContacts.get(b.id) || []; if (cs.length < 2 || pendingBiz.has(b.id)) return;
+    const diff = [...new Set(cs.flatMap((c) => c.tags.filter(isCat)))].filter((t) => !cs.every((c) => c.tags.includes(t))); if (!diff.length) return;
+    const sig = diff.map((t) => t + ':' + cs.filter((c) => c.tags.includes(t)).map((c) => c.id).join('.')).join('|'); let hs = 0; for (let i = 0; i < sig.length; i++) hs = (hs * 31 + sig.charCodeAt(i)) | 0;
+    add({ type: 'catdiff', key: 'catdiff:' + b.id + ':' + hs.toString(36), kind: 'business', id: b.id, who: b.name,
+      note: diff.map((t) => { const has = cs.filter((c) => c.tags.includes(t)), not = cs.filter((c) => !c.tags.includes(t)); return `${tagName(t)}: ${has.map((c) => c.first).join(', ')} — but not ${not.map((c) => c.first).join(', ')}`; }).join(' • ') + '. Update them so they match?',
+      catdiff: { bid: b.id, tags: diff.map((t) => ({ t, has: cs.filter((c) => c.tags.includes(t)).length, of: cs.length })) } });
+  });
   (D.conflicts || []).forEach((cf) => add({ type: 'conflict', kind: cf.kind === 'businesses' ? 'business' : 'contact', id: cf.key, who: cf.who, note: 'Changed on two devices while offline — choose which version to keep', data: cf }));
   return jobs;
 }
@@ -328,6 +339,7 @@ const JOB_TYPES = {
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
   nokm: { t: 'No distance recorded', manual: true },
   photo: { t: 'Choose which photo to show', manual: false },
+  catdiff: { t: 'Contacts at the same business have different categories', manual: true, btn: 'Leave as is' },
   catprop: { t: 'Category changed — change the other contacts at the same business too?', manual: true, btn: 'No — only this contact' },
   blockcheck: { t: 'Do not answer — has the number been blocked?', manual: true },
   ezyvet: { t: 'Check client has been inactivated in ezyVet', manual: true, btn: 'Done in ezyVet' },
@@ -905,6 +917,7 @@ function renderJobs() {
         <button class="btn small" data-act="pin-same" data-keep="${fb.id}" data-other="${fa.id}">Same farm — use pin 2</button>`; })() : ''}
       ${j.dupe ? (() => { const x = j.dupe, isC = x.kind === 'contact'; const A = isC ? D.contacts.find((c) => c.id === x.a) : IDX.biz.get(x.a), B = isC ? D.contacts.find((c) => c.id === x.b) : IDX.biz.get(x.b); const nm = (r) => h(isC ? fullName(r) : r.name);
         return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">Merge into 1 (${nm(A)})</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">Merge into 2 (${nm(B)})</button>`; })() : ''}
+      ${j.catdiff ? j.catdiff.tags.map((x) => `<button class="btn small ${x.has * 2 >= x.of ? 'greenbtn' : ''}" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${x.t}" data-on="1">Give everyone ${h(tagName(x.t))}</button><button class="btn small ${x.has * 2 < x.of ? 'greenbtn' : ''}" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${x.t}" data-on="0">Remove ${h(tagName(x.t))} from everyone</button>`).join('') : ''}
       ${j.cat ? `<button class="btn small greenbtn" data-act="cat-apply" data-cid="${j.cat.cid}" data-at="${j.cat.at}">✓ Yes — change them too</button>` : ''}
       ${j.block ? `<button class="btn small greenbtn" data-act="block-yes" data-cid="${j.block}">✓ Yes — number blocked</button>${(D.contacts.find((x) => x.id === j.block) || { tags: [] }).tags.includes('blockedn') ? '' : `<button class="btn small" data-act="block-no" data-cid="${j.block}">Not yet</button>`}` : ''}
       ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}
@@ -1722,6 +1735,8 @@ document.addEventListener('click', async (e) => {
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); if (c && !c.links.some((l) => l.bid === d.bid)) { c.links.push({ bid: d.bid }); touch(c); changed(); toast(fullName(c) + ' linked'); } break; }
     case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && confirm(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
+    case 'cat-all': { const cs = IDX.bizContacts.get(d.bid) || []; let n = 0; cs.forEach((c) => { const has = c.tags.includes(d.tag); if (d.on === '1' && !has) { c.tags.push(d.tag); touch(c); n++; } if (d.on === '0' && has) { c.tags = c.tags.filter((t) => t !== d.tag); touch(c); n++; } });
+      NEXT_LOG_LABEL = `${d.on === '1' ? 'Gave' : 'Removed'} ${tagName(d.tag)} ${d.on === '1' ? 'to' : 'from'} everyone at ${IDX.biz.get(d.bid)?.name || ''}`; photoCache.clear(); Sync.soon(); changed(); toast('Updated ' + n + ' contact' + (n === 1 ? '' : 's')); break; }
     case 'cat-apply': { const n = applyCat(d.cid, d.at); NEXT_LOG_LABEL = `Category change copied to ${n} other contact${n === 1 ? '' : 's'}`; Sync.soon(); changed(); toast('Updated ' + n + ' contact' + (n === 1 ? '' : 's')); break; }
     case 'block-yes': setBlocked(d.cid, true); Sync.soon(); changed(); toast('Marked: Number blocked (confirmed)'); break;
     case 'block-no': setBlocked(d.cid, false); Sync.soon(); changed(); toast('Marked: Number blocked (needs confirming)'); break;
