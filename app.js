@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.2 (15 Oct 2026)';
+const APP_VERSION = '4.3 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -100,8 +100,8 @@ const ownRating = (c) => c.tags.find((t) => RATING_SET.has(t)) || null;
 // one category only (A+ to C counts as a category). catOf = the single category a contact/business has.
 const bizCat = (b) => b.rating || (b.cats || [])[0] || '';
 const catOf = (c) => (followsBiz(c) ? bizOf(c).map(bizCat).find(Boolean) || '' : ownRating(c) || c.tags.filter(isCatTag)[0] || '');
-function setBizCat(b, v) { b.rating = RATING_SET.has(v) ? v : null; b.cats = v && !RATING_SET.has(v) ? [v] : []; touch(b); }
-function setOne(c, v) { // give a contact exactly one category ('' = none); matching the business → follow the business
+function setBizCat(b, v) { if (bizCat(b) !== v && (b.flags || []).some((f) => f.type === 'catpick')) b.flags = b.flags.filter((f) => f.type !== 'catpick'); b.rating = RATING_SET.has(v) ? v : null; b.cats = v && !RATING_SET.has(v) ? [v] : []; touch(b); }
+function setOne(c, v) { if (catOf(c) !== v && (c.flags || []).some((f) => f.type === 'catpick')) c.flags = c.flags.filter((f) => f.type !== 'catpick'); // give a contact exactly one category ('' = none); matching the business → follow the business
   c.tags = c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t));
   if (bizOf(c).length && v === (bizOf(c).map(bizCat).find(Boolean) || '')) c.ownCats = false; else { c.ownCats = true; if (v) c.tags.push(v); }
   touch(c);
@@ -339,8 +339,8 @@ function computeJobs() {
     if (c.createdAt) { const miss = missingInfo(c); if (miss.length) add({ type: 'newinfo', kind: 'contact', id: c.id, who, note: 'Missing: ' + miss.join(', ') }); }
     (c.flags || []).forEach((fl) => { if (fl.type === 'multirating') add({ type: 'multirating', kind: 'contact', id: c.id, who, note: fl.note }); });
   });
-  D.businesses.forEach((b) => (b.flags || []).forEach((fl) => { if (fl.type === 'catpick') add({ type: 'catpick', key: 'catpick:' + b.id, kind: 'business', id: b.id, who: b.name, note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
-  D.contacts.forEach((c) => (c.flags || []).forEach((fl) => { if (fl.type === 'catpick') add({ type: 'catpick', key: 'catpick:' + c.id, kind: 'contact', id: c.id, who: fullName(c), note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
+  D.businesses.forEach((b) => (b.flags || []).forEach((fl) => { if (fl.type === 'catpick' && bizCat(b) === (fl.kept || '')) add({ type: 'catpick', key: 'catpick:' + b.id, kind: 'business', id: b.id, who: b.name, note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
+  D.contacts.forEach((c) => (c.flags || []).forEach((fl) => { if (fl.type === 'catpick' && catOf(c) === (fl.kept || '')) add({ type: 'catpick', key: 'catpick:' + c.id, kind: 'contact', id: c.id, who: fullName(c), note: `Had ${fl.had.map(tagName).join(' + ')} — now ${fl.kept ? tagName(fl.kept) : 'no category'}. Change it if that's not right.` }); }));
   // contacts at the same business with different categories (skip businesses already being asked about via a category change)
   const pendingBiz = new Set(); D.contacts.forEach((c) => (c.flags || []).forEach((f) => { if (f.type === 'catprop') (f.bids || []).forEach((b) => pendingBiz.add(b)); }));
   const isCat = (t) => IDX.tags.get(t)?.group === 'client';
@@ -812,7 +812,7 @@ function editBiz(b) {
     const pSel = $('#e-bprimary'); if (pSel) { b.primaryContact = pSel.value || null; const pc = D.contacts.find((x) => x.id === b.primaryContact); if (pc && !pc.tags.includes('pa') && !pc.tags.includes('pi')) { pc.tags.push('pa'); touch(pc); } }
     if (pick === 'inactive' && !$('#e-binreason').value.trim()) { toast('Please add the reason for inactivating'); $('#e-binwrap').style.display = ''; $('#e-binreason').focus(); return false; }
     if (pick === 'dna' && !$('#e-bdnareason').value.trim()) { toast('Please add the reason for "Do not answer"'); $('#e-bdnawrap').style.display = ''; $('#e-bdnareason').focus(); return false; }
-    const oldBc = b.cats || []; b.cats = pick && !RATING_SET.has(pick) ? [pick] : [];
+    const oldBc = b.cats || []; b.cats = pick && !RATING_SET.has(pick) ? [pick] : []; if (pick !== bizCat({ rating: b.rating, cats: oldBc }) || newRating !== (b.rating || null)) b.flags = (b.flags || []).filter((f) => f.type !== 'catpick');
     (IDX.bizContacts.get(b.id) || []).filter(followsBiz).forEach((c) => {
       if (!oldBc.includes('inactive') && b.cats.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); touch(c); }
       if (!oldBc.includes('dna') && b.cats.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); touch(c); }
@@ -1053,7 +1053,7 @@ function editBizCats(bid) {
     let n = 0;
     const bpick = rtVal($('#sheet'), 'bizr'); const nr = RATING_SET.has(bpick) ? bpick : null; const nbc = bpick && !RATING_SET.has(bpick) ? [bpick] : [];
     const oldBc = b.cats || []; let bch = false;
-    if (nr !== (b.rating || null) || nbc.slice().sort().join() !== oldBc.slice().sort().join()) { b.rating = nr; b.cats = nbc; b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict'); touch(b); bch = true; reindex(); }
+    if (nr !== (b.rating || null) || nbc.slice().sort().join() !== oldBc.slice().sort().join()) { b.rating = nr; b.cats = nbc; b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict' && f.type !== 'catpick'); touch(b); bch = true; reindex(); }
     document.querySelectorAll('#sheet [data-bccontact]').forEach((row) => {
       const c = D.contacts.find((x) => x.id === row.dataset.bccontact); if (!c) return;
       const before = effCats(c), beforeR = ownRating(c), wasFollow = followsBiz(c);
@@ -1129,7 +1129,7 @@ function renderJobs() {
   js.forEach((j) => (groups[j.type] = groups[j.type] || []).push(j));
   let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Jobs — things to check</h2>
   <div class="hint" style="margin-bottom:10px">Items clear automatically once fixed. Flags also show on the contact or business itself.</div>
-  <div class="actions"><button class="btn" data-act="check-dist">Check all distances against Google Maps</button></div><div id="check-msg" class="hint"></div>`;
+  <div class="actions"><button class="btn primary" data-act="jobs-refresh">⟳ Refresh jobs</button><button class="btn" data-act="check-dist">Check all distances against Google Maps</button></div><div id="check-msg" class="hint"></div>`;
   if (!js.length) html += `<div class="empty">Nothing needs attention. 🎉</div>`;
   Object.keys(JOB_TYPES).forEach((t) => {
     const g = groups[t]; if (!g) return;
@@ -2094,6 +2094,7 @@ document.addEventListener('click', async (e) => {
     case 'edit-farm': editFarm(IDX.biz.get(d.bid), IDX.farms.get(d.fid)); break;
     case 'calc-dist': SHEET && SHEET.calc && SHEET.calc(); break;
     case 'sheet-cancel': leaveSheet(); break;
+    case 'jobs-refresh': JOBS_CACHE = null; reindex(); renderAll(); toast('Jobs refreshed — ' + jobs().length + ' to check'); break;
     case 'sheet-save': { if (!SHEET) break; const ok = await SHEET.onSave(); if (ok !== false) { const done = await changed(); if (done) { closeSheet(); toast('Saved'); } } break; }
     case 'rep-add': { const tpl = document.querySelector(`#sheet template[data-reptpl="${d.rep}"]`); document.querySelector(`#sheet [data-repwrap="${d.rep}"]`).insertAdjacentHTML('beforeend', tpl.innerHTML); break; }
     case 'rep-del': el.closest('.rep').remove(); break;
