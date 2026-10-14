@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '1.9 (14 Oct 2026)';
+const APP_VERSION = '2.0 (14 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -65,7 +65,7 @@ const Store = {
 let saveTimer = null;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => Store.set('data', D), 150); }
 function touch(rec) { rec._u = Date.now(); rec._dev = DEVICE; rec._dirty = true; if (window.Sync) Sync.soon(); }
-function pendingCount() { if (!D) return 0; return [...D.contacts, ...D.businesses, ...D.tags, D.settings].filter((r) => r && r._dirty).length + (D.deleted || []).filter((x) => !x.synced).length + (D._dismissDirty ? 1 : 0); }
+function pendingCount() { if (!D) return 0; return [...D.contacts, ...D.businesses, ...D.tags, D.settings].filter((r) => r && r._dirty).length + (D.deleted || []).filter((x) => !x.synced).length + (D._dismissDirty ? 1 : 0) + (D._trashDirty ? 1 : 0); }
 
 async function loadSeed() {
   if (window.SEED) { const d = JSON.parse(JSON.stringify(window.SEED)); d.importedAt = '14 Oct 2026'; return d; }
@@ -260,7 +260,7 @@ function computeJobs() {
       if (f.lat != null && f.kmReturn != null) { const k = f.lat.toFixed(3) + ',' + f.lng.toFixed(3); if (!byGps.has(k)) byGps.set(k, []); byGps.get(k).push({ b, f }); }
     });
     (b.flags || []).forEach((fl) => add({ type: fl.type, kind: 'business', id: b.id, who: b.name, note: fl.note }));
-    if (!primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
+    if (b.primaryRequired !== false && !primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
   });
   // pins within 1 km of each other (but not the identical spot): same farm or different farm?
   const pinned = []; D.businesses.forEach((b) => b.farms.forEach((f) => { if (f.lat != null) pinned.push({ b, f }); }));
@@ -272,6 +272,7 @@ function computeJobs() {
     const nm = (x) => x.b.name + (x.f.name ? ' — ' + x.f.name : '');
     add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two pins are ${Math.round(dkm * 1000)} m apart. Are they the same farm or different farms?`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
   }
+  dupeJobs(add);
   byGps.forEach((arr) => {
     const kms = [...new Set(arr.map((x) => x.f.kmReturn))];
     if (kms.length > 1) { const gk = arr.map((x) => x.f.gKm).find((v) => v != null); const best = gk != null ? kms.slice().sort((a, b) => Math.abs(a - gk) - Math.abs(b - gk))[0] : null;
@@ -298,6 +299,7 @@ const JOB_TYPES = {
   kmcheck: { t: 'Distance more than 1 km different to Google Maps', manual: true },
   kmverify: { t: 'Distance requires verification', manual: false },
   kmconflict: { t: 'Same farm, different km on different contacts', manual: true },
+  dupe: { t: 'Possible duplicates', manual: false },
   nearpin: { t: 'Pins within 1 km — same farm or different farm?', manual: false },
   nogps: { t: 'Farm address with no GPS pin', manual: true },
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
@@ -437,7 +439,7 @@ function contactDetail(c) {
   }
   html += `<div class="card"><h3>Contact</h3>${phoneLinks(c.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), true)}${phoneLinks(c.landlines.map((p) => ({ ...p, label: p.label || 'Landline' })))}${c.emails.map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div></div>`).join('')}${c.postal.map((p) => `<div class="kv"><div class="k">Postal</div><div class="v">${h(p)}</div></div>`).join('')}${!c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length ? '<div class="hint">No contact details yet.</div>' : ''}</div>`;
   if (tags.length) html += `<div class="card"><h3>Tags</h3><div class="tagrow">${tags.map(tagPill).join('')}</div></div>`;
-  html += `<div class="card"><h3>General info</h3><div class="body">${c.info ? h(c.info) : '<span class="hint">Nothing yet.</span>'}</div></div>`;
+  html += `<div class="card"><h3>General info</h3>${infoView(c)}</div>`;
   bs.forEach((b) => {
     html += `<div class="card"><h3>${b.rating ? rbadge(b.rating) : ''}<span class="sp">${h(b.name)}</span><button class="btn small" data-act="open" data-kind="business" data-id="${b.id}">Open business</button></h3>`;
     if (b.pics.length) html += `<div class="kv"><div class="k">PIC${b.pics.length > 1 ? 's' : ''}</div><div class="v">${b.pics.map((p) => h(p.value) + (p.label ? ` <span class="hint">${h(p.label)}</span>` : '')).join('<br>')}</div></div>`;
@@ -466,11 +468,13 @@ function bizDetail(b) {
   <div class="actions"><button class="btn primary" data-act="edit-biz" data-id="${b.id}">Edit</button><button class="btn" data-act="add-farm" data-bid="${b.id}">+ Farm</button>${b.farms.some((f) => f.lat != null) ? `<button class="btn" data-act="route-add-biz" data-bid="${b.id}">+ All farms to route</button>` : ''}</div>`;
   html += flagLines('business', b.id).replace(/<div class="flagline">/g, '<div class="flagline">');
   if (b.warnings) html += `<div class="card warn"><h3>⚠ Warnings</h3><div class="body">${h(b.warnings)}</div></div>`;
-  html += `<div class="card"><h3>Contacts</h3>${cs.map((c) => `<div class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(c.role || '')} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div>`).join('') || '<div class="hint">No contacts linked.</div>'}</div>`;
+  html += `<div class="card"><h3>Contacts</h3>${cs.map((c) => `<div style="display:flex;align-items:center"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(c.role || '')} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}" title="Unlink from this business">Unlink</button></div>`).join('') || '<div class="hint">No contacts linked.</div>'}
+  <input id="biz-linksearch" data-bid="${b.id}" placeholder="+ Link a contact — search by name or phone" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="biz-linkres"></div>
+  <div class="hint" style="margin-top:4px">${b.primaryRequired === false ? 'Primary contact not required (non-client business).' : ''}</div></div>`;
   html += `<div class="card"><h3>PICs</h3>${b.pics.map((p) => `<div class="kv"><div class="k">${h(p.label || 'PIC')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
   html += `<div class="card"><h3>Patient IDs</h3>${b.patientIds.map((p) => `<div class="kv"><div class="k">${h(p.label || 'ID')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
   html += `<div class="card"><h3>Farms</h3>${b.farms.map((f) => farmCard(b, f)).join('') || '<div class="hint">No farms yet.</div>'}</div>`;
-  html += `<div class="card"><h3>General info</h3><div class="body">${b.info ? h(b.info) : '<span class="hint">Nothing yet.</span>'}</div></div>`;
+  html += `<div class="card"><h3>General info</h3>${infoView(b)}</div>`;
   return html + '</div>';
 }
 
@@ -517,7 +521,7 @@ function editContact(c) {
   <div class="f"><label>Landline numbers</label>${repRows('land', c.landlines, [{ k: 'value', ph: '08 xxxx xxxx', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Email</label>${repRows('email', c.emails, [{ k: 'value', ph: 'name@example.com', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Postal address</label>${repRows('postal', c.postal.map((p) => ({ value: p })), [{ k: 'value', ph: 'PO Box / street, town, postcode' }])}</div>
-  <div class="f"><label>General info</label><textarea id="e-info">${h(c.info)}</textarea></div>
+  <div class="f"><label>General info</label>${richEditor('e-info', c)}</div>
   <div class="f"><label style="color:var(--red-ink)">Warnings (show in red, add "CHECK WARNING" to photo)</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
   <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${(c.photoChoice || 'auto') === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
     <input type="file" id="e-photofile" accept="image/*" style="margin-top:6px;${c.photoChoice === 'custom' ? '' : 'display:none'}"><div class="hint">Photos come from the tags automatically. If a contact has two businesses with different ratings, the photo is split and labelled with each business.</div></div>
@@ -526,7 +530,7 @@ function editContact(c) {
   openSheet(isNew ? 'New contact' : 'Edit contact', body, async () => {
     const first = val('e-first'), last = val('e-last');
     if (!first && !last) { toast('Enter a name'); return false; }
-    Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), info: $('#e-info').value.trim(), warnings: $('#e-warn').value.trim(), starred: $('#e-star').checked });
+    Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), ...readRich('e-info'), warnings: $('#e-warn').value.trim(), starred: $('#e-star').checked });
     c.links = [...document.querySelectorAll('#e-links [data-bid]')].map((el) => ({ bid: el.dataset.bid }));
     const newBiz = [...document.querySelectorAll('#e-links [data-newbiz]')];
     newBiz.forEach((el) => { const b = newBusiness(el.dataset.newbiz); c.links.push({ bid: b.id }); });
@@ -571,11 +575,12 @@ function editBiz(b) {
   const isNew = !b;
   b = b || { id: uid('b'), name: '', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null };
   const body = `<div class="f"><label>Business name</label><input id="e-bname" value="${h(b.name)}"></div>
+  <div class="f"><label>Primary contact required?</label><select id="e-bpreq"><option value="yes">Yes</option><option value="no" ${b.primaryRequired === false ? 'selected' : ''}>Not required (non-client business)</option></select></div>
   ${(IDX.bizContacts.get(b.id) || []).length ? `<div class="f"><label>Primary contact</label><select id="e-bprimary"><option value="">— choose —</option>${(IDX.bizContacts.get(b.id) || []).map((c) => `<option value="${c.id}" ${primaryOf(b)?.id === c.id ? 'selected' : ''}>${h(fullName(c))}</option>`).join('')}</select></div>` : ''}
   <div class="f"><label>Contact category (A+ / A / B / C)</label><select id="e-brating"><option value="">None</option>${RATINGS.map((r) => `<option value="${r}" ${b.rating === r ? 'selected' : ''}>${tagName(r)}</option>`).join('')}</select></div>
   <div class="f"><label>PICs</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2 }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
-  <div class="f"><label>General info</label><textarea id="e-binfo">${h(b.info)}</textarea></div>
+  <div class="f"><label>General info</label>${richEditor('e-binfo', b)}</div>
   <div class="f"><label style="color:var(--red-ink)">Warnings (shown in red on every linked contact)</label><textarea id="e-bwarn" class="warn">${h(b.warnings)}</textarea></div>
   <div class="hint">Farms are added and edited from the business page.</div>
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-biz" data-id="${b.id}" style="color:var(--red)">Delete business</button></div>`}`;
@@ -583,8 +588,9 @@ function editBiz(b) {
     const name = val('e-bname'); if (!name) { toast('Enter a business name'); return false; }
     const newRating = $('#e-brating').value || null;
     if (newRating !== b.rating) b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict');
+    b.primaryRequired = $('#e-bpreq').value !== 'no';
     const pSel = $('#e-bprimary'); if (pSel) { b.primaryContact = pSel.value || null; const pc = D.contacts.find((x) => x.id === b.primaryContact); if (pc && !pc.tags.includes('pa') && !pc.tags.includes('pi')) { pc.tags.push('pa'); touch(pc); } }
-    Object.assign(b, { name, rating: newRating, pics: readRep('pic'), patientIds: readRep('pid'), info: $('#e-binfo').value.trim(), warnings: $('#e-bwarn').value.trim() });
+    Object.assign(b, { name, rating: newRating, pics: readRep('pic'), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim() });
     touch(b); if (isNew) D.businesses.push(b);
     S.sel = { kind: 'business', id: b.id }; if (isNew) S.tab = 'biz';
     return true;
@@ -789,6 +795,8 @@ function renderJobs() {
         <button class="btn small" data-act="pin-diff" data-key="${h(j.key)}">Different farms</button>
         <button class="btn small" data-act="pin-same" data-keep="${fa.id}" data-other="${fb.id}">Same farm — use pin 1</button>
         <button class="btn small" data-act="pin-same" data-keep="${fb.id}" data-other="${fa.id}">Same farm — use pin 2</button>`; })() : ''}
+      ${j.dupe ? (() => { const x = j.dupe, isC = x.kind === 'contact'; const A = isC ? D.contacts.find((c) => c.id === x.a) : IDX.biz.get(x.a), B = isC ? D.contacts.find((c) => c.id === x.b) : IDX.biz.get(x.b); const nm = (r) => h(isC ? fullName(r) : r.name);
+        return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">Merge into 1 (${nm(A)})</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">Merge into 2 (${nm(B)})</button>`; })() : ''}
       ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}
       ${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${JOB_TYPES[t].btn || 'Mark resolved'}</button>` : ''}</div></div></div>`;
     });
@@ -828,6 +836,7 @@ function renderSettings() {
   <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, and plan the most efficient route.</div></div>
   ${syncSettingsCard()}
   <div class="card"><h3>App version</h3><div class="kv"><div class="k">Version</div><div class="v">${APP_VERSION}</div></div><div class="actions"><button class="btn small" data-act="app-refresh">⟳ Close and reopen on the latest version</button></div></div>
+  ${renderTrash()}
   <div class="card"><h3>Backup</h3><div class="actions"><button class="btn" data-act="export">Download backup</button><label class="btn">Restore backup<input type="file" accept=".json" data-act="import" style="display:none"></label></div><div class="hint">Data imported from Google Contacts on ${h(D.importedAt || '14 Oct 2026')}.</div></div>
   </div>`;
 }
@@ -908,7 +917,7 @@ const Sync = {
   async meta(id) { const r = await gfetch(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,version,modifiedTime,trashed`); if (r.status === 404) return null; if (!r.ok) throw new Error('Drive error ' + r.status); return r.json(); },
   async download(id) { const r = await gfetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`); if (!r.ok) throw new Error('Drive download error ' + r.status); return r.json(); },
   serial() {
-    const out = { format: 1, savedAt: new Date().toISOString(), savedBy: DEVICE, settings: strip(D.settings), deleted: (D.deleted || []).map(({ id, kind, at }) => ({ id, kind, at })), dismissed: D.dismissed || {}, importedAt: D.importedAt };
+    const out = { format: 1, savedAt: new Date().toISOString(), savedBy: DEVICE, settings: strip(D.settings), deleted: (D.deleted || []).map(({ id, kind, at }) => ({ id, kind, at })), dismissed: D.dismissed || {}, importedAt: D.importedAt, trash: (D.trash || []).filter((t) => Date.now() - t.at < 90 * 864e5) };
     KINDS.forEach((k) => (out[k] = D[k].map(strip)));
     return JSON.stringify(out);
   },
@@ -927,7 +936,7 @@ const Sync = {
     }
     if (!r.ok) throw new Error('Drive upload error ' + r.status);
     const js = await r.json();
-    KINDS.forEach((k) => D[k].forEach((x) => delete x._dirty)); delete D.settings._dirty; delete D._dismissDirty;
+    KINDS.forEach((k) => D[k].forEach((x) => delete x._dirty)); delete D.settings._dirty; delete D._dismissDirty; delete D._trashDirty;
     (D.deleted || []).forEach((x) => (x.synced = true));
     D.sync.fileId = js.id; D.sync.version = js.version; D.sync.last = Date.now();
   },
@@ -961,6 +970,7 @@ const Sync = {
     if (srv.settings) { if (!D.settings._dirty || (srv.settings._u || 0) > (D.settings._u || 0)) { D.settings = srv.settings; } }
     const seen = new Set(D.deleted.map((x) => x.id)); (srv.deleted || []).forEach((x) => { if (!seen.has(x.id)) D.deleted.push({ ...x, synced: true }); });
     D.dismissed = { ...(srv.dismissed || {}), ...(D.dismissed || {}) };
+    const tm = new Map(); [...(srv.trash || []), ...(D.trash || [])].forEach((t) => { const e = tm.get(t.tid); if (!e || t.removed) tm.set(t.tid, t); }); D.trash = [...tm.values()];
     if (srv.importedAt) D.importedAt = srv.importedAt;
     D.firstRun = false;
     return changes;
@@ -1270,6 +1280,104 @@ document.addEventListener('click', (e) => {
 });
 
 
+/* ---------------- trash can (synced; restore within 90 days) ---------------- */
+function toTrash(kind, rec, extra = {}) { (D.trash = D.trash || []).push({ tid: uid('t'), at: Date.now(), by: DEVICE, kind, rec: strip(rec), ...extra }); D._trashDirty = true; }
+function trashContact(c) { toTrash('contact', c); D.contacts = D.contacts.filter((x) => x.id !== c.id); D.deleted.push({ id: c.id, kind: 'contacts', at: Date.now() }); D.businesses.forEach((b) => { if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } }); Sync.soon(); }
+function trashBiz(b) {
+  const linked = D.contacts.filter((c) => c.links.some((l) => l.bid === b.id)).map((c) => c.id);
+  toTrash('business', b, { linked });
+  D.businesses = D.businesses.filter((x) => x.id !== b.id);
+  D.contacts.forEach((c) => { if (c.links.some((l) => l.bid === b.id)) { c.links = c.links.filter((l) => l.bid !== b.id); touch(c); } });
+  D.deleted.push({ id: b.id, kind: 'businesses', at: Date.now() }); Sync.soon();
+}
+function trashFarm(b, f) { toTrash('farm', f, { bid: b.id, bname: b.name }); b.farms = b.farms.filter((x) => x.id !== f.id); S.route.stops = S.route.stops.filter((s) => s.fid !== f.id); touch(b); }
+function restoreTrash(tid) {
+  const t = (D.trash || []).find((x) => x.tid === tid); if (!t || t.removed) return;
+  // restored records get a new id so the old deletion can't remove them again on another device
+  if (t.kind === 'contact') { const c = { ...t.rec, id: uid('c') }; c.links = c.links.filter((l) => IDX.biz.has(l.bid)); touch(c); D.contacts.push(c); S.sel = { kind: 'contact', id: c.id }; S.tab = 'contacts'; }
+  if (t.kind === 'business') { const b = { ...t.rec, id: uid('b') }; touch(b); D.businesses.push(b); (t.linked || []).forEach((cid) => { const c = D.contacts.find((x) => x.id === cid); if (c && !c.links.some((l) => l.bid === b.id)) { c.links.push({ bid: b.id }); touch(c); } }); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
+  if (t.kind === 'farm') { const b = IDX.biz.get(t.bid); if (!b) { toast('Its business has been deleted — restore the business first'); return; } b.farms.push({ ...t.rec }); touch(b); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
+  Object.assign(t, { removed: true, rec: null }); D._trashDirty = true; changed(); toast('Restored');
+}
+function trashLabel(t) { const r = t.rec || {}; return t.kind === 'contact' ? fullName(r) : t.kind === 'business' ? r.name : (t.bname || '') + ' — ' + (r.name || r.address || 'farm'); }
+function renderTrash() {
+  const items = (D.trash || []).filter((t) => !t.removed).sort((a, b) => b.at - a.at);
+  return `<div class="card"><h3><span class="sp">🗑 Trash (${items.length})</span>${items.length ? '<button class="btn small" data-act="trash-empty">Empty trash</button>' : ''}</h3>
+  <div class="hint" style="margin-bottom:6px">Deleted contacts, businesses and farms stay here for 90 days.</div>
+  ${items.map((t) => `<div class="kv" style="align-items:center"><div class="v"><b>${h(trashLabel(t))}</b> <span class="hint">${t.kind} · deleted ${new Date(t.at).toLocaleString('en-AU')}</span></div><button class="btn small" data-act="trash-restore" data-tid="${t.tid}">Restore</button></div>`).join('') || '<div class="hint">Trash is empty.</div>'}</div>`;
+}
+
+/* ---------------- possible duplicates ---------------- */
+const normBiz = (s) => (s || '').toLowerCase().replace(/\b(pty|ltd|limited|the|and|trust|trading as|t\/as|co|company|family)\b/g, '').replace(/&/g, '').replace(/[^a-z0-9]/g, '');
+const normName = (c) => ((c.first || '') + (c.last || '')).toLowerCase().replace(/[^a-z]/g, '');
+const lastDigits = (v) => v.replace(/\D/g, '').slice(-9);
+function dupeJobs(add) {
+  const seen = new Set();
+  const pair = (kind, A, B, why) => {
+    const key = 'dupe:' + [A.id, B.id].sort().join('|'); if (seen.has(key)) return; seen.add(key);
+    const nm = kind === 'contact' ? fullName : (x) => x.name;
+    add({ type: 'dupe', key, kind, id: A.id, who: nm(A) + '  ↔  ' + nm(B), note: 'Possible duplicate — ' + why, dupe: { kind, a: A.id, b: B.id } });
+  };
+  const group = (arr, keyFn, cb) => { const m = new Map(); arr.forEach((x) => { const k = keyFn(x); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); m.forEach((g) => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) cb(g[i], g[j]); }); };
+  group(D.businesses, (b) => (normBiz(b.name).length >= 3 ? normBiz(b.name) : null), (a, b) => pair('business', a, b, 'very similar business names'));
+  group(D.contacts, (c) => (c.first && c.last ? normName(c) : null), (a, b) => pair('contact', a, b, 'same name'));
+  const mob = []; D.contacts.forEach((c) => c.mobiles.forEach((p) => mob.push({ c, k: lastDigits(p.value) })));
+  group(mob, (x) => (x.k.length === 9 ? x.k : null), (a, b) => { if (a.c !== b.c) pair('contact', a.c, b.c, 'same mobile number'); });
+  const em = []; D.contacts.forEach((c) => c.emails.forEach((e) => em.push({ c, k: e.value.trim().toLowerCase() })));
+  group(em, (x) => x.k || null, (a, b) => { if (a.c !== b.c) pair('contact', a.c, b.c, 'same email address'); });
+}
+function mergeContacts(keep, other) {
+  const uni = (a, b, key) => { const out = [...a]; b.forEach((x) => { if (!out.some((y) => key(y) === key(x))) out.push(x); }); return out; };
+  const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
+  keep.mobiles = uni(keep.mobiles, other.mobiles, (p) => lastDigits(p.value)); keep.landlines = uni(keep.landlines, other.landlines, (p) => lastDigits(p.value));
+  keep.emails = uni(keep.emails, other.emails, (e) => e.value.toLowerCase()); keep.postal = [...new Set([...keep.postal, ...other.postal])];
+  keep.tags = [...new Set([...keep.tags, ...other.tags])]; keep.links = uni(keep.links, other.links, (l) => l.bid);
+  keep.info = join(keep.info, other.info); if (keep.infoHtml || other.infoHtml) keep.infoHtml = [keep.infoHtml || h(keep.info || ''), other.infoHtml || ''].filter(Boolean).join('<br>');
+  keep.warnings = join(keep.warnings, other.warnings); keep.role = keep.role || other.role; keep.starred = keep.starred || other.starred; keep.gid = keep.gid || other.gid;
+  D.businesses.forEach((b) => { if (b.primaryContact === other.id) { b.primaryContact = keep.id; touch(b); } });
+  touch(keep); trashContact(other);
+}
+function mergeBiz(keep, other) {
+  const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
+  keep.farms = [...keep.farms, ...other.farms]; keep.pics = [...keep.pics, ...other.pics.filter((p) => !keep.pics.some((q) => q.value === p.value))];
+  keep.patientIds = [...keep.patientIds, ...other.patientIds.filter((p) => !keep.patientIds.some((q) => q.value === p.value && q.label === p.label))];
+  keep.info = join(keep.info, other.info); keep.warnings = join(keep.warnings, other.warnings); keep.rating = keep.rating || other.rating; keep.primaryContact = keep.primaryContact || other.primaryContact;
+  if (keep.infoHtml || other.infoHtml) keep.infoHtml = [keep.infoHtml || h(keep.info || ''), other.infoHtml || ''].filter(Boolean).join('<br>');
+  D.contacts.forEach((c) => { if (c.links.some((l) => l.bid === other.id)) { c.links = c.links.filter((l) => l.bid !== other.id); if (!c.links.some((l) => l.bid === keep.id)) c.links.push({ bid: keep.id }); touch(c); } });
+  touch(keep); other.farms = []; trashBiz(other);
+}
+
+/* ---------------- formatted general info ---------------- */
+function cleanHtml(html) {
+  const tpl = document.createElement('template'); tpl.innerHTML = html || '';
+  const OK = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'BR', 'DIV', 'P', 'UL', 'OL', 'LI', 'H3', 'MARK']);
+  const walk = (node) => [...node.childNodes].forEach((n) => {
+    if (n.nodeType === 1) {
+      walk(n);
+      if (!OK.has(n.tagName)) { const st = n.getAttribute('style') || ''; if (n.tagName === 'SPAN' && /font-weight:\s*(bold|[6-9]00)/.test(st)) { const b = document.createElement('b'); b.append(...n.childNodes); n.replaceWith(b); } else n.replaceWith(...n.childNodes); }
+      else [...n.attributes].forEach((a) => n.removeAttribute(a.name));
+    } else if (n.nodeType !== 3) n.remove();
+  });
+  walk(tpl.content); return tpl.innerHTML.trim();
+}
+const htmlToText = (html) => { const d = document.createElement('div'); d.innerHTML = html.replace(/<(br|\/div|\/p|\/li|\/h3)>/gi, '\n$&'); return d.textContent.replace(/\n{3,}/g, '\n\n').trim(); };
+const infoView = (rec) => (rec.infoHtml ? `<div class="rich">${cleanHtml(rec.infoHtml)}</div>` : rec.info ? `<div class="body">${h(rec.info)}</div>` : '<span class="hint">Nothing yet.</span>');
+function richEditor(id, rec) {
+  const start = rec.infoHtml ? cleanHtml(rec.infoHtml) : h(rec.info || '').replace(/\n/g, '<br>');
+  const b = (cmd, label, title, arg = '') => `<button type="button" class="btn small" data-rich="${cmd}" data-arg="${arg}" title="${title}">${label}</button>`;
+  return `<div class="richbar">${b('bold', '<b>B</b>', 'Bold')}${b('italic', '<i>I</i>', 'Italic')}${b('underline', '<u>U</u>', 'Underline')}${b('formatBlock', 'Heading', 'Heading', 'h3')}${b('insertUnorderedList', '• List', 'Bullet list')}${b('insertOrderedList', '1. List', 'Numbered list')}${b('hiliteColor', '<mark>Highlight</mark>', 'Highlight')}${b('removeFormat', 'Clear', 'Remove formatting')}</div>
+  <div class="rich richedit" id="${id}" contenteditable="true">${start}</div>`;
+}
+function readRich(id) { const el = $('#' + id); const html = cleanHtml(el.innerHTML); return { infoHtml: html, info: htmlToText(html) }; }
+document.addEventListener('mousedown', (e) => { if (e.target.closest('[data-rich]')) e.preventDefault(); }); // keep the text selected
+document.addEventListener('click', (e) => {
+  const bt = e.target.closest('[data-rich]'); if (!bt) return;
+  const cmd = bt.dataset.rich; let arg = bt.dataset.arg || null;
+  if (cmd === 'hiliteColor') { const on = document.queryCommandValue('hiliteColor'); arg = on && on !== 'transparent' && !/rgba\(0, 0, 0, 0\)/.test(on) ? 'transparent' : '#fff3a0'; }
+  if (cmd === 'formatBlock') arg = document.queryCommandValue('formatBlock') === 'h3' ? 'div' : 'h3';
+  document.execCommand(cmd, false, arg);
+});
+
 /* ---------------- refresh: close and reopen the app on the newest version ---------------- */
 async function refreshApp() {
   if (!navigator.onLine) { toast("You're offline — can't check for a newer version right now"); return; }
@@ -1316,7 +1424,7 @@ document.addEventListener('click', async (e) => {
     case 'open': {
       if (d.kind === 'business' && S.tab === 'contacts') S.tab = 'biz';
       if (d.kind === 'contact' && S.tab === 'biz') S.tab = 'contacts';
-      if (S.tab === 'search') { S.backTo = 'search'; S.tab = d.kind === 'business' ? 'biz' : 'contacts'; }
+      if (!['contacts', 'biz'].includes(S.tab)) { S.backTo = S.tab; S.tab = d.kind === 'business' ? 'biz' : 'contacts'; }
       S.sel = { kind: d.kind, id: d.id }; renderAll(); $('#detail').scrollTop = 0; break;
     }
     case 'back': S.sel = null; if (S.backTo) { S.tab = S.backTo; S.backTo = null; } document.body.classList.remove('show-detail'); renderAll(); break;
@@ -1337,9 +1445,9 @@ document.addEventListener('click', async (e) => {
     case 'rep-del': el.closest('.rep').remove(); break;
     case 'link-biz': $('#e-links').insertAdjacentHTML('beforeend', linkRow(d.bid)); $('#e-bizsearch').value = ''; $('#e-bizres').innerHTML = ''; break;
     case 'link-newbiz': $('#e-links').insertAdjacentHTML('beforeend', linkRow(null, d.name)); $('#e-bizsearch').value = ''; $('#e-bizres').innerHTML = ''; break;
-    case 'del-contact': if (confirm('Delete this contact?')) { D.contacts = D.contacts.filter((c) => c.id !== d.id); (D.deleted = D.deleted || []).push({ id: d.id, kind: 'contacts', at: Date.now() }); Sync.soon(); S.sel = null; closeSheet(); changed(); } break;
-    case 'del-biz': if (confirm('Delete this business and its farms? Contacts stay.')) { D.businesses = D.businesses.filter((b) => b.id !== d.id); D.contacts.forEach((c) => { if (c.links.some((l) => l.bid === d.id)) { c.links = c.links.filter((l) => l.bid !== d.id); touch(c); } }); (D.deleted = D.deleted || []).push({ id: d.id, kind: 'businesses', at: Date.now() }); Sync.soon(); S.sel = null; closeSheet(); changed(); } break;
-    case 'del-farm': if (confirm('Delete this farm?')) { const b = IDX.biz.get(d.bid); b.farms = b.farms.filter((f) => f.id !== d.fid); touch(b); closeSheet(); changed(); } break;
+    case 'del-contact': if (confirm('Move this contact to the trash? You can restore it from Settings → Trash.')) { trashContact(D.contacts.find((c) => c.id === d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
+    case 'del-biz': if (confirm('Move this business and its farms to the trash? Contacts stay. You can restore it from Settings → Trash.')) { trashBiz(IDX.biz.get(d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
+    case 'del-farm': if (confirm('Move this farm to the trash? You can restore it from Settings → Trash.')) { const b = IDX.biz.get(d.bid); trashFarm(b, IDX.farms.get(d.fid)); closeSheet(); changed(); toast('Moved to trash'); } break;
     case 'route-add': addStop(d.fid); break;
     case 'route-add-biz': IDX.biz.get(d.bid).farms.filter((f) => f.lat != null).forEach((f) => addStop(f.id, true)); toast('Added to route'); renderTabs(); break;
     case 'rs-up': case 'rs-down': { const i = +d.i, j = a === 'rs-up' ? i - 1 : i + 1; const s = S.route.stops; [s[i], s[j]] = [s[j], s[i]]; S.route.mode = 'order'; renderAll(); break; }
@@ -1368,7 +1476,7 @@ document.addEventListener('click', async (e) => {
         keep.info = join(keep.info, other.info); keep.warning = join(keep.warning, other.warning); keep.seeWarning = keep.seeWarning || other.seeWarning;
         if (!keep.address) keep.address = other.address; if (!keep.name) keep.name = other.name;
         if (keep.kmReturn == null) keep.kmReturn = other.kmReturn; if (keep.driveMin == null) keep.driveMin = other.driveMin;
-        bk.farms = bk.farms.filter((f) => f.id !== other.id); S.route.stops = S.route.stops.filter((s) => s.fid !== other.id); touch(bk); toast('Farms merged');
+        toTrash('farm', other, { bid: bk.id, bname: bk.name }); bk.farms = bk.farms.filter((f) => f.id !== other.id); S.route.stops = S.route.stops.filter((s) => s.fid !== other.id); touch(bk); toast('Farms merged');
       } else { // different businesses (e.g. a leased block): keep both, put them on the same pin
         other.lat = keep.lat; other.lng = keep.lng; if (keep.gKm != null) { other.gKm = keep.gKm; other.gMin = keep.gMin; } touch(bo); toast('Pins matched — check the km if they differ');
       }
@@ -1376,6 +1484,16 @@ document.addEventListener('click', async (e) => {
     case 'prio': { const o = photoOrder(); const i = o.indexOf(d.id), j = i + +d.dir; if (i < 0 || j < 0 || j >= o.length) break; [o[i], o[j]] = [o[j], o[i]]; D.settings.photoPriority = o; touch(D.settings); photoCache.clear(); changed(); break; }
     case 'prio-reset': delete D.settings.photoPriority; touch(D.settings); photoCache.clear(); changed(); break;
     case 'app-refresh': refreshApp(); break;
+    case 'trash-restore': restoreTrash(d.tid); break;
+    case 'trash-empty': if (confirm('Permanently delete everything in the trash? This cannot be undone.')) { D.trash.forEach((t) => { if (!t.removed) Object.assign(t, { removed: true, rec: null }); }); D._trashDirty = true; changed(); } break;
+    case 'dupe-not': D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); changed(); break;
+    case 'dupe-merge': {
+      const isC = d.kind === 'contact'; const keep = isC ? D.contacts.find((x) => x.id === d.keep) : IDX.biz.get(d.keep); const other = isC ? D.contacts.find((x) => x.id === d.other) : IDX.biz.get(d.other);
+      if (!keep || !other) break;
+      if (!confirm(`Merge "${isC ? fullName(other) : other.name}" into "${isC ? fullName(keep) : keep.name}"? Everything is combined into one; the extra one goes to the trash.`)) break;
+      isC ? mergeContacts(keep, other) : mergeBiz(keep, other); changed(); toast('Merged'); break; }
+    case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); if (c && !c.links.some((l) => l.bid === d.bid)) { c.links.push({ bid: d.bid }); touch(c); changed(); toast(fullName(c) + ' linked'); } break; }
+    case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && confirm(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); changed(); toast('Photo set'); } break; }
     case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id)); changed(); break; }
     case 'check-dist': checkAllDistances(); break;
@@ -1395,6 +1513,11 @@ function addStop(fid, quiet) {
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderContactList, 120); }
+  else if (t.id === 'biz-linksearch') {
+    const pq = parseQuery(t.value); const bid = t.dataset.bid; const box = $('#biz-linkres');
+    const res = pq.inc.length ? D.contacts.filter((c) => !c.links.some((l) => l.bid === bid) && matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 10) : [];
+    box.innerHTML = t.value.trim() ? `<div class="results">${res.map((c) => `<div data-act="biz-link-pick" data-cid="${c.id}" data-bid="${bid}"><b>${h(fullName(c))}</b> <span class="hint">${h(bizOf(c).map((b) => b.name).join(', ') || (c.mobiles[0] || {}).value || '')}</span></div>`).join('') || '<div class="hint">No matching contacts.</div>'}</div>` : '';
+  }
   else if (t.id === 'bq') { S.bq = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderBizList, 120); }
   else if (t.id === 'rs-search' || t.classList.contains('ep-search')) {
     const res = farmSearch(t.value); const isEp = t.classList.contains('ep-search');
@@ -1421,7 +1544,7 @@ window.addEventListener('popstate', () => { if (document.body.classList.contains
 (async function init() {
   D = await Store.get('data');
   if (!D) { D = await loadSeed(); D.dismissed = D.dismissed || {}; await Store.set('data', D); }
-  D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || [];
+  D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || []; D.trash = D.trash || [];
   reindex(); migrate();
   reindex(); net(); renderAll();
   Sync.start();
