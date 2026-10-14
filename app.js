@@ -245,9 +245,9 @@ function computeJobs() {
     b.farms.forEach((f) => {
       const who = b.name + (f.name ? ' — ' + f.name : '');
       if (f.lat == null) add({ type: 'nogps', kind: 'business', id: b.id, fid: f.id, who, note: 'Address but no GPS pin' + (f.address ? ': ' + f.address : '') });
-      if (f.kmReturn == null) add({ type: 'nokm', kind: 'business', id: b.id, fid: f.id, who, note: 'No distance recorded' });
+      if (f.kmReturn == null) add({ type: 'nokm', kind: 'business', id: b.id, fid: f.id, who, note: 'No distance recorded', suggest: f.gKm != null ? { km: f.gKm, fids: [f.id], why: 'Google Maps' } : null, needsLookup: f.gKm == null && f.lat != null ? [f.id] : null });
       if (f.kmStatus === 'needs-verify') add({ type: 'kmverify', kind: 'business', id: b.id, fid: f.id, who, note: 'Distance requires verification' });
-      (f.flags || []).forEach((fl) => { if (['signfix', 'kmcheck'].includes(fl.type)) add({ type: fl.type, kind: 'business', id: b.id, fid: f.id, who, note: fl.note, data: fl }); });
+      (f.flags || []).forEach((fl) => { if (['signfix', 'kmcheck'].includes(fl.type)) add({ type: fl.type, kind: 'business', id: b.id, fid: f.id, who, note: fl.note, data: fl, suggest: fl.type === 'kmcheck' ? { km: fl.google, fids: [f.id], why: 'Google Maps, rounded up' } : null }); });
       if (f.lat != null && f.kmReturn != null) { const k = f.lat.toFixed(3) + ',' + f.lng.toFixed(3); if (!byGps.has(k)) byGps.set(k, []); byGps.get(k).push({ b, f }); }
     });
     (b.flags || []).forEach((fl) => add({ type: fl.type, kind: 'business', id: b.id, who: b.name, note: fl.note }));
@@ -255,12 +255,14 @@ function computeJobs() {
   });
   byGps.forEach((arr) => {
     const kms = [...new Set(arr.map((x) => x.f.kmReturn))];
-    if (kms.length > 1) arr.forEach(({ b, f }) => add({ type: 'kmconflict', kind: 'business', id: b.id, fid: f.id, who: b.name + (f.name ? ' — ' + f.name : ''), note: 'Same GPS location has different km recorded: ' + kms.map((k) => k + ' km').join(' / ') + (arr.length > 1 ? ' (' + [...new Set(arr.map((x) => x.b.name))].join(', ') + ')' : '') }));
+    if (kms.length > 1) { const gk = arr.map((x) => x.f.gKm).find((v) => v != null); const best = gk != null ? kms.slice().sort((a, b) => Math.abs(a - gk) - Math.abs(b - gk))[0] : null;
+      const sug = gk != null ? { km: gk, fids: arr.map((x) => x.f.id), why: `Google Maps says ${gk} km${best != null ? ` — closest recorded value is ${best} km` : ''}` } : null;
+      arr.forEach(({ b, f }) => add({ suggest: sug, needsLookup: gk == null ? arr.map((x) => x.f.id) : null, type: 'kmconflict', kind: 'business', id: b.id, fid: f.id, who: b.name + (f.name ? ' — ' + f.name : ''), note: 'Same GPS location has different km recorded: ' + kms.map((k) => k + ' km').join(' / ') + (arr.length > 1 ? ' (' + [...new Set(arr.map((x) => x.b.name))].join(', ') + ')' : '') })); }
   });
   // contacts
   D.contacts.forEach((c) => {
     const who = fullName(c);
-    if (needsPhotoChoice(c)) { const { dr, ptags } = photoCandidates(c); add({ type: 'photo', kind: 'contact', id: c.id, who, note: 'Has more than one tag with a photo (' + [...dr, ...ptags].map(tagName).join(', ') + ') — choose one, or a split photo' }); }
+    if (needsPhotoChoice(c)) { const { dr, ptags } = photoCandidates(c); const cands = [...dr, ...ptags].sort((a, b) => PHOTO_PRIORITY.indexOf(a) - PHOTO_PRIORITY.indexOf(b)); add({ type: 'photo', kind: 'contact', id: c.id, who, note: 'Has more than one tag with a photo (' + [...dr, ...ptags].map(tagName).join(', ') + ') — choose one, or a split photo', photoSuggest: cands[0] }); }
     if (c.tags.includes('sheep')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Choose Sheep only (regular) or Sheep only (occasional)' });
     (c.flags || []).forEach((fl) => {
       if (fl.type === 'sheepconfirm' && c.tags.includes('sheepocc')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Set to Sheep only (occasional) for now — change to regular if needed' });
@@ -431,6 +433,7 @@ function farmCard(b, f, withFlags = true) {
   ${f.address ? `<div>${h(f.address)}</div>` : ''}
   <div class="meta">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">📍 ${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}</a>` : '<span>No GPS pin</span>'}
   <span>${verify ? '<span class="verify">Distance requires verification</span> ' : ''}${fmtKm(f)}</span>${f.driveMin != null ? `<span>🚗 ${fmtMin(f.driveMin)} each way</span>` : ''}</div>
+  ${f.seeWarning ? `<div class="body" style="margin-top:4px;font-weight:700">⚠ ${h(f.warning || 'Warning — check farm info')}</div>` : ''}
   ${f.info ? `<div class="body" style="margin-top:4px;font-size:14.5px">${h(f.info)}</div>` : ''}
   ${withFlags ? flagLines('business', b.id, f.id) : ''}
   <div class="actions" style="margin:8px 0 0">${f.lat != null ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">+ Route</button>` : ''}<button class="btn small" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}">Edit farm</button></div></div>`;
@@ -585,7 +588,8 @@ function editFarm(b, f) {
   <div><button class="btn small" type="button" data-act="calc-dist">Calculate with Google Maps</button> <span class="hint" id="e-calchint"></span></div>
   <div id="e-verify"></div>
   <div class="f" style="margin-top:10px"><label>Farm info</label><textarea id="e-finfo">${h(f.info)}</textarea></div>
-  <div class="f"><label class="checks"><label><input type="checkbox" id="e-fwarn" ${f.seeWarning ? 'checked' : ''}> See warning (farm shows in red)</label></label></div>
+  <div class="f"><label class="checks"><label><input type="checkbox" id="e-fwarn" ${f.seeWarning ? 'checked' : ''}> Apply a warning to this farm</label></label>
+  <div id="e-fwarnbox" style="margin-top:8px;${f.seeWarning ? '' : 'display:none'}"><label style="color:var(--red-ink)">Farm warning</label><textarea id="e-fwarntext" class="warn" placeholder="e.g. Crush has no proper vet gate — take care">${h(f.warning || '')}</textarea></div></div>
   ${f.importedLabel ? `<div class="hint">Original Google Contacts label: ${h(f.importedLabel)}</div>` : ''}
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-farm" data-bid="${b.id}" data-fid="${f.id}" style="color:var(--red)">Delete farm</button></div>`}`;
   openSheet(isNew ? 'New farm — ' + b.name : 'Edit farm', body, () => {
@@ -595,7 +599,7 @@ function editFarm(b, f) {
     const needVerify = SHEET.verifyNeeded;
     if (needVerify && !($('#e-verified') && $('#e-verified').checked)) { toast('Distance requires verification before saving'); $('#e-verify').scrollIntoView({ block: 'center' }); return false; }
     const km = val('e-fkm'), mn = val('e-fmin');
-    Object.assign(f, { name: val('e-fname'), address: val('e-faddr'), info: $('#e-finfo').value.trim(), seeWarning: $('#e-fwarn').checked, kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn });
+    Object.assign(f, { name: val('e-fname'), address: val('e-faddr'), info: $('#e-finfo').value.trim(), seeWarning: $('#e-fwarn').checked, warning: $('#e-fwarn').checked ? $('#e-fwarntext').value.trim() : '', kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn });
     if (g) { f.lat = g.lat; f.lng = g.lng; } else { f.lat = f.lng = null; }
     if (gpsChanged) f.flags = (f.flags || []).filter((x) => x.type !== 'signfix' && x.type !== 'kmcheck');
     f.kmStatus = f.kmReturn == null ? 'missing' : needVerify || f.kmStatus === 'needs-verify' ? 'verified' : f.kmStatus;
@@ -604,6 +608,7 @@ function editFarm(b, f) {
     return true;
   });
   SHEET.verifyNeeded = false;
+  $('#e-fwarn').addEventListener('change', (e) => { $('#e-fwarnbox').style.display = e.target.checked ? '' : 'none'; if (e.target.checked) $('#e-fwarntext').focus(); });
   const showVerify = () => {
     SHEET.verifyNeeded = true;
     $('#e-verify').innerHTML = `<div class="verifybox"><b>Distance requires verification before saving.</b><div class="hint" style="color:var(--yellow-ink)">The GPS pin is new or has changed. Check the km and drive time above (use “Calculate with Google Maps” or check manually), then tick:</div><label style="display:flex;gap:8px;margin-top:6px;font-weight:600"><input type="checkbox" id="e-verified"> I have checked the distance and drive time</label></div>`;
@@ -619,7 +624,7 @@ function editFarm(b, f) {
     const g = parseGps(val('e-fgps')); const hint = $('#e-calchint');
     if (!g) { hint.textContent = 'Add a GPS pin first.'; return; }
     hint.textContent = 'Calculating…';
-    try { const r = await Maps.distances([g]); const x = r[0]; if (!x) throw new Error('No route found'); $('#e-fkm').value = (Math.round(x.km * 2 * 10) / 10); $('#e-fmin').value = Math.round(x.min); hint.textContent = `Google Maps: ${x.km.toFixed(1)} km each way, ${fmtMin(x.min)}. Please check.`; if (!SHEET.verifyNeeded) showVerify(); }
+    try { const r = await Maps.distances([g]); const x = r[0]; if (!x) throw new Error('No route found'); $('#e-fkm').value = Math.ceil(x.km * 2 - 1e-9); $('#e-fmin').value = Math.round(x.min); hint.textContent = `Google Maps: ${(x.km * 2).toFixed(1)} km return (rounded up to ${Math.ceil(x.km * 2 - 1e-9)} km), ${fmtMin(x.min)} each way. Please check.`; if (!SHEET.verifyNeeded) showVerify(); }
     catch (e) { hint.textContent = e.message; }
   };
 }
@@ -754,10 +759,12 @@ function renderJobs() {
     const g = groups[t]; if (!g) return;
     html += `<details class="jobgroup" ${g.length <= 30 ? 'open' : ''}><summary><span style="color:var(--red)">${ICONS.flag}</span><span style="flex:1">${h(JOB_TYPES[t].t)}</span><span class="count">${g.length}</span></summary>`;
     g.forEach((j) => {
-      html += `<div class="job"><div class="t"><div class="who">${h(j.who)}</div><div class="note">${h(j.note)}</div><div class="acts">
+      html += `<div class="job"><div class="t"><div class="who">${h(j.who)}</div><div class="note">${h(j.note)}</div>${j.suggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${j.suggest.km} km return (${h(j.suggest.why)})</div>` : ''}${j.photoSuggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${h(tagName(j.photoSuggest))} photo</div>` : ''}<div class="acts">
       ${t === 'conflict' ? '' : `<button class="btn small" data-act="job-open" data-kind="${j.kind}" data-id="${j.id}" ${j.fid ? `data-fid="${j.fid}"` : ''}>${j.fid ? 'Fix farm' : 'Open'}</button>`}
       ${t === 'conflict' ? `<button class="btn small red" data-act="conflict-open" data-key="${h(j.data.key)}">Resolve</button>` : ''}
-      ${t === 'kmcheck' && j.data?.google != null ? `<button class="btn small" data-act="accept-google" data-fid="${j.fid}">Use Google: ${j.data.google} km</button>` : ''}
+      ${j.suggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-km" data-km="${j.suggest.km}" data-fids="${j.suggest.fids.join(',')}">✓ Use suggested: ${j.suggest.km} km</button>` : ''}
+      ${!j.suggest && j.needsLookup && D.settings.mapsKey ? `<button class="btn small" data-act="lookup-km" data-fids="${j.needsLookup.join(',')}">Get Google Maps suggestion</button>` : ''}
+      ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}
       ${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${JOB_TYPES[t].btn || 'Mark resolved'}</button>` : ''}</div></div></div>`;
     });
     html += '</details>';
@@ -773,10 +780,10 @@ async function checkAllDistances() {
     let n = 0;
     farms.forEach((f, i) => {
       const r = res[i]; if (!r) return;
-      const g = Math.round(r.km * 2 * 10) / 10;
+      const exact = r.km * 2, g = Math.ceil(exact - 1e-9); f.gKm = g; f.gMin = Math.round(r.min); f.gAt = Date.now();
       f.driveMin = f.driveMin ?? Math.round(r.min);
       f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id));
-      if (f.kmReturn == null || Math.abs(f.kmReturn - g) > 1) { f.flags.push({ type: 'kmcheck', google: g, note: `Recorded ${f.kmReturn ?? '—'} km return, Google Maps says ${g} km return (${fmtMin(r.min)} each way)` }); n++; }
+      if (f.kmReturn != null && Math.abs(f.kmReturn - exact) > 1) { f.flags.push({ type: 'kmcheck', google: g, note: `Recorded ${f.kmReturn} km return — Google Maps says ${exact.toFixed(1)} km return (${fmtMin(r.min)} each way)` }); n++; }
     });
     Object.keys(D.dismissed || {}).forEach((k) => { if (k.startsWith('kmcheck:')) { D.dismissed[k] = 0; D._dismissDirty = true; } });
     changed(); toast(`${n} farm${n === 1 ? '' : 's'} more than 1 km out`);
@@ -1102,6 +1109,13 @@ function migrate() {
   const fam = D.tags.find((t) => t.id === 'family');
   if (fam && !D.contacts.some((c) => c.tags.includes('family'))) { D.tags = D.tags.filter((t) => t.id !== 'family'); D.deleted.push({ id: 'family', kind: 'tags', at: Date.now() }); ch = true; }
   D.tags.forEach((t) => { if ((t.id === 'blockedc' || t.id === 'blockedn') && t.group !== 'additional') { t.group = 'additional'; touch(t); ch = true; } });
+  D.businesses.forEach((b) => { let bt = false; b.farms.forEach((f) => {
+    if (!f.seeWarning || f.warning != null) return;
+    const mk = /\*{0,3}\s*(take care|warning|new)\s*\*{0,3}/i; const parts = [];
+    if (mk.test(f.name || '')) { parts.push((f.name.match(mk)[1] || '').toUpperCase()); f.name = f.name.replace(mk, ' ').replace(/\s+/g, ' ').trim(); }
+    if (f.info && /take care|warning|\*\*|^new$/i.test(f.info)) { parts.push(f.info.replace(/\*+/g, '').trim()); f.info = ''; }
+    f.warning = [...new Set(parts.filter(Boolean))].join(' — '); bt = true; });
+    if (bt) { touch(b); ch = true; } });
   if (D.tags.some((t) => t.id === 'sheep')) {
     D.contacts.forEach((c) => { if (c.tags.includes('sheep')) { c.tags = c.tags.filter((t) => t !== 'sheep'); if (!c.tags.includes('sheepocc') && !c.tags.includes('sheepreg')) c.tags.push('sheepocc'); c.flags = (c.flags || []).filter((f) => f.type !== 'sheep'); c.flags.push({ type: 'sheepconfirm' }); touch(c); } });
     D.tags = D.tags.filter((t) => t.id !== 'sheep'); D.deleted.push({ id: 'sheep', kind: 'tags', at: Date.now() }); ch = true;
@@ -1161,6 +1175,9 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'job-dismiss': { D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); const [type, fid] = d.key.split(':'); if (type === 'signfix') { const f = IDX.farms.get(fid); if (f) { f.flags = f.flags.filter((x) => x.type !== 'signfix'); touch(IDX.farmBiz.get(fid)); } } changed(); break; }
+    case 'use-km': { d.fids.split(',').forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = +d.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(fid)); }); changed(); toast('Distance updated'); break; }
+    case 'lookup-km': { const fs = d.fids.split(',').map((x) => IDX.farms.get(x)).filter((f) => f && f.lat != null); el.disabled = true; el.textContent = 'Looking up…'; try { const r = await Maps.distances(fs.map((f) => ({ lat: f.lat, lng: f.lng }))); fs.forEach((f, i) => { if (r[i]) { f.gKm = Math.ceil(r[i].km * 2 - 1e-9); f.gMin = Math.round(r[i].min); f.gAt = Date.now(); touch(IDX.farmBiz.get(f.id)); } }); changed(); } catch (err) { toast(err.message); el.disabled = false; el.textContent = 'Get Google Maps suggestion'; } break; }
+    case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); changed(); toast('Photo set'); } break; }
     case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id)); changed(); break; }
     case 'check-dist': checkAllDistances(); break;
     case 'new-tag': editTag(null); break;
