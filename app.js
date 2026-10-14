@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '3.9 (15 Oct 2026)';
+const APP_VERSION = '4.0 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -374,8 +374,33 @@ function renderTabs() {
   const n = jobs().length;
   $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
+// contacts / businesses that have just become "Do not answer" and have no reason yet
+function newDnaWithoutReason() {
+  const out = [];
+  TOUCHED.forEach((r) => {
+    const kind = recKind(r); const was = BASE.get(recKeyOf(kind, r)); const old = was ? JSON.parse(was) : null;
+    if (kind === 'contacts') {
+      if (!effTags(r).includes('dna') || r.dnaReason || bizOf(r).some((b) => b.dnaReason && (b.cats || []).includes('dna'))) return;
+      const oldBizDna = (old && old.links || []).some((l) => { const ob = BASE.get('businesses:' + l.bid); return ob && (JSON.parse(ob).cats || []).includes('dna'); });
+      const wasDna = old && ((old.ownCats || !(old.links || []).length) ? (old.tags || []).includes('dna') : oldBizDna);
+      if (!wasDna) out.push(r);
+    } else if (kind === 'businesses') {
+      if ((r.cats || []).includes('dna') && !r.dnaReason && !(old && (old.cats || []).includes('dna'))) out.push(r);
+    }
+  });
+  return out;
+}
 async function changed() {
   JOBS_CACHE = null; reindex();
+  if (BASE.size && typeof diffTouched === 'function') {
+    const need = newDnaWithoutReason();
+    if (need.length) {
+      const names = need.map((r) => (recKind(r) === 'contacts' ? fullName(r) : r.name));
+      const reason = await askBox('Reason for "Do not answer"', `<p style="font-size:16px">A reason is required when marking ${h(names.slice(0, 10).join(', '))}${names.length > 10 ? ` and ${names.length - 10} more` : ''} as <b>Do not answer</b>. It shows under the red banner.</p><textarea class="warn" style="width:100%;min-height:90px;padding:10px;border-radius:9px;border:1px solid #f3b3b6;font-size:16px" placeholder="e.g. bad debtor, not the client for us, don't feel safe"></textarea>`, 'Save reason');
+      if (typeof reason !== 'string' || !reason) { S.advSelPending = false; revertTouched(); NEXT_LOG_LABEL = null; S.skipConfirm = false; JOBS_CACHE = null; reindex(); photoCache.clear(); renderAll(); toast(reason === true ? 'A reason is required — nothing was changed' : 'Cancelled — nothing was changed'); return false; }
+      need.forEach((r) => { r.dnaReason = reason; touch(r); });
+    }
+  }
   if (!S.skipConfirm && BASE.size && !PENDING_DEL.length && typeof diffTouched === 'function') {
     const items = diffTouched(false);
     if (items.length) {
@@ -395,7 +420,7 @@ function askBox(title, html, okLabel = 'Yes — go ahead', danger = false) {
     document.body.appendChild(bg); CONFIRM = { res }; try { history.pushState({ ask: 1 }, ''); } catch (e) { } updateBackBtn();
   });
 }
-function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
+function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); const ta = el && el.querySelector('textarea'); if (v && ta) v = ta.value.trim() || true; if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
 document.addEventListener('click', (e) => { const el = e.target.closest('[data-act=ask-yes],[data-act=ask-no]'); if (!el) return; e.stopPropagation(); closeAsk(el.dataset.act === 'ask-yes'); }, true);
 const askText = (t) => `<p style="font-size:16px;line-height:1.45;white-space:pre-wrap">${h(t)}</p>`;
 async function ask(msg, okLabel, danger) { const ok = await askBox('Please confirm', askText(msg), okLabel || 'Yes — go ahead', danger); if (ok) { S.skipConfirm = true; setTimeout(() => (S.skipConfirm = false), 0); } return ok; } // already confirmed → no second pop-up
@@ -617,7 +642,18 @@ function catPicker(group, rating, cats, firstLabel, catAttr) {
   <div class="checks big" style="margin-top:6px">${D.tags.filter((t) => t.group === 'client').map((t) => `<label><input type="checkbox" ${catAttr}="${t.id}" ${cats.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div>`;
 }
 const rtVal = (scope, group) => { const el = (scope || document).querySelector(`[data-rtgroup="${group}"] [data-rt]:checked`); return el ? el.dataset.rt : ''; };
+document.addEventListener('change', (e) => {
+  const t = e.target; if (!t.dataset) return;
+  if (t.dataset.cat === 'dna' && $('#e-dnawrap')) $('#e-dnawrap').style.display = t.checked ? '' : 'none';
+  if (t.dataset.bcat === 'dna' && $('#e-bdnawrap')) $('#e-bdnawrap').style.display = t.checked ? '' : 'none';
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('[data-act=cat-mode]') || !$('#e-dnawrap')) return; setTimeout(() => { const c = D.contacts.find((x) => S.sel && x.id === S.sel.id); const own = $('#e-catmode').value === 'own'; const dna = own ? !!(document.querySelector('#sheet [data-cat="dna"]') || {}).checked : !!(c && bizOf(c).some((b) => (b.cats || []).includes('dna'))); $('#e-dnawrap').style.display = dna ? '' : 'none'; }, 0); });
 document.addEventListener('change', (e) => { const t = e.target; if (!t.dataset || !('rt' in t.dataset)) return; const g = t.closest('[data-rtgroup]'); g.querySelectorAll('[data-rt]').forEach((i) => (i.checked = i === t)); if (!g.querySelector('[data-rt]:checked')) g.querySelector('[data-rt=""]').checked = true; });
+function contactWillBeDna(c) { // reads the open contact editor
+  const mode = c.links.length ? $('#e-catmode').value : 'own';
+  if (mode === 'own') return !!(document.querySelector('#sheet [data-cat="dna"]') || {}).checked;
+  return bizOf(c).some((b) => (b.cats || []).includes('dna'));
+}
 function editContact(c) {
   const isNew = !c;
   const wasInactive = !!(c && effTags(c).includes('inactive'));
@@ -650,7 +686,7 @@ function editContact(c) {
   <div class="f"><label>Postal address</label>${repRows('postal', c.postal.map((p) => ({ value: p })), [{ k: 'value', ph: 'PO Box / street, town, postcode' }])}</div>
   <div class="f"><label>General info</label>${richEditor('e-info', c)}</div>
   <div class="f"><label style="color:var(--red-ink)">General warnings (adds "CHECK WARNING" to the client's photo). If the warning relates to farm or yards, please add to the farm warning section under the relevant business.</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
-  <div class="f"><label style="color:var(--red-ink)">⛔ Do not answer — reason (shown under the red banner when they're "Do not answer")</label><textarea id="e-dnareason" class="warn" placeholder="e.g. bad debtor, not the client for us, don't feel safe" style="min-height:60px">${h(c.dnaReason || '')}</textarea></div>
+  <div class="f" id="e-dnawrap" style="${effTags(c).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">⛔ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-dnareason" class="warn" placeholder="e.g. bad debtor, not the client for us, don't feel safe" style="min-height:60px">${h(c.dnaReason || '')}</textarea></div>
   <div class="f"><label style="color:#7a5a00">Side notes (a general caution but not an urgent warning, e.g. don't mention X as they don't talk)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
   <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${(c.photoChoice || 'auto') === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
     <input type="file" id="e-photofile" accept="image/*" style="margin-top:6px;${c.photoChoice === 'custom' ? '' : 'display:none'}"><div class="hint">Photos come from the tags automatically. If a contact has two businesses with different ratings, the photo is split and labelled with each business.</div></div>
@@ -659,6 +695,7 @@ function editContact(c) {
   openSheet(isNew ? 'New contact' : 'Edit contact', body, async () => {
     const first = val('e-first'), last = val('e-last');
     if (!first && !last) { toast('Enter a name'); return false; }
+    if (contactWillBeDna(c) && !$('#e-dnareason').value.trim() && !bizOf(c).some((b) => b.dnaReason && (b.cats || []).includes('dna'))) { toast('Please add the reason for "Do not answer"'); $('#e-dnawrap').style.display = ''; $('#e-dnareason').focus(); return false; }
     Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), ...readRich('e-info'), warnings: $('#e-warn').value.trim(), sideNotes: $('#e-side').value.trim(), dnaReason: $('#e-dnareason').value.trim(), starred: $('#e-star').checked });
     c.links = [...document.querySelectorAll('#e-links [data-bid]')].map((el) => ({ bid: el.dataset.bid }));
     const newBiz = [...document.querySelectorAll('#e-links [data-newbiz]')];
@@ -719,7 +756,7 @@ function editBiz(b) {
   <div class="f client-only"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
   <div class="f"><label>General info</label>${richEditor('e-binfo', b)}</div>
   <div class="f"><label style="color:var(--red-ink)">General warnings (red — shown on every linked contact). Farm warnings go on the farm.</label><textarea id="e-bwarn" class="warn">${h(b.warnings)}</textarea></div>
-  <div class="f"><label style="color:var(--red-ink)">⛔ Do not answer — reason (shown under the red banner)</label><textarea id="e-bdnareason" class="warn" style="min-height:60px">${h(b.dnaReason || '')}</textarea></div>
+  <div class="f" id="e-bdnawrap" style="${(b.cats || []).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">⛔ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-bdnareason" class="warn" style="min-height:60px">${h(b.dnaReason || '')}</textarea></div>
   <div class="f"><label style="color:#7a5a00">Side notes (yellow — shown on every linked contact)</label><textarea id="e-bside" class="sidenote">${h(b.sideNotes || '')}</textarea></div>
   <div class="hint">Farms are added and edited from the business page.</div>
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-biz" data-id="${b.id}" style="color:var(--red)">Delete business</button></div>`}`;
@@ -729,6 +766,7 @@ function editBiz(b) {
     if (newRating !== b.rating) b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict');
     b.type = $('#e-btype').value; b.primaryRequired = $('#e-bpreq').value !== 'no';
     const pSel = $('#e-bprimary'); if (pSel) { b.primaryContact = pSel.value || null; const pc = D.contacts.find((x) => x.id === b.primaryContact); if (pc && !pc.tags.includes('pa') && !pc.tags.includes('pi')) { pc.tags.push('pa'); touch(pc); } }
+    if ((document.querySelector('#sheet [data-bcat="dna"]') || {}).checked && !$('#e-bdnareason').value.trim()) { toast('Please add the reason for "Do not answer"'); $('#e-bdnawrap').style.display = ''; $('#e-bdnareason').focus(); return false; }
     const oldBc = b.cats || []; b.cats = [...document.querySelectorAll('#sheet [data-bcat]')].filter((i) => i.checked).map((i) => i.dataset.bcat);
     (IDX.bizContacts.get(b.id) || []).filter(followsBiz).forEach((c) => {
       if (!oldBc.includes('inactive') && b.cats.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); touch(c); }
@@ -935,6 +973,7 @@ function bulkOps(t, sel) {
   if (t === 'blockcheck') ops.push({ op: 'blockyes', label: '✓ Yes — numbers blocked', green: true }, { op: 'blockno', label: 'Not yet' });
   if (t === 'sheep') ops.push({ op: 'sheepreg', label: 'Change all to Sheep only (regular)' });
   if (t === 'noprimary') ops.push({ op: 'noprimreq', label: 'Primary contact not required' }, { op: 'nonclient', label: 'Make non-client (industry) businesses' });
+  if (t === 'conflict') ops.push({ op: 'keepmine', label: "Keep this device's version for all" }, { op: 'keeptheirs', label: 'Keep the other version for all' });
   if (t === 'nearpin') ops.push({ op: 'samefarm1', label: "Same yards used by both businesses (keep 1's details)" }, { op: 'dismiss', label: 'Different farms' });
   if (t === 'dupe') ops.push({ op: 'dismiss', label: 'Not duplicates' });
   if (JOB_TYPES[t].manual) ops.push({ op: 'dismiss', label: JOB_TYPES[t].btn || 'Mark resolved - changes not required' });
@@ -1023,6 +1062,7 @@ function runBulk(t, op) {
       const keep = IDX.farms.get(j.pair.a), other = IDX.farms.get(j.pair.b);
       if (keep && other && IDX.farmBiz.get(keep.id) !== IDX.farmBiz.get(other.id)) shareFarm(keep, other);
       D.dismissed[j.key] = Date.now(); D._dismissDirty = true;
+    } else if ((op === 'keepmine' || op === 'keeptheirs') && j.data) { resolveConflict(j.data.key, op === 'keepmine' ? 'mine' : 'theirs');
     } else if (op === 'catapply' && j.cat) applyCat(j.cat.cid, j.cat.at);
     else if (op === 'blockyes' && j.block) setBlocked(j.block, true);
     else if (op === 'blockno' && j.block) setBlocked(j.block, false);
@@ -1337,6 +1377,15 @@ function conflictDiff(cf) {
   ${rows || '<div class="hint" style="margin-top:6px">No visible differences.</div>'}
   <div class="actions" style="margin-top:10px"><button class="btn small primary" data-act="conflict-keep" data-key="${h(cf.key)}" data-v="mine">Keep this device's version</button><button class="btn small" data-act="conflict-keep" data-key="${h(cf.key)}" data-v="theirs">${cf.deletedElsewhere ? 'Keep it deleted' : 'Keep the other version'}</button></div>`;
 }
+function resolveConflict(key, which) {
+  const i = D.conflicts.findIndex((x) => x.key === key); if (i < 0) return; const cf = D.conflicts[i];
+  if (which === 'mine') {
+    const arr = D[cf.kind]; const j = arr.findIndex((r) => r.id === cf.id); const cur = j >= 0 ? arr[j] : null;
+    const rec = { ...cf.mine, _rev: cur ? cur._rev : cf.mine._rev }; touch(rec);
+    if (j >= 0) arr[j] = rec; else { arr.push(rec); D.deleted = D.deleted.filter((x) => x.id !== cf.id); }
+  }
+  D.conflicts.splice(i, 1);
+}
 function conflictSheet(cf) {
   openSheet('Sync conflict — ' + cf.who, `<p>This was changed on two devices before they synced. Choose which version to keep. Differences only:</p>${conflictDiff(cf)}`, () => true);
   $('#sheet-save').style.display = 'none';
@@ -1409,15 +1458,7 @@ document.addEventListener('click', async (e) => {
   else if (a === 'gpush-toggle') { GContacts.st.on = el.checked; GContacts.persist(); renderAll(); if (el.checked) { await Sync.run(true); GContacts.maybeRun(); } }
   else if (a === 'gpush-now') { try { await GAuth.get(true); GContacts.run(); toast('Updating Google Contacts in the background'); } catch (err) { toast(err.message); } }
   else if (a === 'conflict-open') { const cf = D.conflicts.find((x) => x.key === d.key); if (cf) conflictSheet(cf); }
-  else if (a === 'conflict-keep') {
-    const i = D.conflicts.findIndex((x) => x.key === d.key); if (i < 0) return; const cf = D.conflicts[i];
-    if (d.v === 'mine') {
-      const arr = D[cf.kind]; const j = arr.findIndex((r) => r.id === cf.id); const cur = j >= 0 ? arr[j] : null;
-      const rec = { ...cf.mine, _rev: cur ? cur._rev : cf.mine._rev }; touch(rec);
-      if (j >= 0) arr[j] = rec; else { arr.push(rec); D.deleted = D.deleted.filter((x) => x.id !== cf.id); }
-    }
-    D.conflicts.splice(i, 1); if (SHEET) closeSheet(); S.skipConfirm = true; changed(); toast('Conflict resolved'); Sync.soon();
-  }
+  else if (a === 'conflict-keep') { resolveConflict(d.key, d.v); if (SHEET) closeSheet(); S.skipConfirm = true; changed(); toast('Conflict resolved'); Sync.soon(); }
 });
 
 /* ---------------- advanced search ---------------- */
