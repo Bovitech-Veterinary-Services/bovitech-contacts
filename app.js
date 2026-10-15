@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.7 (15 Oct 2026)';
+const APP_VERSION = '4.8 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -75,6 +75,7 @@ async function loadSeed() {
 
 /* ---------------- indexes & helpers ---------------- */
 function reindex() {
+  D.routes = D.routes || [];
   const biz = new Map(D.businesses.map((b) => [b.id, b]));
   const tags = new Map(D.tags.map((t) => [t.id, t]));
   const farms = new Map(); const farmBiz = new Map();
@@ -434,11 +435,11 @@ async function changed() {
 }
 /* ---------------- confirm pop-up (replaces the browser's confirm box; phone Back = cancel) ---------------- */
 let CONFIRM = null;
-function askBox(title, html, okLabel = 'Yes — go ahead', danger = false) {
+function askBox(title, html, okLabel = 'Yes — go ahead', danger = false, noLabel = "Cancel — don't change anything") {
   return new Promise((res) => {
     const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'askbox'; bg.style.zIndex = 80;
     bg.innerHTML = `<div class="sheet" style="max-width:620px"><div class="sheet-h"><button class="btn" data-act="ask-no">‹ Back</button><h2>${h(title)}</h2></div><div class="form">${html}
-      <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button><button class="btn" data-act="ask-no">Cancel — don't change anything</button></div></div></div>`;
+      <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button><button class="btn" data-act="ask-no">${h(noLabel)}</button></div></div></div>`;
     document.body.appendChild(bg); CONFIRM = { res }; try { history.pushState({ ask: 1 }, ''); } catch (e) { } updateBackBtn();
   });
 }
@@ -978,7 +979,8 @@ function renderRoute() {
   ${R.endSame ? '' : endpointPicker('end')}</div>
   <div class="card"><h3>Order</h3><div class="seg"><button class="${R.mode === 'efficient' ? 'on' : ''}" data-act="rmode" data-v="efficient">Most efficient</button><button class="${R.mode === 'order' ? 'on' : ''}" data-act="rmode" data-v="order">The order I picked</button></div>
   <div class="hint" style="margin-top:6px">${D.settings.mapsKey ? 'Most efficient uses Google Maps road routing when online.' : 'Most efficient uses straight-line distances until the Google Maps key is added in Settings.'}</div></div>
-  <div class="actions"><button class="btn red" data-act="route-go" ${R.stops.length ? '' : 'disabled'} style="font-size:17px;padding:12px 18px">Open route in Google Maps</button>${R.stops.length ? '<button class="btn" data-act="route-clear">Clear</button>' : ''}</div><div id="route-msg" class="hint"></div></div>`;
+  <div class="actions"><button class="btn red" data-act="route-go" ${R.stops.length ? '' : 'disabled'} style="font-size:17px;padding:12px 18px">Open route in Google Maps</button>${R.stops.length ? `${R.savedId && D.routes.some((x) => x.id === R.savedId) ? `<button class="btn primary" data-act="route-save">💾 Save changes to "${h(D.routes.find((x) => x.id === R.savedId).name)}"</button><button class="btn" data-act="route-saveas">Save as new route</button>` : '<button class="btn primary" data-act="route-save">💾 Save route</button>'}<button class="btn" data-act="route-clear">Clear</button>` : ''}</div><div id="route-msg" class="hint"></div>
+  ${savedRoutesCard()}</div>`;
   return html;
 }
 function farmSearch(q, limit = 12) {
@@ -1266,7 +1268,7 @@ async function gfetch(url, opt = {}, interactive = false) {
    Each record has _rev (bumped on every upload). On sync: download if the file changed, merge record by record,
    then upload. If the same record was changed on two devices since the last sync, it is a CONFLICT: the other
    device's version is kept for now and this device's version goes to the Jobs list to be resolved. */
-const KINDS = ['contacts', 'businesses', 'tags'];
+const KINDS = ['contacts', 'businesses', 'tags', 'routes'];
 const strip = (r) => { const o = { ...r }; delete o._dirty; return o; };
 const Sync = {
   state: 'idle', msg: '', timer: null, busy: false,
@@ -1846,7 +1848,7 @@ const deviceName = () => { try { return localStorage.getItem('bvt-devname') || '
 // key-order-independent JSON so {value,label} and {label,value} count as the same
 const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, kk) => ((o[kk] = x[kk]), o), {}) : x));
 const plain = (r) => { const o = {}; Object.keys(r).forEach((k) => { if (!k.startsWith('_')) o[k] = r[k]; }); return o; };
-const recKind = (r) => (r === D.settings ? 'settings' : D.contacts.includes(r) ? 'contacts' : D.businesses.includes(r) ? 'businesses' : D.tags.includes(r) ? 'tags' : null);
+const recKind = (r) => (r === D.settings ? 'settings' : D.contacts.includes(r) ? 'contacts' : D.businesses.includes(r) ? 'businesses' : D.tags.includes(r) ? 'tags' : (D.routes || []).includes(r) ? 'routes' : null);
 const recKeyOf = (kind, r) => (kind === 'settings' ? 'settings' : kind + ':' + r.id);
 const recName = (kind, r) => (kind === 'contacts' ? fullName(r) : kind === 'settings' ? 'Settings' : r.name || '');
 let DISMISS_SNAP = '{}';
@@ -1919,13 +1921,15 @@ function fmtField(f, v) {
   if (f === 'rating') return tagName(v);
   if (f === 'primaryContact') { const c = D.contacts.find((x) => x.id === v); return c ? fullName(c) : '—'; }
   if (f === 'photoData') return 'custom photo';
+  if (f === 'stops') return v.map((x) => { const fm = IDX.farms.get(x.fid); return fm ? farmLabel(fm) : '(deleted farm)'; }).join('; ') || '—';
+  if ((f === 'start' || f === 'end') && typeof v === 'object') return epLabel(v);
   if (f === 'flags') return v.map((x) => x.type).join(', ') || '—';
   if (typeof v === 'object') return Array.isArray(v) ? v.map(String).join(', ') : JSON.stringify(v);
   return String(v);
 }
 function entrySummary(e) {
   if (e.label) return e.label;
-  if (e.items.length === 1) { const it = e.items[0]; const what = { contacts: 'contact', businesses: 'business', tags: 'tag', settings: '' }[it.kind];
+  if (e.items.length === 1) { const it = e.items[0]; const what = { contacts: 'contact', businesses: 'business', tags: 'tag', routes: 'route', settings: '' }[it.kind];
     if (it.created) return `Added ${what} ${it.name}`; if (it.deleted) return `Deleted ${what} ${it.name}`;
     return `Changed ${what} ${it.name}`.replace('  ', ' ') + ' — ' + ([...new Set(Object.keys(it.after).filter((f) => !LOG_SKIP.has(f)).map((f) => (f === 'tags' && it.show ? 'categories / tags' : FIELD_NAMES[f] || f)))].join(', ') || 'categories'); }
   const n = (k) => e.items.filter((i) => i.kind === k).length;
@@ -2119,8 +2123,12 @@ document.addEventListener('click', async (e) => {
     case 'del-contact': if (await ask(`Move ${fullName(D.contacts.find((c) => c.id === d.id))} to the trash?\n\nYou can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { trashContact(D.contacts.find((c) => c.id === d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
     case 'del-biz': if (await ask(`Move ${IDX.biz.get(d.id).name} and its farms to the trash?\n\nIts contacts stay. You can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { trashBiz(IDX.biz.get(d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
     case 'del-farm': if (await ask(`Move ${IDX.farms.get(d.fid)?.name || 'this farm'} (${IDX.biz.get(d.bid).name}) to the trash?\n\nYou can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { const b = IDX.biz.get(d.bid); trashFarm(b, IDX.farms.get(d.fid)); closeSheet(); changed(); toast('Moved to trash'); } break;
-    case 'route-add': addStop(d.fid); break;
-    case 'route-add-biz': IDX.biz.get(d.bid).farms.filter((f) => f.lat != null).forEach((f) => addStop(f.id, true)); toast('Added to route'); renderTabs(); break;
+    case 'route-add': routeAddedBox([d.fid]); break;
+    case 'route-save': saveRoute(false); break;
+    case 'route-saveas': saveRoute(true); break;
+    case 'route-load': loadRoute(d.id); break;
+    case 'route-del': deleteRoute(d.id); break;
+    case 'route-add-biz': routeAddedBox(IDX.biz.get(d.bid).farms.filter((f) => f.lat != null).map((f) => f.id)); break;
     case 'rs-up': case 'rs-down': { const i = +d.i, j = a === 'rs-up' ? i - 1 : i + 1; const s = S.route.stops; [s[i], s[j]] = [s[j], s[i]]; S.route.mode = 'order'; renderAll(); break; }
     case 'rs-del': S.route.stops.splice(+d.i, 1); renderAll(); break;
     case 'rs-pick': addStop(d.fid, true); renderAll(); setTimeout(() => $('#rs-search') && $('#rs-search').focus(), 0); break;
@@ -2129,7 +2137,7 @@ document.addEventListener('click', async (e) => {
     case 'endsame': S.route.endSame = el.checked; if (!el.checked) S.route.end = { type: 'home' }; renderAll(); break;
     case 'rmode': S.route.mode = d.v; renderAll(); break;
     case 'route-go': goRoute(); break;
-    case 'route-clear': S.route.stops = []; renderAll(); break;
+    case 'route-clear': S.route.stops = []; S.route.savedId = null; renderAll(); break;
     case 'job-open': {
       S.tab = d.kind === 'business' ? 'biz' : 'contacts'; S.sel = { kind: d.kind, id: d.id }; renderAll();
       if (d.fid) editFarm(IDX.biz.get(d.id), IDX.farms.get(d.fid)); else if (d.kind === 'contact') editContact(D.contacts.find((x) => x.id === d.id));
@@ -2185,9 +2193,41 @@ document.addEventListener('click', async (e) => {
   }
 });
 function addStop(fid, quiet) {
-  if (S.route.stops.some((s) => s.fid === fid)) { if (!quiet) toast('Already on the route'); return; }
-  if (S.route.stops.length >= MAX_STOPS) { toast('Google Maps allows up to 9 stops'); return; }
-  S.route.stops.push({ fid }); if (!quiet) toast(`Added to route (${S.route.stops.length}/${MAX_STOPS})`);
+  if (S.route.stops.some((s) => s.fid === fid)) { if (!quiet) toast('Already on the route'); return 'dup'; }
+  if (S.route.stops.length >= MAX_STOPS) { if (!quiet) toast('Google Maps allows up to 9 stops'); return 'full'; }
+  S.route.stops.push({ fid }); if (!quiet) toast(`Added to route (${S.route.stops.length}/${MAX_STOPS})`); return 'ok';
+}
+// pop-up after "+ Add to route": says what happened, offers to open the route planner
+async function routeAddedBox(fids) {
+  const res = fids.map((fid) => ({ fid, r: addStop(fid, true) }));
+  const nm = (fid) => h(farmLabel(IDX.farms.get(fid) || { id: fid }));
+  const ok = res.filter((x) => x.r === 'ok'), dup = res.filter((x) => x.r === 'dup'), full = res.filter((x) => x.r === 'full');
+  let html = '';
+  if (ok.length) html += `<p style="font-size:17px">✓ Added to the route:</p><ul>${ok.map((x) => `<li><b>${nm(x.fid)}</b></li>`).join('')}</ul>`;
+  if (dup.length) html += `<p>Already on the route: ${dup.map((x) => nm(x.fid)).join(', ')}</p>`;
+  if (full.length) html += `<p style="color:var(--red)">Not added — Google Maps allows up to ${MAX_STOPS} stops: ${full.map((x) => nm(x.fid)).join(', ')}</p>`;
+  html += `<p class="hint">The route now has ${S.route.stops.length} of ${MAX_STOPS} stops.</p>`;
+  renderTabs();
+  if (await askBox(ok.length ? 'Added to route' : 'Route not changed', html, `View route (${S.route.stops.length} stop${S.route.stops.length === 1 ? '' : 's'})`, false, 'OK — keep going')) goTab('route');
+}
+function goTab(t) { const b = document.querySelector(`[data-act=tab][data-v="${t}"]`); if (b) b.click(); else { S.tab = t; renderAll(); } }
+/* ---------------- saved routes (synced to every device) ---------------- */
+const epLabel = (e) => (!e ? '' : e.type === 'home' ? 'Homebase' : e.type === 'farm' ? (IDX.farms.get(e.fid) ? farmLabel(IDX.farms.get(e.fid)) : 'a farm') : e.type === 'place' ? e.text || 'a place' : e.type === 'none' ? 'Last stop' : '');
+function routeSnapshot() { const R = S.route; return { stops: R.stops.map((x) => ({ fid: x.fid })), start: { ...R.start }, end: { ...R.end }, endSame: !!R.endSame, mode: R.mode }; }
+async function saveRoute(asNew) {
+  const R = S.route; if (!R.stops.length) { toast('Add some stops first'); return; }
+  const cur = !asNew && R.savedId ? D.routes.find((x) => x.id === R.savedId) : null;
+  const name = await askBox(cur ? 'Save changes to route' : 'Save route', `<p>${R.stops.length} stop${R.stops.length === 1 ? '' : 's'}: ${h(R.stops.map((x) => farmLabel(IDX.farms.get(x.fid) || { id: x.fid })).join(' → '))}</p><div class="f"><span class="lbl">Route name</span><textarea rows="1" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px" placeholder="e.g. Tuesday Kendenup run">${h(cur ? cur.name : '')}</textarea></div>`, cur ? 'Save changes' : 'Save route', false, 'Cancel');
+  if (!name) return; if (name === true) { toast('Give the route a name'); return; }
+  let r = cur; if (!r) { r = { id: uid('r'), createdAt: Date.now(), by: deviceName() }; D.routes.push(r); }
+  Object.assign(r, { name }, routeSnapshot()); touch(r); R.savedId = r.id;
+  S.skipConfirm = true; NEXT_LOG_LABEL = (cur ? 'Updated route ' : 'Saved route ') + name; await changed(); toast('Route saved: ' + name);
+}
+function loadRoute(id) { const r = D.routes.find((x) => x.id === id); if (!r) return; const stops = r.stops.filter((x) => IDX.farms.get(x.fid)); Object.assign(S.route, { stops: stops.map((x) => ({ fid: x.fid })), start: { ...r.start }, end: { ...r.end }, endSame: r.endSame, mode: r.mode, savedId: r.id }); renderAll(); toast('Loaded: ' + r.name + (stops.length < r.stops.length ? ` (${r.stops.length - stops.length} farm${r.stops.length - stops.length === 1 ? '' : 's'} no longer exist)` : '')); }
+async function deleteRoute(id) { const r = D.routes.find((x) => x.id === id); if (!r) return; if (!(await ask(`Delete the saved route "${r.name}"?`, 'Yes — delete route', true))) return; D.routes = D.routes.filter((x) => x !== r); D.deleted.push({ id: r.id, kind: 'routes', at: Date.now() }); if (S.route.savedId === r.id) S.route.savedId = null; NEXT_LOG_LABEL = 'Deleted route ' + r.name; S.skipConfirm = true; await changed(); Sync.soon(); toast('Route deleted'); }
+function savedRoutesCard() {
+  const rs = (D.routes || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  return `<div class="card"><h3>Saved routes (${rs.length})</h3>${rs.map((r) => `<div class="stop" style="${S.route.savedId === r.id ? 'background:var(--green-bg);border-radius:10px' : ''}"><div class="t"><div style="font-weight:600">${h(r.name)}${S.route.savedId === r.id ? ' <span class="hint">(loaded)</span>' : ''}</div><div class="hint">${r.stops.length} stop${r.stops.length === 1 ? '' : 's'}: ${h(r.stops.map((x) => { const f = IDX.farms.get(x.fid); return f ? farmLabel(f) : '(deleted farm)'; }).join(' → '))}<br>Start: ${h(epLabel(r.start))} · Finish: ${h(r.endSame ? 'same as start' : epLabel(r.end))}</div></div><button class="btn small primary" data-act="route-load" data-id="${r.id}">Load</button><button class="btn small" data-act="route-del" data-id="${r.id}" style="color:var(--red)">Delete</button></div>`).join('') || '<div class="hint">No saved routes yet. Plan a route above, then tap "Save route".</div>'}</div>`;
 }
 document.addEventListener('input', (e) => {
   const t = e.target;
@@ -2210,8 +2250,8 @@ document.addEventListener('change', async (e) => {
   if (t.dataset.act === 'bsort') { S.bsort = t.value; renderBizList(); }
   if (t.dataset.act === 'import' && t.files[0]) {
     try { const js = JSON.parse(await t.files[0].text()); if (!js.contacts || !js.businesses) throw new Error('Not a backup file'); if (!(await ask('Replace all data on this device with this file?', 'Yes — replace'))) return;
-      const keepSync = D.sync; D = js; D.sync = keepSync || {}; D.deleted = D.deleted || []; D.conflicts = []; D.dismissed = D.dismissed || {}; D.firstRun = false; D.importedAt = D.importedAt || new Date().toLocaleDateString('en-AU');
-      [...D.contacts, ...D.businesses, ...D.tags, D.settings].forEach((r) => (r._dirty = true));
+      const keepSync = D.sync; D = js; D.sync = keepSync || {}; D.deleted = D.deleted || []; D.conflicts = []; D.dismissed = D.dismissed || {}; D.firstRun = false; D.importedAt = D.importedAt || new Date().toLocaleDateString('en-AU'); D.routes = D.routes || [];
+      [...D.contacts, ...D.businesses, ...D.tags, ...D.routes, D.settings].forEach((r) => (r._dirty = true));
       reindex(); migrate(); baseline(); changed(); toast('Data loaded'); Sync.soon(); } catch (err) { toast('Could not restore: ' + err.message); }
   }
 });
@@ -2232,7 +2272,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (CONF
 (async function init() {
   D = await Store.get('data');
   if (!D) { D = await loadSeed(); D.dismissed = D.dismissed || {}; await Store.set('data', D); }
-  D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || []; D.trash = D.trash || [];
+  D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || []; D.trash = D.trash || []; D.routes = D.routes || [];
   reindex(); baseline(); migrate(); logChanges('Automatic update'); save();
   reindex(); net(); renderAll();
   Sync.start();
