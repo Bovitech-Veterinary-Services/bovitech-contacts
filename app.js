@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '6.2 (16 Oct 2026)';
+const APP_VERSION = '6.3 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -288,6 +288,17 @@ const isClientBiz = (b) => { const cat = bizCat(b); return cat ? catClass('b', c
 const NONCLIENT_CATS = new Set(['industry', 'bvs', 'bfriends', 'phone', 'prac']); // default; changeable in Settings → Categories
 const catClass = (who, cat) => { const m = ((D.settings || {}).catClass || {})[who]; return m && cat in m ? m[cat] : NONCLIENT_CATS.has(cat) ? 'n' : 'c'; }; // who: 'p' people, 'b' businesses
 const isClientPerson = (c) => catClass('p', catOf(c)) !== 'n';
+const PREF = (() => { try { return JSON.parse(localStorage.getItem('bvt-prefs') || '{}'); } catch (e) { return {}; } })(); // this device only
+function savePref(k, v) { PREF[k] = v; try { localStorage.setItem('bvt-prefs', JSON.stringify(PREF)); } catch (e) { } }
+function applyUi() { const th = PREF.theme || 'auto'; const dark = th === 'dark' || (th === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = dark ? 'dark' : 'light'; document.body.style.zoom = { normal: '', large: '1.12', xl: '1.25' }[PREF.size || 'normal'] || ''; }
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyUi); } catch (e) { }
+const ROUTE_DEF = { avoidTolls: false, avoidHighways: false, avoidFerries: false, pinM: 20, kmTol: 1 };
+const routeSet = () => ({ ...ROUTE_DEF, ...((D && D.settings && D.settings.route) || {}) });
+const REQ_FIELDS = [['email', 'Email'], ['phone', 'Phone number (mobile or landline)'], ['mobile', 'Mobile number'], ['business', 'Linked to a business'], ['gps', 'Farm with a GPS pin'], ['pic', 'PIC'], ['pid', 'Patient ID'], ['category', 'Contact category'], ['postal', 'Postal address']];
+const REQ_DEF = ['email', 'phone', 'business', 'gps', 'pic', 'pid', 'category'];
+const reqOn = (k) => (D.settings.required || REQ_DEF).includes(k);
+const TPL_CONTACT = '*General info*\n-\n\n*Relationships*\n-\n\n*Preg test info*\n-Frequency:\n-Type:\n-Speed:\n-Comment:\n\n*Bull test info*\n-Frequency:\n-Speed:\n-Power:\n-Comment:\n\n*Book under*\n-\n\n*WARNING*\n-';
+const TPL_BIZ = '*General info*\n-\n\n*Billing*\n-\n\n*WARNING*\n-';
 const TAB_DEFAULTS = { contacts: 'People', biz: 'Businesses', search: 'Search & Bulk Edit', route: 'Plan Route', jobs: 'Jobs', settings: 'Settings' };
 const lab = (k) => (((D && D.settings) || {}).labels || {})[k] || TAB_DEFAULTS[k];
 /* ---------- business-name helpers: matching names in text, splitting names that hold more than one business ---------- */
@@ -335,17 +346,17 @@ function setBlocked(cid, yes) {
   if (yes) c.flags = (c.flags || []).filter((f) => f.type !== 'blockcheck'); touch(c);
 }
 function missingInfo(c) {
-  const bs = bizOf(c); const m = [];
-  if (!c.emails.length) m.push('email');
-  if (!c.mobiles.length && !c.landlines.length) m.push('phone number');
-  if (!bs.length) m.push('business');
-  if (bs.length && !bs.some((b) => b.farms.some((f) => f.lat != null))) m.push(bs.some(isClientBiz) ? 'farm GPS pin' : 'business location GPS pin');
-  const cb = bs.filter(isClientBiz); // non-client (industry) businesses don't need these
-  if (!bs.length || cb.length) {
-    if (!cb.some((b) => b.pics.length)) m.push('PIC');
-    if (!cb.some((b) => b.patientIds.length)) m.push('patient ID');
-    if (!contactRatings(c).length) m.push('contact category (A+ to C)');
-  }
+  const bs = bizOf(c); const m = []; // which fields count is set in Settings → Required information
+  if (reqOn('email') && !c.emails.length) m.push('email');
+  if (reqOn('phone') && !c.mobiles.length && !c.landlines.length) m.push('phone number');
+  if (reqOn('mobile') && !c.mobiles.length) m.push('mobile number');
+  if (reqOn('postal') && !c.postal.length) m.push('postal address');
+  if (reqOn('business') && !bs.length) m.push('business');
+  if (reqOn('category') && !catOf(c)) m.push('contact category');
+  if (!isClientPerson(c)) return m; // non-client people don't need farm details
+  if (reqOn('gps') && bs.length && !bs.some((b) => b.farms.some((f) => f.lat != null))) m.push('farm GPS pin');
+  const cb = bs.filter(isClientBiz);
+  if (!bs.length || cb.length) { if (reqOn('pic') && !cb.some((b) => b.pics.length)) m.push('PIC'); if (reqOn('pid') && !cb.some((b) => b.patientIds.length)) m.push('patient ID'); }
   return m;
 }
 function computeJobs() {
@@ -370,7 +381,7 @@ function computeJobs() {
   for (let i = 0; i < pinned.length; i++) for (let k = i + 1; k < pinned.length; k++) {
     const A = pinned[i], B = pinned[k];
     if (Math.abs(A.f.lat - B.f.lat) > 0.01 || Math.abs(A.f.lng - B.f.lng) > 0.012) continue;
-    const dkm = hav(A.f, B.f); if (dkm >= 0.02) continue; // only pins on the same spot (within 20 m)
+    const dkm = hav(A.f, B.f); if (dkm >= routeSet().pinM / 1000) continue; // only pins on the same spot (Settings → Travel)
     const key = 'nearpin:' + [A.f.id, B.f.id].sort().join('|');
     const nm = (x) => x.b.name + (x.f.name ? ' — ' + x.f.name : '');
     add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two farms have the same GPS pin. Are they the same farm or different farms? (1 = ${nm(A)}, 2 = ${nm(B)})`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
@@ -467,7 +478,7 @@ const JOB_TYPES = {
   noname: { t: 'Business created from a contact name — check', manual: true },
 };
 let JOBS_CACHE = null;
-function jobs() { if (!JOBS_CACHE) JOBS_CACHE = computeJobs(); return JOBS_CACHE; }
+function jobs() { if (!JOBS_CACHE) { const off = new Set(PREF.jobsOff || []); JOBS_CACHE = computeJobs().filter((j) => !off.has(j.type)); } return JOBS_CACHE; } // job types switched off in Settings are hidden on this device
 function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind === kind || (kind === 'contact' && false))); }
 
 /* ---------------- rendering: shell ---------------- */
@@ -591,11 +602,11 @@ function renderContactList() {
   const list = $('#list');
   if (!D.contacts.length && (D.firstRun || !D.sync.fileId)) { list.innerHTML = firstRunHtml(); return; }
   const keepFocus = document.activeElement && document.activeElement.id === 'q';
-  const pt = S.ptype || 'all'; const hideIn = S.hideIn.p !== false; const all = filteredContacts().filter((c) => !hideIn || catOf(c) !== 'inactive'); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
+  const pt = S.ptype || 'all'; const hideIn = S.hideIn.p !== false; const all = filteredContacts().filter((c) => !hideIn || !['inactive', 'dna'].includes(catOf(c))); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
   let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="Search people…" title="Tip: use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">+ New</button></div>
     <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client people'], ['nonclient', 'Non-client people']].map(([v, l]) => `<button class="${pt === v ? 'on' : ''}" data-act="ptype" data-v="${v}">${l} (${v === 'all' ? D.contacts.length : D.contacts.filter((c) => (v === 'client') === isClientPerson(c)).length})</button>`).join('')}</div>
     <div class="row2"><span>${rows.length} of ${D.contacts.length} people${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
-    <label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="p" ${hideIn ? 'checked' : ''}> Hide inactive</label><label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
+    <label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="p" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
   html += '<ul class="list">';
   if (S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(bizHay(b), pq)).slice(0, 15);
     if (bo.length) { html += `<li class="group-h">Businesses (phone / email on the business)</li>`; bo.forEach((b) => { html += `<li class="item" data-act="open" data-kind="business" data-id="${b.id}"><div class="av" style="display:grid;place-items:center;background:#ece8df;font-size:20px">🏢</div><div class="t"><div class="n">${h(b.name)}</div><div class="s"><b>${isClientBiz(b) ? 'Client business' : 'Industry'}</b> · ${h(((b.phones || [])[0] || (b.emails || [])[0] || {}).value || '')}</div></div></li>`; }); html += `<li class="group-h">People</li>`; } }
@@ -630,11 +641,11 @@ function renderBizList() {
   const pq = parseQuery(S.bq);
   const bt = S.btype || 'all';
   const hideIn = S.hideIn.b !== false;
-  let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)) && (!hideIn || bizCat(b) !== 'inactive'));
+  let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)) && (!hideIn || !['inactive', 'dna'].includes(bizCat(b))));
   rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || alphaCmp(a.name, b.name));
   let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses…" title="Tip: use -word to exclude" value="${h(S.bq)}" autocomplete="off"><button class="btn" data-act="go-adv-biz" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-biz">+ New</button></div>
     <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client businesses'], ['nonclient', 'Non-client businesses']].map(([v, l]) => `<button class="${bt === v ? 'on' : ''}" data-act="btype" data-v="${v}">${l} (${D.businesses.filter((b) => v === 'all' || (v === 'client') === isClientBiz(b)).length})</button>`).join('')}</div>
-    <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="b" ${hideIn ? 'checked' : ''}> Hide inactive</label><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
+    <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="b" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
   rows.slice(0, 400).forEach((b) => {
     const cs = IDX.bizContacts.get(b.id) || [];
     const flagged = jobs().some((j) => j.kind === 'business' && j.id === b.id);
@@ -811,7 +822,7 @@ function editContact(c) {
   const isNew = !c;
   const wasInactive = !!(c && effTags(c).includes('inactive'));
   const oldCats = c ? effCats(c) : [];
-  c = c || { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [] };
+  c = c || { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: D.settings.tplContact != null ? D.settings.tplContact : TPL_CONTACT, warnings: '', starred: false, photoChoice: 'auto', flags: [] };
 
   const { dr, ptags } = photoCandidates(c);
   const photoOpts = [['auto', 'Use default photo automatically assigned to the category' + (needsPhotoChoice(c) ? ' (needs choosing)' : '')], ...[...new Set([...dr, ...effTags(c).filter((t) => tagPhotoSrc(t))])].map((t) => [t, tagName(t)])];
@@ -925,7 +936,7 @@ function fileToDataUrl(file, max) {
 const PID_LABELS = ['Cattle Herd ID', 'Sheep Flock ID'];
 function editBiz(b) {
   const isNew = !b;
-  b = b || { id: uid('b'), name: '', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null };
+  b = b || { id: uid('b'), name: '', farms: [], pics: [], patientIds: [], info: D.settings.tplBiz != null ? D.settings.tplBiz : TPL_BIZ, warnings: '', flags: [], rating: null };
   const body = `<div class="f"><label>Business name</label><input id="e-bname" value="${h(b.name)}"></div>
   <div class="f"><label>Business type</label><select id="e-btype"><option value="client">Client business</option><option value="nonclient" ${isClientBiz(b) ? '' : 'selected'}>Non-client business (industry)</option></select><div class="hint">Non-client businesses don't need a PIC, patient IDs, A+ to C category or farms — they have business locations instead.</div></div>
   <div class="f"><label>Business phone numbers</label>${repRows('bphone', b.phones || [], [{ k: 'value', ph: 'e.g. 08 9841 7857', w: 2 }, { k: 'label', ph: 'Label (e.g. Office, Mobile)', w: 2 }])}</div>
@@ -968,6 +979,14 @@ function editBiz(b) {
 }
 document.addEventListener('change', async (e) => {
   const t = e.target;
+  if (t.dataset && t.dataset.pref) { savePref(t.dataset.pref, t.value); if (t.dataset.pref === 'theme' || t.dataset.pref === 'size') applyUi(); toast('Saved for this device'); return; }
+  if (t.dataset && t.dataset.jobtype) { const off = new Set(PREF.jobsOff || []); t.checked ? off.delete(t.dataset.jobtype) : off.add(t.dataset.jobtype); savePref('jobsOff', [...off]); JOBS_CACHE = null; renderTabs(); toast('Saved for this device'); return; }
+  const setShared = async (fn, label) => { fn(D.settings); touch(D.settings); NEXT_LOG_LABEL = label; S.skipConfirm = true; JOBS_CACHE = null; await changed(); toast('Saved'); };
+  if (t.dataset && t.dataset.req) { await setShared((st) => { const r = new Set(st.required || REQ_DEF); t.checked ? r.add(t.dataset.req) : r.delete(t.dataset.req); st.required = [...r]; }, `Required information: ${t.dataset.req} ${t.checked ? 'on' : 'off'}`); return; }
+  if (t.dataset && t.dataset.route) { await setShared((st) => { st.route = { ...routeSet(), [t.dataset.route]: t.checked }; }, `Travel: ${t.dataset.route} ${t.checked ? 'on' : 'off'}`); return; }
+  if (t.dataset && t.dataset.routenum) { const v = parseFloat(t.value); if (!(v > 0)) { toast('Enter a number above 0'); return; } await setShared((st) => { st.route = { ...routeSet(), [t.dataset.routenum]: v }; }, `Travel: ${t.dataset.routenum} = ${v}`); return; }
+  if (t.dataset && t.dataset.gpush) { await setShared((st) => { st.gpush = { ...(st.gpush || {}), [t.dataset.gpush]: t.checked }; }, `Google Contacts: ${t.dataset.gpush} ${t.checked ? 'on' : 'off'}`); return; }
+  if (t.dataset && t.dataset.gskip) { await setShared((st) => { const g = { ...(st.gpush || {}) }; const sk = new Set(g.skip || []); t.checked ? sk.delete(t.dataset.gskip) : sk.add(t.dataset.gskip); g.skip = [...sk]; st.gpush = g; }, `Google Contacts: ${tagName(t.dataset.gskip)} ${t.checked ? 'sent' : 'not sent'}`); return; }
   if (t.dataset && t.dataset.catclass) { const st = D.settings; st.catClass = st.catClass || { p: {}, b: {} }; st.catClass[t.dataset.catclass] = st.catClass[t.dataset.catclass] || {}; st.catClass[t.dataset.catclass][t.dataset.cat] = t.value; touch(st); NEXT_LOG_LABEL = `${tagName(t.dataset.cat)} ${t.dataset.catclass === 'p' ? lab('contacts') : lab('biz')} set to ${t.value === 'n' ? 'non-client' : 'client'}`; S.skipConfirm = true; JOBS_CACHE = null; reindex(); await changed(); toast('Saved'); return; }
   if (t.dataset && t.dataset.label) { const st = D.settings; st.labels = st.labels || {}; const v = t.value.trim(); if (v) st.labels[t.dataset.label] = v; else delete st.labels[t.dataset.label]; touch(st); NEXT_LOG_LABEL = `Menu name: ${TAB_DEFAULTS[t.dataset.label]} → ${v || TAB_DEFAULTS[t.dataset.label]}`; S.skipConfirm = true; await changed(); toast('Saved'); return; }
 });
@@ -1040,13 +1059,14 @@ function editFarm(b, f) {
 /* ---------------- Google Maps (needs API key in Settings) ---------------- */
 const Maps = {
   key() { return D.settings.mapsKey || ''; },
+  mods() { const r = routeSet(); return { avoidTolls: !!r.avoidTolls, avoidHighways: !!r.avoidHighways, avoidFerries: !!r.avoidFerries }; },
   async distances(dests, origin = D.settings.home) {
     if (!this.key()) throw new Error('Add your Google Maps key in Settings to calculate distances.');
     if (!navigator.onLine) throw new Error('You are offline — distances need internet.');
     const out = [];
     for (let i = 0; i < dests.length; i += 25) {
       const chunk = dests.slice(i, i + 25);
-      const body = { origins: [{ waypoint: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } } }], destinations: chunk.map((d) => ({ waypoint: { location: { latLng: { latitude: d.lat, longitude: d.lng } } } })), travelMode: 'DRIVE' };
+      const body = { origins: [{ waypoint: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } } }], destinations: chunk.map((d) => ({ waypoint: { location: { latLng: { latitude: d.lat, longitude: d.lng } } } })), travelMode: 'DRIVE', routeModifiers: this.mods() };
       const r = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.key(), 'X-Goog-FieldMask': 'originIndex,destinationIndex,distanceMeters,duration,condition' }, body: JSON.stringify(body) });
       if (!r.ok) throw new Error('Google Maps error ' + r.status + ': ' + (await r.text()).slice(0, 160));
       const js = await r.json();
@@ -1057,7 +1077,7 @@ const Maps = {
   async optimise(origin, dest, stops) {
     if (!this.key() || !navigator.onLine) return null;
     const wp = (p) => (p.lat != null ? { location: { latLng: { latitude: p.lat, longitude: p.lng } } } : { address: p.text });
-    const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.key(), 'X-Goog-FieldMask': 'routes.optimizedIntermediateWaypointIndex,routes.distanceMeters,routes.duration' }, body: JSON.stringify({ origin: wp(origin), destination: wp(dest), intermediates: stops.map(wp), travelMode: 'DRIVE', optimizeWaypointOrder: true }) });
+    const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.key(), 'X-Goog-FieldMask': 'routes.optimizedIntermediateWaypointIndex,routes.distanceMeters,routes.duration' }, body: JSON.stringify({ origin: wp(origin), destination: wp(dest), intermediates: stops.map(wp), travelMode: 'DRIVE', optimizeWaypointOrder: true, routeModifiers: this.mods() }) });
     if (!r.ok) return null; const js = await r.json(); const rt = js.routes && js.routes[0]; if (!rt) return null;
     return { order: rt.optimizedIntermediateWaypointIndex, km: rt.distanceMeters / 1000, min: parseInt(rt.duration) / 60 };
   },
@@ -1344,7 +1364,7 @@ async function checkAllDistances() {
       const exact = r.km * 2, g = Math.ceil(exact - 1e-9); f.gKm = g; f.gMin = Math.round(r.min); f.gAt = Date.now();
       f.driveMin = f.driveMin ?? Math.round(r.min);
       f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id));
-      if (f.kmReturn != null && Math.abs(f.kmReturn - exact) > 1) { f.flags.push({ type: 'kmcheck', google: g, note: `Recorded ${f.kmReturn} km return — Google Maps says ${exact.toFixed(1)} km return (${fmtMin(r.min)} each way)` }); n++; }
+      if (f.kmReturn != null && Math.abs(f.kmReturn - exact) > routeSet().kmTol) { f.flags.push({ type: 'kmcheck', google: g, note: `Recorded ${f.kmReturn} km return — Google Maps says ${exact.toFixed(1)} km return (${fmtMin(r.min)} each way)` }); n++; }
     });
     Object.keys(D.dismissed || {}).forEach((k) => { if (k.startsWith('kmcheck:')) { D.dismissed[k] = 0; D._dismissDirty = true; } });
     changed(); toast(`${n} farm${n === 1 ? '' : 's'} more than 1 km out`);
@@ -1360,6 +1380,33 @@ function renderSettings() {
   <div class="card"><h3>Photo priority</h3><div class="hint" style="margin-bottom:6px">When a contact has more than one tag with a photo and nobody has chosen one, the tag highest on this list is shown. Use the arrows to reorder. Changes apply on every device.</div>
   ${photoOrder().map((id, i, arr) => `<div class="kv" style="align-items:center"><span style="width:22px;color:var(--ink3);font-weight:600">${i + 1}</span><img src="${tagPhotoSrc(id)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover"><div class="v">${h(tagName(id))}</div><button class="btn small" data-act="prio" data-id="${id}" data-dir="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="prio" data-id="${id}" data-dir="1" ${i < arr.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button></div>`).join('')}
   ${D.settings.photoPriority ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="prio-reset">Reset to default order</button></div>' : ''}</div>
+  <div class="card"><h3>This device</h3><div class="f"><label>Your name and device (shown in the change log)</label><div class="search"><input id="s-devname" value="${h((() => { try { return localStorage.getItem('bvt-devname') || ''; } catch (e) { return ''; } })())}" placeholder="e.g. Amelia – office PC"><button class="btn small" data-act="devname-save">Save</button></div></div>
+    <div class="lbl" style="margin-top:8px">Devices using the app</div>${Object.entries(D.devices || {}).sort((a, b) => (b[1].last || 0) - (a[1].last || 0)).map(([k, v]) => `<div class="kv"><div class="k">${h(v.name || 'Device')}${k === DEVICE ? ' <span class="hint">(this one)</span>' : ''}</div><div class="v">last synced ${v.last ? new Date(v.last).toLocaleString('en-AU') : '—'} · v${h(v.ver || '?')}</div></div>`).join('') || '<div class="hint">Devices appear here after they sync.</div>'}</div>
+  <div class="card"><h3>Display <span class="hint">(this device)</span></h3><div class="grid2">
+    <div class="f"><label>Appearance</label><select data-pref="theme">${[['auto', 'Match the phone / computer'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<option value="${v}" ${(PREF.theme || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>Text size</label><select data-pref="size">${[['normal', 'Normal'], ['large', 'Large'], ['xl', 'Extra large']].map(([v, l]) => `<option value="${v}" ${(PREF.size || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></div>
+  <div class="card"><h3>Start-up defaults <span class="hint">(this device)</span></h3><div class="grid2">
+    <div class="f"><label>Open on</label><select data-pref="tab">${TABS.map(([k]) => `<option value="${k}" ${(PREF.tab || 'contacts') === k ? 'selected' : ''}>${h(lab(k))}</option>`).join('')}</select></div>
+    <div class="f"><label>${h(lab('contacts'))} sorted by</label><select data-pref="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${(PREF.sort || 'first') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>${h(lab('contacts'))} show</label><select data-pref="ptype">${[['all', 'All'], ['client', 'Client people'], ['nonclient', 'Non-client people']].map(([v, l]) => `<option value="${v}" ${(PREF.ptype || 'all') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>${h(lab('biz'))} sorted by</label><select data-pref="bsort">${[['name', 'Name'], ['rating', 'Rating']].map(([v, l]) => `<option value="${v}" ${(PREF.bsort || 'name') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>${h(lab('biz'))} show</label><select data-pref="btype">${[['all', 'All'], ['client', 'Client businesses'], ['nonclient', 'Non-client businesses']].map(([v, l]) => `<option value="${v}" ${(PREF.btype || 'all') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></div>
+  <div class="card"><h3>Jobs to show <span class="hint">(this device)</span></h3><div class="hint" style="margin-bottom:6px">Untick job types you don't want on this device's Jobs list and badge.</div><div class="checks">${Object.entries(JOB_TYPES).map(([k, v]) => `<label><input type="checkbox" data-jobtype="${k}" ${(PREF.jobsOff || []).includes(k) ? '' : 'checked'}>${h(v.t)}</label>`).join('')}</div></div>
+  <div class="card"><h3>Required information</h3><div class="hint" style="margin-bottom:6px">New contacts can always be saved — anything ticked here that's missing goes on the Jobs list ("New contact — information missing"). Farm details are only asked for client people.</div><div class="checks">${REQ_FIELDS.map(([k, l]) => `<label><input type="checkbox" data-req="${k}" ${reqOn(k) ? 'checked' : ''}>${h(l)}</label>`).join('')}</div></div>
+  <div class="card"><h3>Travel and routes</h3><div class="hint" style="margin-bottom:6px">Google Maps calculates the fastest route. These options apply to the app's km, drive-time and route calculations (the Google Maps app uses its own route options).</div>
+    <div class="checks"><label><input type="checkbox" data-route="avoidTolls" ${routeSet().avoidTolls ? 'checked' : ''}>Avoid tolls</label><label><input type="checkbox" data-route="avoidHighways" ${routeSet().avoidHighways ? 'checked' : ''}>Avoid highways</label><label><input type="checkbox" data-route="avoidFerries" ${routeSet().avoidFerries ? 'checked' : ''}>Avoid ferries</label></div>
+    <div class="grid2" style="margin-top:8px"><div class="f"><label>Two farm pins count as the same spot within (metres)</label><input type="number" data-routenum="pinM" value="${routeSet().pinM}"></div><div class="f"><label>Flag a distance when it differs from Google by more than (km)</label><input type="number" step="0.5" data-routenum="kmTol" value="${routeSet().kmTol}"></div></div></div>
+  <div class="card"><h3>Backups</h3><div class="hint" style="margin-bottom:6px">A copy of everything is saved to Google Drive every night after 12 am (by the first device that's open and online), and the last 30 are kept. ${PREF.lastBackup ? 'Last checked on this device: ' + h(PREF.lastBackup) + '.' : ''}</div>
+    <div class="actions"><button class="btn small" data-act="backup-now">Back up now</button><button class="btn small" data-act="backup-list">Show backups / restore…</button></div><div id="backup-res"></div></div>
+  <div class="card"><h3>Export</h3><div class="hint" style="margin-bottom:6px">Download everything — for ezyVet imports, mail-outs or your own records. (For a filtered list, use ${h(lab('search'))} → Download list.)</div>
+    <div class="actions"><button class="btn small" data-act="exp-people">${h(lab('contacts'))} (CSV / Excel)</button><button class="btn small" data-act="exp-biz">${h(lab('biz'))} (CSV / Excel)</button><button class="btn small" data-act="exp-vcf">${h(lab('contacts'))} (vCard for phones)</button><button class="btn small" data-act="export">Full backup file (JSON)</button></div></div>
+  <div class="card"><h3>Google Contacts (caller ID) options</h3><div class="hint" style="margin-bottom:6px">Choose the device that does it under Sync below. These options apply to whichever device it is.</div>
+    <div class="checks"><label><input type="checkbox" data-gpush="warnRing" ${(D.settings.gpush || {}).warnRing === false ? '' : 'checked'}>Show the red CHECK WARNING ring on caller photos</label><label><input type="checkbox" data-gpush="split" ${(D.settings.gpush || {}).split === false ? '' : 'checked'}>Allow split photos (two categories)</label></div>
+    <div class="lbl" style="margin-top:8px">Categories to send to Google Contacts</div><div class="checks">${[...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)].map((id) => `<label><input type="checkbox" data-gskip="${id}" ${((D.settings.gpush || {}).skip || []).includes(id) ? '' : 'checked'}>${h(tagName(id))}</label>`).join('')}</div></div>
+  <div class="card"><h3>General info templates</h3><div class="hint" style="margin-bottom:6px">New contacts and businesses start with these headings in their general info.</div>
+    <div class="f"><label>New contact</label><textarea id="s-tplc" style="min-height:160px">${h(D.settings.tplContact != null ? D.settings.tplContact : TPL_CONTACT)}</textarea></div>
+    <div class="f"><label>New business</label><textarea id="s-tplb" style="min-height:90px">${h(D.settings.tplBiz != null ? D.settings.tplBiz : TPL_BIZ)}</textarea></div>
+    <div class="actions"><button class="btn small primary" data-act="tpl-save">Save templates</button><button class="btn small" data-act="tpl-reset">Reset to standard</button></div></div>
   <div class="card"><h3>Categories — client or non-client?</h3><div class="hint" style="margin-bottom:8px">Decides who shows under "Client" and "Non-client" on the ${h(lab('contacts'))} and ${h(lab('biz'))} lists and in Search. A business with a category follows this; a business with no category uses its own Business type.</div>
     <div class="kv" style="font-weight:700"><div class="k">Category</div><div class="v" style="display:flex;gap:8px"><span style="flex:1">${h(lab('contacts'))}</span><span style="flex:1">${h(lab('biz'))}</span></div></div>
     ${[...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)].map((id) => `<div class="kv" style="align-items:center"><div class="k">${h(tagName(id))}</div><div class="v" style="display:flex;gap:8px">${['p', 'b'].map((w) => `<select data-catclass="${w}" data-cat="${id}" style="flex:1;padding:6px;border:1px solid var(--line);border-radius:8px"><option value="c">Client</option><option value="n" ${catClass(w, id) === 'n' ? 'selected' : ''}>Non-client</option></select>`).join('')}</div></div>`).join('')}
@@ -1453,7 +1500,7 @@ const Sync = {
   async meta(id) { const r = await gfetch(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,version,modifiedTime,trashed`); if (r.status === 404) return null; if (!r.ok) throw new Error('Drive error ' + r.status); return r.json(); },
   async download(id) { const r = await gfetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`); if (!r.ok) throw new Error('Drive download error ' + r.status); return r.json(); },
   serial() {
-    const out = { format: 1, savedAt: new Date().toISOString(), savedBy: DEVICE, settings: strip(D.settings), deleted: (D.deleted || []).map(({ id, kind, at }) => ({ id, kind, at })), dismissed: D.dismissed || {}, importedAt: D.importedAt, trash: (D.trash || []).filter((t) => Date.now() - t.at < 90 * 864e5), changelog: (D.changelog || []).slice(0, 400) };
+    const out = { format: 1, savedAt: new Date().toISOString(), savedBy: DEVICE, settings: strip(D.settings), deleted: (D.deleted || []).map(({ id, kind, at }) => ({ id, kind, at })), dismissed: D.dismissed || {}, devices: D.devices || {}, importedAt: D.importedAt, trash: (D.trash || []).filter((t) => Date.now() - t.at < 90 * 864e5), changelog: (D.changelog || []).slice(0, 400) };
     KINDS.forEach((k) => (out[k] = D[k].map(strip)));
     return JSON.stringify(out);
   },
@@ -1461,6 +1508,7 @@ const Sync = {
     // bump revisions of everything we are sending that changed here
     KINDS.forEach((k) => D[k].forEach((r) => { if (r._dirty) r._rev = (r._rev || 0) + 1; }));
     if (D.settings._dirty) D.settings._rev = (D.settings._rev || 0) + 1;
+    D.devices = D.devices || {}; D.devices[DEVICE] = { name: deviceName(), last: Date.now(), ver: APP_VERSION.split(' ')[0] }; delete D._devDirty;
     const delSent = (D.deleted || []).filter((x) => !x.synced);
     const body = this.serial();
     // mark as sent now: anything changed while the upload is in progress gets marked again and goes up next time
@@ -1512,6 +1560,7 @@ const Sync = {
     if (srv.settings) { if (!D.settings._dirty || (srv.settings._u || 0) > (D.settings._u || 0)) { D.settings = srv.settings; } }
     const seen = new Set(D.deleted.map((x) => x.id)); (srv.deleted || []).forEach((x) => { if (!seen.has(x.id)) D.deleted.push({ ...x, synced: true }); });
     D.dismissed = { ...(srv.dismissed || {}), ...(D.dismissed || {}) };
+    { const dv = { ...(srv.devices || {}) }; Object.entries(D.devices || {}).forEach(([k, v]) => { if (!dv[k] || (v.last || 0) > (dv[k].last || 0)) dv[k] = v; }); D.devices = dv; }
     const tm = new Map(); [...(srv.trash || []), ...(D.trash || [])].forEach((t) => { const e = tm.get(t.tid); if (!e || t.removed) tm.set(t.tid, t); }); D.trash = [...tm.values()];
     const lm = new Map(); [...(srv.changelog || []), ...(D.changelog || [])].forEach((e) => { const x = lm.get(e.id); lm.set(e.id, x ? { ...e, undone: x.undone || e.undone } : e); }); D.changelog = [...lm.values()].sort((a, b) => b.at - a.at).slice(0, 400);
     if (srv.importedAt) D.importedAt = srv.importedAt;
@@ -1536,7 +1585,7 @@ const Sync = {
         }
         let changes = 0;
         if (meta.version !== D.sync.version) { const srv = await this.download(meta.id); changes = this.merge(srv); D.sync.version = meta.version; }
-        if (pendingCount()) {
+        if (pendingCount() || D._devDirty) {
           const m2 = await this.meta(meta.id); // someone else saved while we merged? go round again
           if (m2.version !== meta.version) { D.sync.version = null; continue; }
           await this.upload(meta.id);
@@ -1545,7 +1594,7 @@ const Sync = {
         break;
       }
       save(); this.set(D.conflicts.length ? 'conflict' : 'ok');
-      GContacts.maybeRun();
+      GContacts.maybeRun(); Backup.maybe();
     } catch (e) {
       if (e.signin) this.set('signin'); else { this.set('error', e.message); console.error(e); }
     } finally { this.busy = false; save(); }
@@ -1591,7 +1640,7 @@ function syncSettingsCard() {
   <div class="lbl" style="margin-top:14px">Google Contacts (caller photos on the phones)</div>
   <label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0"><input type="checkbox" data-act="gpush-toggle" ${gp.on ? 'checked' : ''}> <span>This device keeps Google Contacts up to date<br><span class="hint">Turn this on for one device only — the office computer is best. It copies names, numbers, emails, business and the tag photo (with CHECK WARNING) to bovitechvetservices@gmail.com, so the phones show the right photo when a client rings.</span></span></label>
   ${gp.on ? `<div class="kv"><div class="k">Status</div><div class="v">${h(gp.msg || 'Waiting')}</div></div><div class="actions"><button class="btn small" data-act="gpush-now">Update Google Contacts now</button></div>` : ''}
-  <div class="f" style="margin-top:10px"><label>This device's name (shown in the change log)</label><div class="search"><input id="s-devname" value="${h(deviceName())}" placeholder="e.g. Amelia's phone"><button class="btn small" data-act="devname-save">Save</button></div></div></div>`;
+  </div>`;
 }
 const FRIENDLY = { phones: 'Phone', first: 'First name', last: 'Surname', middle: 'Middle name', role: 'Role', links: 'Businesses', tags: 'Categories / tags', mobiles: 'Mobile', landlines: 'Landline', emails: 'Email', postal: 'Postal address', info: 'General info', warnings: 'General warnings', sideNotes: 'Side notes', dnaReason: 'Do not answer reason', starred: 'Starred', photoChoice: 'Photo', name: 'Name', rating: 'A+ to C', cats: 'Categories', pics: 'PIC', patientIds: 'Patient IDs', farms: 'Farms', primaryContact: 'Primary contact', type: 'Business type' };
 function conflictDiff(cf) {
@@ -1688,11 +1737,13 @@ const GContacts = {
     };
     return p;
   },
-  hash(c) { const s = JSON.stringify([this.person(c), photoSpec(c)]); let x = 0; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return x.toString(36); },
+  spec(c) { const g = D.settings.gpush || {}; const sp = photoSpec(c); if (g.warnRing === false) sp.warn = false; if (g.split === false && sp.parts && sp.parts.length > 1) sp.parts = sp.parts.slice(0, 1).map((x) => ({ tag: x.tag })); return sp; },
+  hash(c) { const s = JSON.stringify([this.person(c), this.spec(c)]); let x = 0; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return x.toString(36); },
   maybeRun() { if (this.st.on && !this.running && GAuth.valid()) this.run(); },
   async run() {
     if (this.running) return; this.running = true;
-    const todo = [...D.contacts, ...D.businesses.filter((b) => bizHasDetails(b) && (!isClientBiz(b) || !(IDX.bizContacts.get(b.id) || []).length)).map(bizPseudo)].filter((c) => this.st.done[c.id] !== this.hash(c));
+    const skip = new Set((D.settings.gpush || {}).skip || []);
+    const todo = [...D.contacts, ...D.businesses.filter((b) => bizHasDetails(b) && (!isClientBiz(b) || !(IDX.bizContacts.get(b.id) || []).length)).map(bizPseudo)].filter((c) => !skip.has(catOf(c)) && this.st.done[c.id] !== this.hash(c));
     let n = 0, fails = 0;
     const msg = (m) => { this.st.msg = m; this.persist(); };
     try {
@@ -1723,7 +1774,7 @@ const GContacts = {
       if (!r.ok) throw new Error('create ' + r.status);
       gid = (await r.json()).resourceName; c.gid = gid; if (!c._biz) { touch(c); save(); }
     }
-    const src = await renderPhoto(photoSpec(c), 480);
+    const src = await renderPhoto(this.spec(c), 480);
     const r = await this.api(`https://people.googleapis.com/v1/${gid}:updateContactPhoto`, { method: 'PATCH', body: JSON.stringify({ photoBytes: src.split(',')[1] }) });
     if (!r.ok) throw new Error('photo ' + r.status);
   },
@@ -2288,7 +2339,7 @@ document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'log-undo') { ev.preventDefault(); undoEntry(el.dataset.id); }
   if (el.dataset.act === 'log-more') { S.logShow += 50; renderAll(); }
-  if (el.dataset.act === 'devname-save') { try { localStorage.setItem('bvt-devname', $('#s-devname').value.trim()); } catch (e) { } toast('Device name saved'); renderAll(); }
+  if (el.dataset.act === 'devname-save') { const v = $('#s-devname').value.trim(); if (!v) { toast('Enter a name'); return; } try { localStorage.setItem('bvt-devname', v); } catch (e) { } D._devDirty = true; Sync.soon(); toast('Name saved'); renderAll(); }
 });
 
 /* ---------------- refresh: close and reopen the app on the newest version ---------------- */
@@ -2563,6 +2614,14 @@ document.addEventListener('click', async (e) => {
     case 'new-tag': editTag(null); break;
     case 'edit-tag': editTag(IDX.tags.get(d.id)); break;
     case 'del-tag': if (await ask(`Delete the tag "${tagName(d.id)}"?\n\nIt will be removed from ${D.contacts.filter((c) => contactTagSet(c).has(d.id)).length} contacts.`, 'Yes — delete tag', true)) { D.tags = D.tags.filter((t) => t.id !== d.id); (D.deleted = D.deleted || []).push({ id: d.id, kind: 'tags', at: Date.now() }); D.contacts.forEach((c) => { if (c.tags.includes(d.id)) { c.tags = c.tags.filter((t) => t !== d.id); touch(c); } }); closeSheet(); changed(); } break;
+    case 'tpl-save': D.settings.tplContact = $('#s-tplc').value; D.settings.tplBiz = $('#s-tplb').value; touch(D.settings); NEXT_LOG_LABEL = 'General info templates updated'; S.skipConfirm = true; await changed(); toast('Templates saved'); break;
+    case 'tpl-reset': delete D.settings.tplContact; delete D.settings.tplBiz; touch(D.settings); NEXT_LOG_LABEL = 'General info templates reset'; S.skipConfirm = true; await changed(); toast('Templates reset'); break;
+    case 'backup-now': if (!Sync.enabled() || !GAuth.valid()) { toast('Sign in to Google (Settings → Sync) to back up'); break; } toast('Backing up…'); await Backup.maybe(true); break;
+    case 'backup-list': { const box = $('#backup-res'); if (!GAuth.valid()) { toast('Sign in to Google (Settings → Sync) first'); break; } box.innerHTML = '<div class="hint">Loading…</div>'; try { S.backups = await Backup.list(); box.innerHTML = S.backups.map((f, i) => `<div class="kv" style="align-items:center"><div class="v">${h(f.name.replace(Backup.PREFIX, '').replace('.json', ''))} <span class="hint">${f.size ? Math.round(f.size / 1024) + ' KB' : ''}</span></div><button class="btn small" data-act="backup-restore" data-i="${i}">Restore</button></div>`).join('') || '<div class="hint">No backups yet.</div>'; } catch (err) { box.innerHTML = `<div class="hint" style="color:var(--red)">${h(err.message)}</div>`; } break; }
+    case 'backup-restore': { const f = (S.backups || [])[+d.i]; if (!f) break; if (!(await ask(`Restore everything to the backup from ${f.name.replace(Backup.PREFIX, '').replace('.json', '')}?\n\nAll contacts, businesses and settings go back to how they were then, on every device. Changes made since then are lost (the change log keeps a record).`, 'Yes — restore this backup', true))) break; try { toast('Restoring…'); await Backup.restore(f); toast('✓ Backup restored'); } catch (err) { toast('Restore failed: ' + err.message); } break; }
+    case 'exp-people': downloadFile(`bovitech-${lab('contacts').toLowerCase().replace(/\W+/g, '-')}-${Backup.day()}.csv`, peopleCsv(sortContactsBy(D.contacts.slice(), 'first')), 'text/csv'); break;
+    case 'exp-biz': downloadFile(`bovitech-${lab('biz').toLowerCase().replace(/\W+/g, '-')}-${Backup.day()}.csv`, bizCsv(D.businesses.slice().sort((a, b) => alphaCmp(a.name, b.name))), 'text/csv'); break;
+    case 'exp-vcf': downloadFile(`bovitech-contacts-${Backup.day()}.vcf`, vcards(D.contacts), 'text/vcard'); break;
     case 'catclass-reset': D.settings.catClass = { p: {}, b: {} }; touch(D.settings); NEXT_LOG_LABEL = 'Categories reset to default client / non-client'; S.skipConfirm = true; JOBS_CACHE = null; await changed(); toast('Reset to default'); break;
     case 'hideinact': S.hideIn[d.v] = el.checked; try { localStorage.setItem('bvt-hideinact2', JSON.stringify(S.hideIn)); } catch (e2) { } d.v === 'b' ? renderBizList() : renderContactList(); break;
     case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); if (await changed()) toast('Homebase saved'); break; }
@@ -2588,6 +2647,47 @@ async function routeAddedBox(fids) {
   renderTabs();
   if (await askBox(ok.length ? 'Added to route' : 'Route not changed', html, `View route (${S.route.stops.length} stop${S.route.stops.length === 1 ? '' : 's'})`, false, 'OK — keep going')) goTab('route');
 }
+async function askDeviceName() { // compulsory: who is using this device
+  let hasName = false; try { hasName = !!localStorage.getItem('bvt-devname'); } catch (e) { hasName = true; } if (hasName || window.SEED) return;
+  for (;;) { const v = await askBox('Who is using this device?', `<p>Before you start, give this device a name so everyone can see who made each change (shown in the change log and in Settings → Devices).</p><div class="f"><span class="lbl">Your name and device</span><textarea rows="1" style="width:100%;height:46px;min-height:46px;resize:none;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px" placeholder="e.g. Amelia – office PC, or Jess's phone"></textarea></div>`, 'Save', false, 'Save');
+    if (typeof v === 'string' && v.trim()) { try { localStorage.setItem('bvt-devname', v.trim()); } catch (e) { } D._devDirty = true; Sync.soon(); toast('Thanks, ' + v.trim()); renderAll(); return; }
+    toast('Please enter a name for this device'); await new Promise((r) => setTimeout(r, 300)); }
+}
+/* ---------------- nightly backups to Google Drive (kept 30 days) ---------------- */
+const Backup = {
+  PREFIX: 'bovitech-contacts-backup-',
+  day(d = new Date()) { return d.toLocaleDateString('en-CA'); }, // YYYY-MM-DD, local time
+  async list() { const q = encodeURIComponent(`name contains '${this.PREFIX}' and trashed=false`); const r = await gfetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name,size,createdTime)&orderBy=name desc&pageSize=100`); if (!r.ok) throw new Error('Drive error ' + r.status); return (await r.json()).files || []; },
+  async make(day) { const fd = new FormData(); fd.append('metadata', new Blob([JSON.stringify({ name: this.PREFIX + day + '.json', mimeType: 'application/json', description: 'Bovitech Contacts nightly backup' })], { type: 'application/json' })); fd.append('file', new Blob([Sync.serial()], { type: 'application/json' }));
+    const r = await gfetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name', { method: 'POST', body: fd }); if (!r.ok) throw new Error('Backup upload error ' + r.status); return r.json(); },
+  async maybe(force) { // runs the first time any device is online after midnight; one backup per day for everyone
+    if (window.SEED || !Sync.enabled() || !navigator.onLine || !GAuth.valid() || this.busy) return; const today = this.day();
+    if (!force && PREF.lastBackup === today) return; this.busy = true;
+    try { const files = await this.list(); if (force || !files.some((f) => f.name === this.PREFIX + today + '.json')) { await this.make(today); files.unshift({ name: this.PREFIX + today + '.json' }); if (force) toast('✓ Backup saved to Google Drive'); }
+      savePref('lastBackup', today); const old = (await this.list()).slice(30); for (const f of old) await gfetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: 'DELETE' });
+    } catch (e) { console.warn('backup', e); if (force) toast('Backup failed: ' + e.message); } finally { this.busy = false; }
+  },
+  schedule() { const now = new Date(), next = new Date(now); next.setHours(24, 1, 0, 0); setTimeout(() => { this.maybe(); this.schedule(); }, next - now); setTimeout(() => this.maybe(), 15000); },
+  async restore(f) {
+    const srv = await Sync.download(f.id); if (!srv.contacts || !srv.businesses) throw new Error('Not a backup file');
+    // keep the current revision numbers so syncing treats this as a normal change, and delete records the backup didn't have
+    KINDS.forEach((k) => { const cur = new Map(D[k].map((r) => [r.id, r])); const keep = new Set();
+      D[k] = (srv[k] || []).map((r) => { const c = cur.get(r.id); keep.add(r.id); return { ...r, _rev: c ? c._rev : r._rev, _dirty: true, _u: Date.now(), _dev: DEVICE }; });
+      cur.forEach((r, id) => { if (!keep.has(id)) D.deleted.push({ id, kind: k, at: Date.now() }); }); });
+    D.settings = { ...srv.settings, _rev: D.settings._rev, _dirty: true }; D.conflicts = [];
+    reindex(); baseline(); JOBS_CACHE = null; photoCache.clear(); NEXT_LOG_LABEL = 'Restored backup from ' + f.name.replace(this.PREFIX, '').replace('.json', ''); logChanges(NEXT_LOG_LABEL); NEXT_LOG_LABEL = null; save(); renderAll(); Sync.soon();
+  },
+};
+function downloadFile(name, text, type) { const blob = new Blob([text], { type }); const l = document.createElement('a'); l.href = URL.createObjectURL(blob); l.download = name; document.body.appendChild(l); l.click(); l.remove(); }
+const csvQ = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+function peopleCsv(list) { const rows = [['First name', 'Surname', 'Role', 'Business', 'Category', 'Client / non-client', 'Additional tags', 'Mobile', 'Landline', 'Email', 'Postal', 'PIC', 'Patient IDs', 'Warnings', 'General info']];
+  list.forEach((c) => { const bs = bizOf(c); rows.push([c.first, c.last, c.role, bs.map((b) => b.name).join('; '), catOf(c) ? tagName(catOf(c)) : '', isClientPerson(c) ? 'Client' : 'Non-client', c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)).map(tagName).join('; '), c.mobiles.map((p) => p.value).join('; '), c.landlines.map((p) => p.value).join('; '), c.emails.map((p) => p.value).join('; '), c.postal.join('; '), bs.flatMap((b) => b.pics.map((p) => p.value)).join('; '), bs.flatMap((b) => b.patientIds.map((p) => p.value)).join('; '), [c.warnings, ...bs.map((b) => b.warnings)].filter(Boolean).join(' | '), c.info]); });
+  return '\ufeff' + rows.map((r) => r.map(csvQ).join(',')).join('\r\n'); }
+function bizCsv(list) { const rows = [['Business', 'Client / non-client', 'Category', 'Primary contact', 'Contacts', 'Phone', 'Email', 'PIC', 'Patient IDs', 'Farms', 'Farm addresses', 'Km return', 'Warnings', 'General info']];
+  list.forEach((b) => { const cs = IDX.bizContacts.get(b.id) || []; rows.push([b.name, isClientBiz(b) ? 'Client' : 'Non-client', bizCat(b) ? tagName(bizCat(b)) : '', isClientBiz(b) && primaryOf(b) ? fullName(primaryOf(b)) : '', cs.map(fullName).join('; '), (b.phones || []).map((p) => p.value).join('; '), (b.emails || []).map((p) => p.value).join('; '), b.pics.map((p) => p.value).join('; '), b.patientIds.map((p) => p.value).join('; '), b.farms.map((f) => f.name || '').join('; '), b.farms.map((f) => f.address || '').join('; '), b.farms.map((f) => f.kmReturn ?? '').join('; '), b.warnings, b.info]); });
+  return '\ufeff' + rows.map((r) => r.map(csvQ).join(',')).join('\r\n'); }
+function vcards(list) { const esc = (t) => String(t || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, (m) => '\\' + m);
+  return list.map((c) => ['BEGIN:VCARD', 'VERSION:3.0', `N:${esc(c.last)};${esc(c.first)};${esc(c.middle)};;`, `FN:${esc(fullName(c))}`, ...(bizOf(c).length ? [`ORG:${esc(bizOf(c)[0].name)}`] : []), ...(c.role ? [`TITLE:${esc(c.role)}`] : []), ...c.mobiles.map((p) => `TEL;TYPE=CELL:${p.value}`), ...c.landlines.map((p) => `TEL;TYPE=WORK:${p.value}`), ...c.emails.map((p) => `EMAIL:${p.value}`), ...(catOf(c) ? [`CATEGORIES:${esc(tagName(catOf(c)))}`] : []), 'END:VCARD'].join('\r\n')).join('\r\n'); }
 function goTab(t) { const b = document.querySelector(`[data-act=tab][data-v="${t}"]`); if (b) b.click(); else { S.tab = t; renderAll(); } }
 /* ---------------- saved routes (synced to every device) ---------------- */
 const epLabel = (e) => (!e ? '' : e.type === 'home' ? 'Homebase' : e.type === 'farm' ? (IDX.farms.get(e.fid) ? farmLabel(IDX.farms.get(e.fid)) : 'a farm') : e.type === 'place' ? e.text || 'a place' : e.type === 'none' ? 'Last stop' : '');
@@ -2663,8 +2763,9 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (CONF
   if (!D) { D = await loadSeed(); D.dismissed = D.dismissed || {}; await Store.set('data', D); }
   D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || []; D.trash = D.trash || []; D.routes = D.routes || [];
   reindex(); baseline(); migrate(); logChanges('Automatic update'); save();
-  reindex(); net(); renderAll();
-  Sync.start();
+  if (PREF.tab) S.tab = PREF.tab; if (PREF.sort) S.sort = PREF.sort; if (PREF.bsort) S.bsort = PREF.bsort; if (PREF.ptype) S.ptype = PREF.ptype; if (PREF.btype) S.btype = PREF.btype;
+  applyUi(); reindex(); net(); renderAll();
+  Sync.start(); Backup.schedule(); setTimeout(askDeviceName, 600);
   checkLatest();
   { const b = document.querySelector('header [data-act=app-refresh]'); if (b) b.innerHTML = `⟳ v${APP_VERSION.split(' ')[0]}`; }
   if (location.search.includes('v=')) history.replaceState(history.state, '', location.pathname);

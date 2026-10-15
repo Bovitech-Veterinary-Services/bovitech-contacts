@@ -204,6 +204,20 @@ button:active,.btn:active,.hbtn:active{transform:scale(.95)}
 @keyframes bounceup{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
 @keyframes calloutin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .callout{margin-top:22px}
+/* dark mode (Settings → Display) */
+html[data-theme=dark]{--ink:#ececea;--ink2:#cfcbc4;--ink3:#9b968e;--line:#3a3936;--bg:#151514;--card:#211f1e;--red-bg:#3b1517;--red-ink:#ff8d92;--yellow-bg:#3a3215;--yellow-ink:#f2d37b;--green-bg:#16311c;color-scheme:dark}
+html[data-theme=dark] input,html[data-theme=dark] select,html[data-theme=dark] textarea,html[data-theme=dark] .rich{background:#1a1918;color:var(--ink);border-color:var(--line)}
+html[data-theme=dark] .card[style*="background:#"],html[data-theme=dark] .body[style*="background:#fff"],html[data-theme=dark] .callout-body{background:#2a2725!important;color:var(--ink)}
+html[data-theme=dark] .card.side,html[data-theme=dark] .card.side .body,html[data-theme=dark] .card.side h3{background:#33301a;color:#f2d37b}
+html[data-theme=dark] .card.warn{background:#3b1517}
+html[data-theme=dark] .item.sel,html[data-theme=dark] .jobsel{background:#2d2a27}
+html[data-theme=dark] header.top{background:#0b0b0a;color:#fff}
+html[data-theme=dark] .seg,html[data-theme=dark] .tag{background:var(--card)}
+html[data-theme=dark] .group-h{background:#2a2826}
+html[data-theme=dark] .btn,html[data-theme=dark] .seg button,html[data-theme=dark] .tag{color:var(--ink)}
+html[data-theme=dark] header.top h1{color:#fff}
+html[data-theme=dark] .toast{background:#3a3836;color:#fff}
+html[data-theme=dark] .btn.primary,html[data-theme=dark] .seg button.on,html[data-theme=dark] .stop .num{background:#ececea;color:#151514;border-color:#ececea}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;z-index:99;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .sec-h{font-family:var(--cond);font-size:20px;margin:16px 0 8px}
 </style>
