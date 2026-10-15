@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '5.5 (15 Oct 2026)';
+const APP_VERSION = '5.6 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1536,7 +1536,7 @@ function resolveConflict(key, which) {
   const i = D.conflicts.findIndex((x) => x.key === key); if (i < 0) return; const cf = D.conflicts[i];
   if (which === 'mine') {
     const arr = D[cf.kind]; const j = arr.findIndex((r) => r.id === cf.id); const cur = j >= 0 ? arr[j] : null;
-    const rec = { ...cf.mine, _rev: cur ? cur._rev : cf.mine._rev }; touch(rec);
+    const rec = { ...cf.mine, _rev: cur ? cur._rev : cf.mine._rev }; if (cur) Object.keys(cur).forEach((k) => { if (!k.startsWith('_') && !(k in cf.mine)) rec[k] = cur[k]; }); touch(rec); // fields only the other version has (e.g. added by a newer app version) are kept
     if (j >= 0) arr[j] = rec; else { arr.push(rec); D.deleted = D.deleted.filter((x) => x.id !== cf.id); }
   }
   D.conflicts.splice(i, 1);
@@ -1973,6 +1973,14 @@ const recKeyOf = (kind, r) => (kind === 'settings' ? 'settings' : kind + ':' + r
 const recName = (kind, r) => (kind === 'contacts' ? fullName(r) : kind === 'settings' ? 'Settings' : r.name || '');
 let DISMISS_SNAP = '{}';
 function revertTouched() { // put back everything changed since the last save (used when a change is cancelled)
+  // deletions made as part of the cancelled change come back out of the trash too
+  PENDING_DEL.forEach((it) => { const t = (D.trash || []).find((x) => x.tid === it.tid); if (!t || t.removed || !t.rec) return;
+    const ts = (D.deleted || []).find((x) => x.id === it.id); D.deleted = (D.deleted || []).filter((x) => x.id !== it.id);
+    const rec = JSON.parse(JSON.stringify(t.rec)); if (ts && ts.synced) { rec.id = uid(it.kind === 'contacts' ? 'c' : 'b'); touch(rec); }
+    if (!D[it.kind].some((x) => x.id === rec.id)) D[it.kind].push(rec);
+    if (it.kind === 'businesses') (t.linked || []).forEach((cid) => { const c = D.contacts.find((x) => x.id === cid); if (c && !c.links.some((l) => l.bid === rec.id)) c.links.push({ bid: rec.id }); });
+    BASE.set(it.kind + ':' + rec.id, stable(plain(rec))); D.trash = D.trash.filter((x) => x !== t); });
+  PENDING_DEL = [];
   TOUCHED.forEach((r) => {
     const kind = recKind(r); if (!kind) return; const was = BASE.get(recKeyOf(kind, r));
     if (was === undefined) { if (kind !== 'settings') D[kind] = D[kind].filter((x) => x !== r); return; }
@@ -2205,6 +2213,16 @@ function migrate() {
     D.settings.craigDna = true; touch(D.settings); ch = true;
   }
   if (!D.settings.ncPrimary) { D.businesses.forEach((b) => { if (!isClientBiz(b) && (b.primaryContact || b.primaryRequired !== false)) { b.primaryContact = null; b.primaryRequired = false; touch(b); } }); D.settings.ncPrimary = true; touch(D.settings); ch = true; }
+  { // (runs every start, only fills gaps) businesses whose phone/email went missing when a "move onto the business" change was cancelled: take them back from the trashed contact
+    D.businesses.forEach((b) => { if (bizHasDetails(b) || (IDX.bizContacts.get(b.id) || []).length) return;
+      const tr = (D.trash || []).filter((t) => !t.removed && t.kind === 'contact' && t.rec && (t.rec.links || []).some((l) => l.bid === b.id));
+      const pick = tr.filter((t) => sameAsBizName(t.rec, b)); (pick.length ? pick : tr).forEach((t) => { const c = t.rec;
+        const has = (arr, v) => arr.some((x) => x.value.replace(/\s/g, '') === v.replace(/\s/g, ''));
+        b.phones = b.phones || []; [...(c.mobiles || []).map((p) => ({ label: p.label || 'Mobile', value: p.value })), ...(c.landlines || []).map((p) => ({ label: p.label || 'Phone', value: p.value }))].forEach((p) => { if (p.value && !has(b.phones, p.value)) b.phones.push(p); });
+        b.emails = b.emails || []; (c.emails || []).forEach((p) => { if (p.value && !has(b.emails, p.value)) b.emails.push({ label: p.label || '', value: p.value }); });
+        b.postal = [...new Set([...(b.postal || []), ...(c.postal || [])])]; if (c.gid && !b.gid) b.gid = c.gid; });
+      if (tr.length && bizHasDetails(b)) { touch(b); ch = true; } });
+  }
   if (!D.settings.iceV1) { // link the existing "X's ICE (relationship: Y)" contacts to the staff member
     const tg = D.tags.find((t) => t.id === 'ice'); if (tg) { if (tg.name !== 'ICE contact') { tg.name = 'ICE contact'; touch(tg); } } else { D.tags.push({ id: 'ice', name: 'ICE contact', group: 'additional', photo: null }); touch(D.tags[D.tags.length - 1]); }
     const staff = D.contacts.filter((x) => effCats(x).includes('bvs'));
