@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '6.1 (16 Oct 2026)';
+const APP_VERSION = '6.2 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -29,7 +29,8 @@ const ICONS = {
 
 /* ---------------- state ---------------- */
 let D = null;                 // the data
-const S = {                   // UI state
+const S = {
+  hideIn: (() => { try { return JSON.parse(localStorage.getItem('bvt-hideinact2') || '{}'); } catch (e) { return {}; } })(), // per list: hidden unless turned off                   // UI state
   tab: 'contacts', sel: null, // sel: {kind:'contact'|'business', id}
   q: '', tagF: {}, quick: {}, sort: 'first', bq: '', bsort: 'name',
   route: { stops: [], start: { type: 'home' }, end: { type: 'home' }, mode: 'efficient', endSame: true },
@@ -283,9 +284,12 @@ function primaryOf(b) {
   if (b.primaryContact && cs.some((c) => c.id === b.primaryContact)) return cs.find((c) => c.id === b.primaryContact);
   return cs.find((c) => c.tags.includes('pa')) || cs.find((c) => c.tags.includes('pi')) || null;
 }
-const isClientBiz = (b) => b.type !== 'nonclient';
-const NONCLIENT_CATS = new Set(['industry', 'bvs', 'bfriends', 'phone', 'prac']);
-const isClientPerson = (c) => !NONCLIENT_CATS.has(catOf(c));
+const isClientBiz = (b) => { const cat = bizCat(b); return cat ? catClass('b', cat) !== 'n' : b.type !== 'nonclient'; }; // category decides (Settings → Categories); no category → the business type
+const NONCLIENT_CATS = new Set(['industry', 'bvs', 'bfriends', 'phone', 'prac']); // default; changeable in Settings → Categories
+const catClass = (who, cat) => { const m = ((D.settings || {}).catClass || {})[who]; return m && cat in m ? m[cat] : NONCLIENT_CATS.has(cat) ? 'n' : 'c'; }; // who: 'p' people, 'b' businesses
+const isClientPerson = (c) => catClass('p', catOf(c)) !== 'n';
+const TAB_DEFAULTS = { contacts: 'People', biz: 'Businesses', search: 'Search & Bulk Edit', route: 'Plan Route', jobs: 'Jobs', settings: 'Settings' };
+const lab = (k) => (((D && D.settings) || {}).labels || {})[k] || TAB_DEFAULTS[k];
 /* ---------- business-name helpers: matching names in text, splitting names that hold more than one business ---------- */
 const coreBiz = (n) => (n || '').replace(/\([^)]*\)?/g, ' ').replace(/\b(pty\.?\s*ltd\.?|pty|ltd|limited|atf\b.*|as trustee.*|trading as.*|t\/a\b.*|ta\b .*|& co\b)/gi, ' ').toLowerCase().replace(/[^a-z0-9]/g, '');
 const ROLE_RX = /^(own|own farm|own enterprise|workman|producer|& ?producer|farm manager|manager|partner'?s?|parents?.*|parent'?s farm|son in law'?s farm|her dad'?s farm|book ?keeper|coordinator'?s phone|tbc|veterinarian.*|truckie|feedlot manager|customer service|professor.*|farm worker|producer & farm worker|nutrien stockie.*|dpird biosecurity officer.*|former .*|sharefarm.*|works for|also works for|office)$/i;
@@ -470,7 +474,7 @@ function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind 
 const TABS = [['contacts', 'People'], ['biz', 'Businesses'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
 function renderTabs() {
   const n = jobs().length;
-  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
+  $('#tabs').innerHTML = TABS.map(([k]) => { const l = lab(k); return `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`; }).join('');
 }
 // contacts / businesses that have just become "Do not answer" and have no reason yet
 // contacts / businesses that have just become Do not answer / Inactive and have no reason yet
@@ -587,11 +591,11 @@ function renderContactList() {
   const list = $('#list');
   if (!D.contacts.length && (D.firstRun || !D.sync.fileId)) { list.innerHTML = firstRunHtml(); return; }
   const keepFocus = document.activeElement && document.activeElement.id === 'q';
-  const pt = S.ptype || 'all'; const all = filteredContacts(); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
+  const pt = S.ptype || 'all'; const hideIn = S.hideIn.p !== false; const all = filteredContacts().filter((c) => !hideIn || catOf(c) !== 'inactive'); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
   let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="Search people…" title="Tip: use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">+ New</button></div>
     <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client people'], ['nonclient', 'Non-client people']].map(([v, l]) => `<button class="${pt === v ? 'on' : ''}" data-act="ptype" data-v="${v}">${l} (${v === 'all' ? D.contacts.length : D.contacts.filter((c) => (v === 'client') === isClientPerson(c)).length})</button>`).join('')}</div>
     <div class="row2"><span>${rows.length} of ${D.contacts.length} people${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
-    <label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
+    <label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="p" ${hideIn ? 'checked' : ''}> Hide inactive</label><label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
   html += '<ul class="list">';
   if (S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(bizHay(b), pq)).slice(0, 15);
     if (bo.length) { html += `<li class="group-h">Businesses (phone / email on the business)</li>`; bo.forEach((b) => { html += `<li class="item" data-act="open" data-kind="business" data-id="${b.id}"><div class="av" style="display:grid;place-items:center;background:#ece8df;font-size:20px">🏢</div><div class="t"><div class="n">${h(b.name)}</div><div class="s"><b>${isClientBiz(b) ? 'Client business' : 'Industry'}</b> · ${h(((b.phones || [])[0] || (b.emails || [])[0] || {}).value || '')}</div></div></li>`; }); html += `<li class="group-h">People</li>`; } }
@@ -625,15 +629,16 @@ function renderBizList() {
   const keepFocus = document.activeElement && document.activeElement.id === 'bq';
   const pq = parseQuery(S.bq);
   const bt = S.btype || 'all';
-  let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)));
+  const hideIn = S.hideIn.b !== false;
+  let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)) && (!hideIn || bizCat(b) !== 'inactive'));
   rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || alphaCmp(a.name, b.name));
   let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses…" title="Tip: use -word to exclude" value="${h(S.bq)}" autocomplete="off"><button class="btn" data-act="go-adv-biz" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-biz">+ New</button></div>
     <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client businesses'], ['nonclient', 'Non-client businesses']].map(([v, l]) => `<button class="${bt === v ? 'on' : ''}" data-act="btype" data-v="${v}">${l} (${D.businesses.filter((b) => v === 'all' || (v === 'client') === isClientBiz(b)).length})</button>`).join('')}</div>
-    <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
+    <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="b" ${hideIn ? 'checked' : ''}> Hide inactive</label><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
   rows.slice(0, 400).forEach((b) => {
     const cs = IDX.bizContacts.get(b.id) || [];
     const flagged = jobs().some((j) => j.kind === 'business' && j.id === b.id);
-    html += `<li class="item ${S.sel?.id === b.id ? 'sel' : ''}" data-act="open" data-kind="business" data-id="${b.id}"><div class="t"><div class="n">${b.rating ? rbadge(b.rating) : ''}${h(b.name)}</div><div class="s">${isClientBiz(b) ? '' : '<b>Industry</b> · '}${cs.length} contact${cs.length === 1 ? '' : 's'} · ${b.farms.length} ${isClientBiz(b) ? 'farm' + (b.farms.length === 1 ? '' : 's') : 'location' + (b.farms.length === 1 ? '' : 's')}${cs.length ? ' · ' + h(cs.map((c) => c.first).join(', ')) : ''}</div></div>${flagged ? `<span style="color:var(--red)" title="Needs attention">${ICONS.flag}</span>` : ''}${b.warnings ? '<span class="wdot"></span>' : ''}</li>`;
+    html += `<li class="item ${S.sel?.id === b.id ? 'sel' : ''}" data-act="open" data-kind="business" data-id="${b.id}">${contactPhotoImg(bizPseudo(b))}<div class="t"><div class="n">${b.rating ? rbadge(b.rating) : ''}${h(b.name)}</div><div class="s">${isClientBiz(b) ? '' : '<b>Industry</b> · '}${cs.length} contact${cs.length === 1 ? '' : 's'} · ${b.farms.length} ${isClientBiz(b) ? 'farm' + (b.farms.length === 1 ? '' : 's') : 'location' + (b.farms.length === 1 ? '' : 's')}${cs.length ? ' · ' + h(cs.map((c) => c.first).join(', ')) : ''}</div></div>${flagged ? `<span style="color:var(--red)" title="Needs attention">${ICONS.flag}</span>` : ''}${b.warnings ? '<span class="wdot"></span>' : ''}</li>`;
   });
   if (!rows.length) html += `<li class="empty">No businesses match.</li>`;
   $('#list').innerHTML = html + '</ul>';
@@ -961,6 +966,11 @@ function editBiz(b) {
   });
   document.querySelectorAll(isClientBiz(b) ? '#sheet .nonclient-only' : '#sheet .client-only').forEach((el) => (el.style.display = 'none'));
 }
+document.addEventListener('change', async (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.catclass) { const st = D.settings; st.catClass = st.catClass || { p: {}, b: {} }; st.catClass[t.dataset.catclass] = st.catClass[t.dataset.catclass] || {}; st.catClass[t.dataset.catclass][t.dataset.cat] = t.value; touch(st); NEXT_LOG_LABEL = `${tagName(t.dataset.cat)} ${t.dataset.catclass === 'p' ? lab('contacts') : lab('biz')} set to ${t.value === 'n' ? 'non-client' : 'client'}`; S.skipConfirm = true; JOBS_CACHE = null; reindex(); await changed(); toast('Saved'); return; }
+  if (t.dataset && t.dataset.label) { const st = D.settings; st.labels = st.labels || {}; const v = t.value.trim(); if (v) st.labels[t.dataset.label] = v; else delete st.labels[t.dataset.label]; touch(st); NEXT_LOG_LABEL = `Menu name: ${TAB_DEFAULTS[t.dataset.label]} → ${v || TAB_DEFAULTS[t.dataset.label]}`; S.skipConfirm = true; await changed(); toast('Saved'); return; }
+});
 document.addEventListener('change', (e) => {
   if (e.target.id !== 'e-btype') return; const nc = e.target.value === 'nonclient';
   document.querySelectorAll('#sheet .client-only').forEach((el) => (el.style.display = nc ? 'none' : ''));
@@ -1100,7 +1110,7 @@ function endpointPicker(which) {
 }
 function renderRoute() {
   const R = S.route;
-  let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Route planner</h2>
+  let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('route'))}</h2>
   <div class="card"><h3>Stops (${R.stops.length}/${MAX_STOPS})</h3>
   ${R.stops.map((s, i) => { const f = IDX.farms.get(s.fid); return `<div class="stop"><span class="num">${i + 1}</span><div class="t"><div style="font-weight:600">${h(farmLabel(f))}</div><div class="hint">${h(f.address || '')} ${f.kmReturn != null ? '· ' + fmtKm(f) : ''}</div></div><button class="btn small" data-act="rs-up" data-i="${i}" ${i ? '' : 'disabled'}>↑</button><button class="btn small" data-act="rs-down" data-i="${i}" ${i < R.stops.length - 1 ? '' : 'disabled'}>↓</button><button class="btn small" data-act="rs-del" data-i="${i}">×</button></div>`; }).join('') || '<div class="hint">Add farms below, or use “+ Route” on any farm.</div>'}
   ${R.stops.length < MAX_STOPS ? `<input id="rs-search" placeholder="Search clients, businesses, farms or PICs to add a stop" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-top:6px"><div id="rs-res"></div>` : '<div class="hint">Google Maps allows up to 9 stops.</div>'}
@@ -1278,7 +1288,7 @@ function rerenderJobs() { if (S.tab !== 'jobs') return; const sc = $('#list').sc
 function renderJobs() {
   const js = jobs(); const groups = {};
   js.forEach((j) => (groups[j.type] = groups[j.type] || []).push(j));
-  let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Jobs — things to check</h2>
+  let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('jobs'))} — things to check</h2>
   <div class="hint" style="margin-bottom:10px">Items clear automatically once fixed. Flags also show on the contact or business itself.</div>
   <div class="actions"><button class="btn primary" data-act="jobs-refresh">⟳ Refresh jobs</button><button class="btn" data-act="check-dist">Check all distances against Google Maps</button></div><div id="check-msg" class="hint"></div>`;
   if (!js.length) html += `<div class="empty">Nothing needs attention. 🎉</div>`;
@@ -1344,12 +1354,18 @@ async function checkAllDistances() {
 /* ---------------- settings ---------------- */
 function renderSettings() {
   const st = D.settings;
-  return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Settings</h2>
+  return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('settings'))}</h2>
   <div class="card"><h3><span class="sp">Tags &amp; photos</span><button class="btn small" data-act="new-tag">+ New tag</button></h3>
   ${['client', 'additional'].map((g) => `<div class="lbl" style="margin-top:10px">${{ client: 'Contact category', additional: 'Additional tags' }[g]}${g === 'client' ? ' <span class="hint">(A+ to C are set on the business)</span>' : ''}</div>${D.tags.filter((t) => (g === 'client' ? t.group === 'rating' || t.group === 'client' : t.group === g)).map((t) => { const src = tagPhotoSrc(t.id); const n = D.contacts.filter((c) => contactTagSet(c).has(t.id)).length; return `<div class="kv" style="align-items:center">${src ? `<img src="${src}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : '<span style="width:36px;height:36px;border-radius:50%;background:#eee;display:inline-block"></span>'}<div class="v">${h(t.name)} <span class="hint">${n} contact${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="edit-tag" data-id="${t.id}">Edit</button></div>`; }).join('')}`).join('')}</div>
   <div class="card"><h3>Photo priority</h3><div class="hint" style="margin-bottom:6px">When a contact has more than one tag with a photo and nobody has chosen one, the tag highest on this list is shown. Use the arrows to reorder. Changes apply on every device.</div>
   ${photoOrder().map((id, i, arr) => `<div class="kv" style="align-items:center"><span style="width:22px;color:var(--ink3);font-weight:600">${i + 1}</span><img src="${tagPhotoSrc(id)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover"><div class="v">${h(tagName(id))}</div><button class="btn small" data-act="prio" data-id="${id}" data-dir="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="prio" data-id="${id}" data-dir="1" ${i < arr.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button></div>`).join('')}
   ${D.settings.photoPriority ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="prio-reset">Reset to default order</button></div>' : ''}</div>
+  <div class="card"><h3>Categories — client or non-client?</h3><div class="hint" style="margin-bottom:8px">Decides who shows under "Client" and "Non-client" on the ${h(lab('contacts'))} and ${h(lab('biz'))} lists and in Search. A business with a category follows this; a business with no category uses its own Business type.</div>
+    <div class="kv" style="font-weight:700"><div class="k">Category</div><div class="v" style="display:flex;gap:8px"><span style="flex:1">${h(lab('contacts'))}</span><span style="flex:1">${h(lab('biz'))}</span></div></div>
+    ${[...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)].map((id) => `<div class="kv" style="align-items:center"><div class="k">${h(tagName(id))}</div><div class="v" style="display:flex;gap:8px">${['p', 'b'].map((w) => `<select data-catclass="${w}" data-cat="${id}" style="flex:1;padding:6px;border:1px solid var(--line);border-radius:8px"><option value="c">Client</option><option value="n" ${catClass(w, id) === 'n' ? 'selected' : ''}>Non-client</option></select>`).join('')}</div></div>`).join('')}
+    ${(st.catClass && (Object.keys(st.catClass.p || {}).length || Object.keys(st.catClass.b || {}).length)) ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="catclass-reset">Reset to default</button></div>' : ''}</div>
+  <div class="card"><h3>Menu names</h3><div class="hint" style="margin-bottom:6px">Rename the menu headings. Leave a box empty to use the standard name. Applies to every device.</div>
+    ${Object.keys(TAB_DEFAULTS).map((k) => `<div class="f"><label>${h(TAB_DEFAULTS[k])}</label><input data-label="${k}" value="${h((st.labels || {})[k] || '')}" placeholder="${h(TAB_DEFAULTS[k])}"></div>`).join('')}</div>
   <div class="card"><h3>Homebase</h3><div class="f"><label>Address</label><input id="s-homeaddr" value="${h(st.home.address)}"></div><div class="f"><label>GPS</label><input id="s-homegps" value="${st.home.lat}, ${st.home.lng}"></div><button class="btn small" data-act="save-home">Save homebase</button></div>
   <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, and plan the most efficient route.</div></div>
   ${syncSettingsCard()}
@@ -1860,7 +1876,7 @@ const numFilter = (label, k, ph) => { const A = S.adv; const opSel = (key) => `<
 function renderAdvanced() {
   const A = S.adv; const nf = A.near.type === 'farm' ? IDX.farms.get(A.near.fid) : null;
   const kind = A.kind || 'people';
-  return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Search &amp; Bulk Edit</h2>
+  return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('search'))}</h2>
   <div class="card"><h3>Search for</h3><div class="seg">${[['people', '👤 People'], ['client', '🐄 Client businesses'], ['nonclient', '🏢 Non-client businesses']].map(([v, l]) => `<button class="${kind === v ? 'on' : ''}" data-act="adv-kind" data-v="${v}">${l}</button>`).join('')}</div></div>
   <div class="hint" style="margin:-4px 0 10px">Fill in as many or as few boxes as you like — results must match everything you fill in. Tick results to bulk edit them. Tip: put a phrase in "quotes" to keep words together.</div>
   <div class="card"><h3>Words</h3>
@@ -2547,6 +2563,8 @@ document.addEventListener('click', async (e) => {
     case 'new-tag': editTag(null); break;
     case 'edit-tag': editTag(IDX.tags.get(d.id)); break;
     case 'del-tag': if (await ask(`Delete the tag "${tagName(d.id)}"?\n\nIt will be removed from ${D.contacts.filter((c) => contactTagSet(c).has(d.id)).length} contacts.`, 'Yes — delete tag', true)) { D.tags = D.tags.filter((t) => t.id !== d.id); (D.deleted = D.deleted || []).push({ id: d.id, kind: 'tags', at: Date.now() }); D.contacts.forEach((c) => { if (c.tags.includes(d.id)) { c.tags = c.tags.filter((t) => t !== d.id); touch(c); } }); closeSheet(); changed(); } break;
+    case 'catclass-reset': D.settings.catClass = { p: {}, b: {} }; touch(D.settings); NEXT_LOG_LABEL = 'Categories reset to default client / non-client'; S.skipConfirm = true; JOBS_CACHE = null; await changed(); toast('Reset to default'); break;
+    case 'hideinact': S.hideIn[d.v] = el.checked; try { localStorage.setItem('bvt-hideinact2', JSON.stringify(S.hideIn)); } catch (e2) { } d.v === 'b' ? renderBizList() : renderContactList(); break;
     case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); if (await changed()) toast('Homebase saved'); break; }
     case 'save-key': D.settings.mapsKey = val('s-mapskey'); touch(D.settings); if (await changed()) toast('Key saved'); break;
     case 'export': { const blob = new Blob([JSON.stringify(D)], { type: 'application/json' }); const u = URL.createObjectURL(blob); const l = document.createElement('a'); l.href = u; l.download = `bovitech-contacts-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(l); l.click(); l.remove(); break; }
