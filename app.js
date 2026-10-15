@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.9 (15 Oct 2026)';
+const APP_VERSION = '5.0 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -128,7 +128,30 @@ const fmtMin = (m) => (m == null ? '' : m >= 60 ? `${Math.floor(m / 60)} h ${Mat
 // Google Maps driving directions from homebase to a farm (the route the km suggestion is based on)
 const gmapsRoute = (f) => `https://www.google.com/maps/dir/?api=1&origin=${D.settings.home.lat},${D.settings.home.lng}&destination=${f.lat},${f.lng}&travelmode=driving`;
 const gmapsPin = (f) => `https://www.google.com/maps/search/?api=1&query=${f.lat},${f.lng}`;
-function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+function toast(msg) { document.querySelectorAll('.toast').forEach((x) => x.remove()); const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+/* ---------------- tap feedback: every button flashes when pressed; ⟳ buttons spin ---------------- */
+function pressFx(btn) {
+  if (!btn || btn.disabled) return;
+  btn.classList.remove('pressed'); void btn.offsetWidth; btn.classList.add('pressed'); setTimeout(() => btn.classList.remove('pressed'), 450);
+  if (btn.textContent.includes('⟳') && !btn.querySelector('.spinr')) btn.innerHTML = btn.innerHTML.replace('⟳', '<span class="spinr">⟳</span>');
+  const sp = btn.querySelector('.spinr'); if (sp) { sp.classList.remove('go'); void sp.offsetWidth; sp.classList.add('go'); }
+}
+document.addEventListener('pointerdown', (e) => { const b = e.target.closest('button, .btn, .hbtn, .pill[data-act]'); if (b) pressFx(b); }, true);
+/* ---------------- callout: a small bubble with an arrow pointing at the sync pill or the update button ---------------- */
+let CALLOUT = null;
+function hideCallout() { if (CALLOUT) { CALLOUT.el.remove(); clearTimeout(CALLOUT.tm); CALLOUT = null; } }
+function showCallout(target, html, key) {
+  if (!target || !target.getClientRects().length) return; hideCallout();
+  const el = document.createElement('div'); el.className = 'callout'; el.innerHTML = `<div class="callout-arrow">⬆</div><div class="callout-body">${html}</div>`;
+  document.body.appendChild(el);
+  const r = target.getBoundingClientRect(); const w = el.offsetWidth; const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+  el.style.left = x + 'px'; el.style.top = (r.bottom + 6) + 'px'; el.querySelector('.callout-arrow').style.left = Math.max(10, Math.min(w - 30, r.left + r.width / 2 - x - 10)) + 'px';
+  CALLOUT = { el, key, tm: setTimeout(hideCallout, 12000) };
+}
+document.addEventListener('pointerdown', () => hideCallout(), true); // tapping anywhere (including the pill itself) closes it
+window.addEventListener('resize', hideCallout);
+const CALLOUT_SEEN = {}; // key → time last shown (so it is a brief nudge, not a nag)
+function nudge(target, html, key, every = 10 * 60 * 1000) { if (CONFIRM || SHEET) return; if (CALLOUT_SEEN[key] && Date.now() - CALLOUT_SEEN[key] < every) return; CALLOUT_SEEN[key] = Date.now(); showCallout(target, html, key); }
 
 /* ---------------- photos ---------------- */
 function photoCandidates(c) {
@@ -1397,11 +1420,15 @@ function renderSyncPill() {
     case 'syncing': t = 'Syncing…'; break;
     case 'offline': t = n ? `Offline · ${n} to sync` : 'Offline'; cls = n ? 'warn' : 'off'; break;
     case 'signin': t = n ? `${n} to sync — click to sync` : 'Click to sync'; cls = n ? 'warn' : 'off'; break;
-    case 'setup': t = 'Sign in to sync'; cls = 'off'; break;
+    case 'setup': t = n ? `${n} to sync — sign in` : 'Sign in to sync'; cls = n ? 'warn' : 'off'; break;
     case 'error': t = 'Sync error — tap'; cls = 'warn'; break;
     case 'empty': t = 'No contacts yet'; cls = 'off'; break;
     default: t = n ? `${n} to sync — click to sync` : 'Synced'; if (n) cls = 'warn';
   }
+  const need = cls === 'warn' ? (cf ? 'cf' : Sync.state) : null;
+  if (need !== S.syncNeed) { S.syncNeed = need; clearTimeout(S.syncNudgeTm); if (need) S.syncNudgeTm = setTimeout(() => { if (S.syncNeed !== need) return; const n2 = pendingCount();
+    const msg = need === 'cf' ? `<b>Sync conflict</b> — the same contact was changed on two devices. Check Jobs → Sync conflicts.` : need === 'error' ? '<b>Sync problem</b> — tap here to try again.' : need === 'offline' ? `<b>${n2} change${n2 === 1 ? '' : 's'} waiting to sync</b> — will sync when back online.` : need === 'setup' ? `<b>${n2} change${n2 === 1 ? '' : 's'} need${n2 === 1 ? 's' : ''} syncing</b> — tap here to sign in to Google and sync.` : `<b>${n2} change${n2 === 1 ? '' : 's'} need${n2 === 1 ? 's' : ''} syncing</b> — tap here to sync.`;
+    nudge($('#sync'), msg, 'sync:' + need); }, 8000); }
   sp.textContent = t; sp.className = 'pill ' + cls; sp.dataset.act = 'sync-now'; sp.style.cursor = 'pointer'; sp.title = Sync.msg || (D.sync.last ? 'Last synced ' + new Date(D.sync.last).toLocaleString('en-AU') : '');
 }
 function firstRunHtml() {
@@ -1515,7 +1542,7 @@ document.addEventListener('click', async (e) => {
   if (a === 'sync-now' || a === 'g-signin') {
     if (window.SEED) { toast('Syncing works in the installed app, not the preview'); return; }
     if (!Sync.enabled()) { toast('Google sign-in is not set up yet'); return; }
-    await Sync.run(true); if (Sync.state === 'error') toast(Sync.msg); renderAll();
+    toast('Syncing…'); await Sync.run(true); if (Sync.state === 'error') toast(Sync.msg); else if (Sync.state === 'signin' || Sync.state === 'setup') toast('Sign in to Google to sync'); else toast(pendingCount() ? 'Sync finished — some changes still waiting' : '✓ Synced — everything is up to date'); renderAll();
   } else if (a === 'g-signout') { if (await ask('Sign out of Google on this device? Contacts stay on the device.', 'Yes — sign out')) { GAuth.signOut(); D.sync.email = null; Sync.set('setup'); save(); renderAll(); } }
   else if (a === 'gpush-toggle') { GContacts.st.on = el.checked; GContacts.persist(); renderAll(); if (el.checked) { await Sync.run(true); GContacts.maybeRun(); } }
   else if (a === 'gpush-now') { try { await GAuth.get(true); GContacts.run(); toast('Updating Google Contacts in the background'); } catch (err) { toast(err.message); } }
@@ -1996,7 +2023,7 @@ async function checkLatest() {
     S.latest = v.version; const newer = v.version && v.version !== APP_VERSION.split(' ')[0];
     const b = document.querySelector('header [data-act=app-refresh]');
     if (b) { b.classList.toggle('update', newer); b.title = newer ? `Version ${v.version} is available — tap to update` : 'Close and reopen the app on the latest version'; b.innerHTML = newer ? `⟳ <b>v${APP_VERSION.split(' ')[0]}</b><span> → v${h(v.version)} available</span>` : `⟳ v${APP_VERSION.split(' ')[0]}`; }
-    if (newer && !S.toldLatest) { S.toldLatest = true; toast(`A newer version (${v.version}) is ready — tap ⟳ Update`); }
+    if (newer) nudge(b, `<b>New version available (v${h(v.version)})</b> — tap ⟳ here to update.`, 'update:' + v.version, 30 * 60 * 1000);
   } catch (e) { }
 }
 setInterval(checkLatest, 10 * 60 * 1000); window.addEventListener('online', checkLatest); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkLatest(); });
@@ -2118,7 +2145,7 @@ document.addEventListener('click', async (e) => {
     case 'calc-dist': SHEET && SHEET.calc && SHEET.calc(); break;
     case 'sheet-cancel': leaveSheet(); break;
     case 'catpick-use': { if (d.kind === 'business') { const b = IDX.biz.get(d.id); if (b) setBizCat(b, d.tag); } else { const c = D.contacts.find((x) => x.id === d.id); if (c) setOne(c, d.tag); } NEXT_LOG_LABEL = 'Kept previous category'; if (await changed()) toast('Category set to ' + tagName(d.tag)); break; }
-    case 'jobs-refresh': JOBS_CACHE = null; reindex(); renderAll(); toast('Jobs refreshed — ' + jobs().length + ' to check'); break;
+    case 'jobs-refresh': el.disabled = true; setTimeout(() => { JOBS_CACHE = null; reindex(); renderAll(); toast('✓ Jobs list refreshed — ' + jobs().length + ' to check'); }, 650); break;
     case 'sheet-save': { if (!SHEET) break; const ok = await SHEET.onSave(); if (ok !== false) { const done = await changed(); if (done) { closeSheet(); toast('Saved'); } } break; }
     case 'rep-add': { const tpl = document.querySelector(`#sheet template[data-reptpl="${d.rep}"]`); document.querySelector(`#sheet [data-repwrap="${d.rep}"]`).insertAdjacentHTML('beforeend', tpl.innerHTML); break; }
     case 'rep-del': el.closest('.rep').remove(); break;
