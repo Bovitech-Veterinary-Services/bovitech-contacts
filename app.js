@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '5.0 (15 Oct 2026)';
+const APP_VERSION = '5.1 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -594,14 +594,31 @@ function renderDetail() {
   else { const b = IDX.biz.get(S.sel.id); if (!b) { S.sel = null; return renderDetail(); } el.classList.toggle('dna', (b.cats || []).includes('dna')); el.innerHTML = bizDetail(b); }
   document.body.classList.add('show-detail');
 }
-function phoneLinks(list, sms) {
-  return list.map((p) => `<div class="kv"><div class="k">${h(p.label || '')}</div><div class="v"><a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">${h(p.value)}</a> · <a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">call client</a>${sms ? ` · <a href="sms:${h(p.value.replace(/[^\d+]/g, ''))}">send SMS</a>` : ''}</div></div>`).join('');
+function phoneLinks(list, sms, callLbl = 'call client') {
+  return list.map((p) => `<div class="kv"><div class="k">${h(p.label || '')}</div><div class="v"><a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">${h(p.value)}</a> · <a href="tel:${h(p.value.replace(/[^\d+]/g, ''))}">${callLbl}</a>${sms ? ` · <a href="sms:${h(p.value.replace(/[^\d+]/g, ''))}">send SMS</a>` : ''}</div></div>`).join('');
 }
 function flagLines(kind, id, fid) {
   return jobs().filter((j) => j.kind === kind && j.id === id && (fid === undefined || j.fid === fid)).map((j) => `<div class="flagline"><span style="color:var(--red)">${ICONS.flag}</span><div>${h(j.note)}</div></div>`).join('');
 }
 const inactiveBox = (r) => `<div class="inactivebox"><div style="font-family:var(--cond);font-size:20px;letter-spacing:.4px">INACTIVE CLIENT</div>${r ? `<div class="body" style="margin-top:2px">${h(r)}</div>` : '<div style="opacity:.9;font-size:14px">No reason recorded yet — tap Edit to add one.</div>'}</div>`;
 const dnaReasonBox = (r) => `<div class="dnareason"><div class="lbl" style="color:var(--red-ink)">Reason</div>${r ? `<div class="body">${h(r)}</div>` : '<div class="hint">No reason recorded yet — tap Edit to add one (e.g. bad debtor, not the client for us, don\'t feel safe).</div>'}</div>`;
+/* ---------------- ICE (in case of emergency) contacts for Bovitech staff ---------------- */
+const isStaff = (c) => catOf(c) === 'bvs';
+const iceLabel = (x) => fullName(x) + ((x.mobiles[0] || x.landlines[0]) ? ' — ' + (x.mobiles[0] || x.landlines[0]).value : '');
+const iceFor = (c) => D.contacts.filter((s2) => (s2.ice || []).some((i) => i.cid === c.id)).map((s2) => ({ staff: s2, rel: s2.ice.find((i) => i.cid === c.id).rel }));
+function iceCard(c) {
+  let out = '';
+  if (isStaff(c) || (c.ice || []).length) out += `<div class="card" style="border-left:5px solid var(--red)"><h3>🚨 ICE contacts (in case of emergency)</h3>${(c.ice || []).map((i) => { const x = D.contacts.find((y) => y.id === i.cid); if (!x) return ''; return `<div style="margin:6px 0"><div class="biz-link" data-act="open" data-kind="contact" data-id="${x.id}" style="font-weight:700">${h(fullName(x))}${i.rel ? ` <span class="hint" style="font-weight:400">(${h(i.rel)})</span>` : ''}</div>${phoneLinks([...x.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), ...x.landlines.map((p) => ({ ...p, label: p.label || 'Landline' }))], false, 'call')}</div>`; }).join('') || '<div class="hint">No ICE contact recorded — tap Edit to add one.</div>'}</div>`;
+  const forList = iceFor(c);
+  if (forList.length) out += `<div class="card" style="border-left:5px solid var(--red)"><h3>🚨 ICE contact for</h3>${forList.map((f) => `<div class="biz-link" data-act="open" data-kind="contact" data-id="${f.staff.id}" style="margin:4px 0"><b>${h(fullName(f.staff))}</b>${f.rel ? ` <span class="hint">(${h(f.rel)})</span>` : ''}</div>`).join('')}</div>`;
+  return out;
+}
+function iceRow(i) { const x = i && D.contacts.find((y) => y.id === i.cid); return `<div class="icerow" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap"><input class="ice-who" list="ice-dl" placeholder="Start typing a contact's name" value="${x ? h(iceLabel(x)) : ''}" style="flex:2;min-width:180px;padding:9px;border:1px solid var(--line);border-radius:9px"><input class="ice-rel" placeholder="Relationship, e.g. Mum" value="${h((i && i.rel) || '')}" style="flex:1;min-width:120px;padding:9px;border:1px solid var(--line);border-radius:9px"><button type="button" class="btn small" data-act="ice-del">✕</button></div>`; }
+function setIceTags(ids, removedIds = []) { // linked ICE contacts get the ICE tag; people no longer anyone's ICE lose it
+  const still = new Set(D.contacts.flatMap((x) => (x.ice || []).map((i) => i.cid)));
+  ids.forEach((id) => { const x = D.contacts.find((y) => y.id === id); if (x && !x.tags.includes('ice')) { x.tags.push('ice'); touch(x); } });
+  removedIds.filter((id) => !still.has(id)).forEach((id) => { const x = D.contacts.find((y) => y.id === id); if (x && x.tags.includes('ice')) { x.tags = x.tags.filter((t) => t !== 'ice'); touch(x); } });
+}
 function contactDetail(c) {
   const bs = bizOf(c);
   const tags = effTags(c).filter((t) => !RATING_SET.has(t));
@@ -614,6 +631,7 @@ function contactDetail(c) {
   <div style="margin-top:6px">${contactRatings(c).map((r) => rbadge(r.rating) + (r.biz && bs.length > 1 ? `<span style="font-size:13px;color:var(--ink3);margin-right:8px">${h(r.biz.name)}</span>` : '')).join('')}</div></div></div>
   <div class="actions"><button class="btn primary" data-act="edit-contact" data-id="${c.id}">Edit</button><button class="btn" data-act="star" data-id="${c.id}">${c.starred ? '★ Starred' : '☆ Star'}</button>${c.mobiles[0] ? `<a class="btn" href="tel:${h(c.mobiles[0].value.replace(/[^\d+]/g, ''))}">Call</a>` : ''}</div>`;
   html += cflags.map((j) => `<div class="flagline"><span style="color:var(--red)">${ICONS.flag}</span><div>${h(j.note)}</div></div>`).join('');
+  html += iceCard(c);
   if (hasWarning(c)) {
     html += `<div class="card warn"><h3>⚠ General warnings</h3>${c.warnings ? `<div class="body">${h(c.warnings)}</div>` : ''}${bs.filter((b) => b.warnings).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.warnings)}</div>`).join('')}</div>`;
   }
@@ -722,7 +740,7 @@ function editorCat() {
   if ($('[data-rtgroup="bcat"]')) return rtVal($('#sheet'), 'bcat');
   return '';
 }
-function reasonBoxes() { const v = editorCat(); [['e-dnawrap', 'dna'], ['e-bdnawrap', 'dna'], ['e-inwrap', 'inactive'], ['e-binwrap', 'inactive']].forEach(([id, cat]) => { const el = $('#' + id); if (el) el.style.display = v === cat ? '' : 'none'; }); }
+function reasonBoxes() { const v = editorCat(); { const w = $('#e-icewrap'); if (w && v === 'bvs') w.style.display = ''; } [['e-dnawrap', 'dna'], ['e-bdnawrap', 'dna'], ['e-inwrap', 'inactive'], ['e-binwrap', 'inactive']].forEach(([id, cat]) => { const el = $('#' + id); if (el) el.style.display = v === cat ? '' : 'none'; }); }
 function contactWillBeDna() { return editorCat() === 'dna'; }
 function editContact(c) {
   const isNew = !c;
@@ -750,6 +768,9 @@ function editContact(c) {
       ${catPicker('ccat', followsBiz(c) ? '' : catOf(c), null)}
     </div></div>
   <div class="f"><span class="lbl">Additional tags</span><div class="checks">${D.tags.filter((t) => t.group === 'additional').map((t) => `<label><input type="checkbox" data-tag="${t.id}" ${c.tags.includes(t.id) ? 'checked' : ''}>${h(t.name)}</label>`).join('')}</div></div>
+  <div class="card" id="e-icewrap" style="background:#fff5f5;${isStaff(c) || (c.ice || []).length ? '' : 'display:none'}"><h3>🚨 ICE contacts (Bovitech staff)</h3><div class="hint" style="margin-bottom:6px">Who to call in case of emergency. Pick existing contacts — add the person as a contact first if they're not in the app. They get the ICE tag automatically.</div>
+    <div id="e-icerows">${((c.ice || []).length ? c.ice : [null]).map(iceRow).join('')}</div><button type="button" class="btn small" data-act="ice-add">+ Add another ICE contact</button>
+    <datalist id="ice-dl">${D.contacts.filter((x) => x.id !== c.id).map((x) => `<option value="${h(iceLabel(x))}">`).join('')}</datalist></div>
   <div class="f"><label>Mobile numbers</label>${repRows('mob', c.mobiles, [{ k: 'value', ph: '04xx xxx xxx', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Landline numbers</label>${repRows('land', c.landlines, [{ k: 'value', ph: '08 xxxx xxxx', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Email</label>${repRows('email', c.emails, [{ k: 'value', ph: 'name@example.com', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
@@ -781,6 +802,16 @@ function editContact(c) {
     c.tags = [...addl];
     if (mode === 'biz') c.ownCats = false; else { c.ownCats = true; if (rv) c.tags.push(rv); if (c.links.length && rv && rv === c.links.map((l) => IDX.biz.get(l.bid)).filter(Boolean).map(bizCat).find(Boolean)) { c.ownCats = false; c.tags = c.tags.filter((t) => t !== rv); } }
     c.mobiles = readRep('mob'); c.landlines = readRep('land'); c.emails = readRep('email'); c.postal = readRep('postal').map((p) => p.value);
+    if ($('#e-icewrap') && $('#e-icewrap').style.display !== 'none') {
+      const byLabel = new Map(D.contacts.filter((x) => x.id !== c.id).map((x) => [iceLabel(x), x])); const byName = new Map(); D.contacts.forEach((x) => { const k = fullName(x).toLowerCase(); byName.set(k, byName.has(k) ? null : x); });
+      const rows = [...document.querySelectorAll('#e-icerows .icerow')].map((r) => ({ who: r.querySelector('.ice-who').value.trim(), rel: r.querySelector('.ice-rel').value.trim() })).filter((r) => r.who);
+      const bad = rows.filter((r) => !(byLabel.get(r.who) || byName.get(r.who.toLowerCase())));
+      if (bad.length) { toast(`ICE contact not found: ${bad.map((r) => r.who).join(', ')} — pick from the list, or add them as a contact first`); return false; }
+      const oldIce = (c.ice || []).map((i) => i.cid);
+      c.ice = rows.map((r) => ({ cid: (byLabel.get(r.who) || byName.get(r.who.toLowerCase())).id, rel: r.rel })).filter((x, k, arr) => arr.findIndex((y) => y.cid === x.cid) === k);
+      if (!c.ice.length) delete c.ice;
+      S.iceSync = { add: (c.ice || []).map((i) => i.cid), removed: oldIce.filter((id) => !(c.ice || []).some((i) => i.cid === id)) };
+    }
     c.photoChoice = $('#e-photo').value;
     const file = $('#e-photofile').files[0];
     if (c.photoChoice === 'custom' && file) c.photoData = await fileToDataUrl(file, 480);
@@ -795,6 +826,7 @@ function editContact(c) {
     if (isNew) c.createdAt = Date.now();
     touch(c);
     if (isNew) D.contacts.push(c);
+    if (S.iceSync) { setIceTags(S.iceSync.add, S.iceSync.removed); S.iceSync = null; }
     S.sel = { kind: 'contact', id: c.id };
     return true;
   });
@@ -1909,7 +1941,7 @@ function previewHtml(items) {
   return `<p style="font-size:16px">${n} ${n === 1 ? 'item' : 'items'} will change. Please check, then confirm:</p><div style="max-height:55dvh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:#fff">${items.slice(0, 60).map((it) => `<div style="padding:6px 0;border-top:1px solid #f0ede8"><div style="font-weight:700">${h(it.name || '')} <span class="hint">${what[it.kind] || ''}</span></div>${it.created ? '<div class="hint">New — will be added</div>' : changeRows(it)}</div>`).join('')}${n > 60 ? `<div class="hint" style="padding:6px 0">…and ${n - 60} more</div>` : ''}</div>`;
 }
 function baseline() { DISMISS_SNAP = JSON.stringify(D.dismissed || {}); BASE.clear(); KINDS.forEach((k) => D[k].forEach((r) => BASE.set(k + ':' + r.id, stable(plain(r))))); BASE.set('settings', stable(plain(D.settings))); TOUCHED.clear(); PENDING_DEL = []; }
-const FIELD_NAMES = { first: 'first name', last: 'surname', middle: 'middle name', role: 'role', links: 'businesses', tags: 'tags', mobiles: 'mobile', landlines: 'landline', emails: 'email', postal: 'postal address', info: 'general info', warnings: 'general warnings', starred: 'starred', photoChoice: 'photo', photoData: 'photo', sideNotes: 'side notes', dnaReason: 'Do not answer reason', inactiveReason: 'inactive reason', flags: 'job flags', name: 'name', rating: 'A+ to C category', pics: 'PIC', patientIds: 'patient IDs', farms: 'farms / locations', primaryContact: 'primary contact', primaryRequired: 'primary contact required', type: 'business type', group: 'tag type', photo: 'photo', home: 'homebase', mapsKey: 'Google Maps key', photoPriority: 'photo priority', createdAt: 'created' };
+const FIELD_NAMES = { ice: 'ICE contacts', first: 'first name', last: 'surname', middle: 'middle name', role: 'role', links: 'businesses', tags: 'tags', mobiles: 'mobile', landlines: 'landline', emails: 'email', postal: 'postal address', info: 'general info', warnings: 'general warnings', starred: 'starred', photoChoice: 'photo', photoData: 'photo', sideNotes: 'side notes', dnaReason: 'Do not answer reason', inactiveReason: 'inactive reason', flags: 'job flags', name: 'name', rating: 'A+ to C category', pics: 'PIC', patientIds: 'patient IDs', farms: 'farms / locations', primaryContact: 'primary contact', primaryRequired: 'primary contact required', type: 'business type', group: 'tag type', photo: 'photo', home: 'homebase', mapsKey: 'Google Maps key', photoPriority: 'photo priority', createdAt: 'created' };
 function diffTouched(commit) {
   const items = [];
   TOUCHED.forEach((r) => {
@@ -1951,6 +1983,7 @@ function fmtField(f, v) {
   if (f === 'rating') return tagName(v);
   if (f === 'primaryContact') { const c = D.contacts.find((x) => x.id === v); return c ? fullName(c) : '—'; }
   if (f === 'photoData') return 'custom photo';
+  if (f === 'ice') return v.map((i) => { const x = D.contacts.find((y) => y.id === i.cid); return (x ? fullName(x) : '(deleted)') + (i.rel ? ' (' + i.rel + ')' : ''); }).join(', ') || '—';
   if (f === 'bid') return IDX.biz.get(v)?.name || '—';
   if (f === 'stops') return v.map((x) => { const fm = IDX.farms.get(x.fid); return fm ? farmLabel(fm) : '(deleted farm)'; }).join('; ') || '—';
   if ((f === 'start' || f === 'end') && typeof v === 'object') return epLabel(v);
@@ -2113,6 +2146,17 @@ function migrate() {
     }
     D.settings.craigDna = true; touch(D.settings); ch = true;
   }
+  if (!D.settings.iceV1) { // link the existing "X's ICE (relationship: Y)" contacts to the staff member
+    const tg = D.tags.find((t) => t.id === 'ice'); if (tg) { if (tg.name !== 'ICE contact') { tg.name = 'ICE contact'; touch(tg); } } else { D.tags.push({ id: 'ice', name: 'ICE contact', group: 'additional', photo: null }); touch(D.tags[D.tags.length - 1]); }
+    const staff = D.contacts.filter((x) => effCats(x).includes('bvs'));
+    D.contacts.forEach((x) => { const m = (x.role || '').match(/^(.+?)['’]s?\s*ICE\b\s*(?:\(\s*relationship:\s*(.+?)\s*\))?/i); if (!m) return;
+      const who = m[1].toLowerCase().replace(/['’]s?$/, '').trim(); const first = who.split(/\s+/)[0];
+      const st = staff.find((y) => fullName(y).toLowerCase().startsWith(who)) || staff.find((y) => (y.first || '').toLowerCase() === first); if (!st) return;
+      st.ice = st.ice || []; if (!st.ice.some((i) => i.cid === x.id)) { st.ice.push({ cid: x.id, rel: m[2] || '' }); touch(st); }
+      if (!x.tags.includes('ice')) { x.tags.push('ice'); touch(x); } });
+    staff.forEach((y) => { if (y.tags.includes('ice') && !iceFor(y).length) { y.tags = y.tags.filter((t) => t !== 'ice'); touch(y); } }); // staff aren't ICE contacts themselves
+    D.settings.iceV1 = true; touch(D.settings); ch = true;
+  }
   if (ch) { JOBS_CACHE = null; reindex(); photoCache.clear(); save(); }
   return ch;
 }
@@ -2145,6 +2189,8 @@ document.addEventListener('click', async (e) => {
     case 'calc-dist': SHEET && SHEET.calc && SHEET.calc(); break;
     case 'sheet-cancel': leaveSheet(); break;
     case 'catpick-use': { if (d.kind === 'business') { const b = IDX.biz.get(d.id); if (b) setBizCat(b, d.tag); } else { const c = D.contacts.find((x) => x.id === d.id); if (c) setOne(c, d.tag); } NEXT_LOG_LABEL = 'Kept previous category'; if (await changed()) toast('Category set to ' + tagName(d.tag)); break; }
+    case 'ice-add': $('#e-icerows').insertAdjacentHTML('beforeend', iceRow(null)); $('#e-icerows .icerow:last-child .ice-who').focus(); break;
+    case 'ice-del': el.closest('.icerow').remove(); break;
     case 'jobs-refresh': el.disabled = true; setTimeout(() => { JOBS_CACHE = null; reindex(); renderAll(); toast('✓ Jobs list refreshed — ' + jobs().length + ' to check'); }, 650); break;
     case 'sheet-save': { if (!SHEET) break; const ok = await SHEET.onSave(); if (ok !== false) { const done = await changed(); if (done) { closeSheet(); toast('Saved'); } } break; }
     case 'rep-add': { const tpl = document.querySelector(`#sheet template[data-reptpl="${d.rep}"]`); document.querySelector(`#sheet [data-repwrap="${d.rep}"]`).insertAdjacentHTML('beforeend', tpl.innerHTML); break; }
