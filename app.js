@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '5.6 (15 Oct 2026)';
+const APP_VERSION = '6.0 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -82,7 +82,7 @@ function reindex() {
   D.businesses.forEach((b) => b.farms.forEach((f) => { farms.set(f.id, f); farmBiz.set(f.id, b); }));
   const bizContacts = new Map(D.businesses.map((b) => [b.id, []]));
   D.contacts.forEach((c) => c.links.forEach((l) => { if (bizContacts.has(l.bid)) bizContacts.get(l.bid).push(c); }));
-  IDX = { biz, tags, farms, farmBiz, bizContacts, hay: new Map(), bhay: new Map() };
+  IDX = { biz, tags, farms, farmBiz, bizContacts, hay: new Map(), bhay: new Map(), personNames: new Set(D.contacts.map((c) => fullName(c).toLowerCase().trim())) };
 }
 // alphabetical, but names starting with a letter come before names starting with a number/symbol
 const alphaKey = (str) => { const t = (str || '').trim().toLowerCase(); return (/^[a-z]/.test(t) ? '1' : '2') + t; };
@@ -262,6 +262,7 @@ function contactHay(c) {
 function matchQ(hay, pq) { return pq.inc.every((t) => hay.includes(t)) && !pq.exc.some((t) => hay.includes(t)); }
 function filteredContacts() {
   const pq = parseQuery(S.q);
+  S.tagF = {}; S.quick = {}; // the tag/flag chips moved to Search & Bulk Edit
   const tf = Object.entries(S.tagF);
   return D.contacts.filter((c) => {
     if (!matchQ(contactHay(c), pq)) return false;
@@ -283,6 +284,30 @@ function primaryOf(b) {
   return cs.find((c) => c.tags.includes('pa')) || cs.find((c) => c.tags.includes('pi')) || null;
 }
 const isClientBiz = (b) => b.type !== 'nonclient';
+/* ---------- business-name helpers: matching names in text, splitting names that hold more than one business ---------- */
+const coreBiz = (n) => (n || '').replace(/\([^)]*\)?/g, ' ').replace(/\b(pty\.?\s*ltd\.?|pty|ltd|limited|atf\b.*|as trustee.*|trading as.*|t\/a\b.*|ta\b .*|& co\b)/gi, ' ').toLowerCase().replace(/[^a-z0-9]/g, '');
+const ROLE_RX = /^(own|own farm|own enterprise|workman|producer|& ?producer|farm manager|manager|partner'?s?|parents?.*|parent'?s farm|son in law'?s farm|her dad'?s farm|book ?keeper|coordinator'?s phone|tbc|veterinarian.*|truckie|feedlot manager|customer service|professor.*|farm worker|producer & farm worker|nutrien stockie.*|dpird biosecurity officer.*|former .*|sharefarm.*|works for|also works for|office)$/i;
+function parseBizName(name) { // → [{text, role}] best guess; the person checks it
+  const parts = []; let rest = name;
+  rest = rest.replace(/\s*\(([^)]*)\)?/g, (m, g) => { g = g.trim(); if (g) parts.push({ text: g, paren: true }); return ' | '; });
+  rest.split(/\s*\|\s*|\s*,\s*also works for\s+|\s+also works for\s+|\s+and works for\s+|\s*,\s*works for\s+|\s+and workman for\s+|\s*,\s*also\s+|\s*,\s*|\s+-\s+|\s*\/\s*|\s+&\s+(?=producer\b)/i).forEach((t) => { t = t.trim(); if (t) parts.push({ text: t }); });
+  const seen = new Set(); return parts.filter((p) => { const k = p.text.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).map((p) => ({ text: p.text.replace(/^(at|for|and)\s+/i, ''), role: ROLE_RX.test(p.text.trim()) || /^[a-z]/.test(p.text) }));
+}
+const oddBizName = (n) => /[(),/]| also | works for |\bproducer\b|\bworkman\b|^truckie\b|^veterinarian\b/i.test(n || '');
+function findBizByText(t, exceptId) { const k = coreBiz(t); if (k.length < 4) return null; return D.businesses.find((b) => b.id !== exceptId && coreBiz(b.name) === k) || (k.length >= 8 ? D.businesses.find((b) => b.id !== exceptId && !oddBizName(b.name) && coreBiz(b.name).length >= 8 && (coreBiz(b.name).includes(k) || k.includes(coreBiz(b.name)))) : null) || null; }
+function linkEvidence(c) { // businesses this contact seems to belong to but isn't linked to
+  const linked = new Set(c.links.map((l) => l.bid)); const out = new Map();
+  const note = (b, why) => { if (!b || linked.has(b.id) || !(b.id)) return; if (!out.has(b.id)) out.set(b.id, { b, why: [] }); if (!out.get(b.id).why.includes(why)) out.get(b.id).why.push(why); };
+  const txt = ' ' + [c.info, c.role, c.middle].join(' ').toLowerCase().replace(/\s+/g, ' ') + ' ';
+  if (txt.trim()) D.businesses.forEach((b) => { if (linked.has(b.id) || oddBizName(b.name) || IDX.personNames.has(b.name.toLowerCase().trim())) return; const nm = b.name.toLowerCase().replace(/\s+/g, ' ').trim(); if (nm.length < 8 || !/[a-z]{3}/.test(nm)) return; const i = txt.indexOf(nm); if (i >= 0 && !/[a-z0-9]/.test(txt[i - 1]) && !/[a-z0-9]/.test(txt[i + nm.length] || ' ')) note(b, 'their notes mention it'); });
+  c.emails.forEach((e) => { const dom = ((e.value || '').split('@')[1] || '').split('.')[0].toLowerCase(); if (dom.length < 6 || /^(gmail|bigpond|outlook|hotmail|yahoo|icloud|live|westnet|iinet|optusnet|telstra|bovitech)/.test(dom)) return;
+    const cand = D.businesses.filter((b) => { const k = coreBiz(b.name); return k.length >= 6 && (k === dom || k.startsWith(dom) || dom.startsWith(k)); }); const exact = cand.filter((b) => coreBiz(b.name) === dom);
+    const pick = exact.length === 1 ? exact : cand.length === 1 ? cand : []; if (!pick.length || cand.some((b) => linked.has(b.id))) return; note(pick[0], `email address @${dom}`); });
+  return [...out.values()];
+}
+function suggestPrimary(b) { const cs = IDX.bizContacts.get(b.id) || []; if (!cs.length) return null; const nm = b.name.toLowerCase();
+  const score = (c) => (c.tags.includes('pa') ? 10 : 0) + (c.tags.includes('pi') ? 3 : 0) + (c.last && nm.includes(c.last.toLowerCase()) ? 4 : 0) + (c.mobiles.length ? 1 : 0) + ((c.info || '').length > 40 ? 1 : 0) + (cs.length === 1 ? 5 : 0);
+  return cs.slice().sort((x, y) => score(y) - score(x))[0]; }
 const bizHasDetails = (b) => !!((b.phones || []).length || (b.emails || []).length);
 const normBizName = (t) => (t || '').toLowerCase().replace(/\b(pty|ltd|the|and)\b/g, '').replace(/[^a-z0-9]/g, '');
 const sameAsBizName = (c, b) => { const a = normBizName(fullName(c)), z = normBizName(b.name); return a.length >= 4 && z.length >= 4 && (a === z || (Math.min(a.length, z.length) >= 8 && (a.includes(z) || z.includes(a)))); };
@@ -332,7 +357,7 @@ function computeJobs() {
       if (f.lat != null && f.kmReturn != null) { const k = f.lat.toFixed(3) + ',' + f.lng.toFixed(3); if (!byGps.has(k)) byGps.set(k, []); byGps.get(k).push({ b, f }); }
     });
     (b.flags || []).forEach((fl) => { if (fl.type !== 'catpick') add({ type: fl.type, kind: 'business', id: b.id, who: b.name, note: fl.note }); });
-    if (isClientBiz(b) && b.primaryRequired !== false && !primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
+    if (isClientBiz(b) && b.primaryRequired !== false && !primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, primSuggest: (suggestPrimary(b) || {}).id, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
   });
   // two farms on the same GPS pin: same farm or different farm?
   const pinned = []; D.businesses.forEach((b) => b.farms.forEach((f) => { if (f.lat != null) pinned.push({ b, f }); }));
@@ -383,6 +408,18 @@ function computeJobs() {
   D.businesses.forEach((b) => { if (isClientBiz(b)) return; const cs = IDX.bizContacts.get(b.id) || [];
     cs.filter((c) => sameAsBizName(c, b)).forEach((c) => add({ type: 'bizonly', key: 'bizonly:' + c.id + ':' + b.id, kind: 'business', id: b.id, who: b.name, note: `The contact "${fullName(c)}" has the same name as the business. Is it actually just the business (no individual person)? If so, its phone and email can move onto the business.`, bizonly: { cid: c.id, bid: b.id } }));
     if (!cs.length && !bizHasDetails(b)) add({ type: 'biznodetails', kind: 'business', id: b.id, who: b.name, note: 'No phone, email or contact person — add a phone/email to the business, or link a contact.' }); });
+  // contacts who look like they belong to a business they're not linked to
+  D.contacts.forEach((c) => linkEvidence(c).forEach((ev) => add({ type: 'linksuggest', key: 'linksuggest:' + c.id + ':' + ev.b.id, kind: 'contact', id: c.id, who: fullName(c) + '  →  ' + ev.b.name, note: `${fullName(c)} may also belong to ${ev.b.name} (${isClientBiz(ev.b) ? 'client' : 'non-client'} business) — ${ev.why.join('; ')}. Currently linked to: ${bizOf(c).map((b) => b.name).join(', ') || 'no business'}.`, linkSug: { cid: c.id, bid: ev.b.id } })));
+  // primary contacts (active or inactive) with no business
+  D.contacts.forEach((c) => { if ((c.tags.includes('pa') || c.tags.includes('pi')) && !c.links.length) add({ type: 'primnolink', kind: 'contact', id: c.id, who: fullName(c), note: `Tagged ${c.tags.includes('pa') ? 'Primary (active)' : 'Primary (inactive)'} but not linked to a business. Link them to their business (edit the contact), or untick the primary tag.` }); });
+  // business names that hold more than one business or a role
+  D.businesses.forEach((b) => { if (oddBizName(b.name)) add({ type: 'oddbiz', key: 'oddbiz:' + b.id + ':' + b.name, kind: 'business', id: b.id, who: b.name, note: `This name looks like more than one business, or a business plus a role: ${parseBizName(b.name).map((p) => (p.role ? `"${p.text}" (role/note)` : `"${p.text}"` + ((findBizByText(p.text, b.id) || {}).name ? ` → existing business ${findBizByText(p.text, b.id).name}` : ''))).join(' · ')}. Contacts: ${(IDX.bizContacts.get(b.id) || []).map(fullName).join(', ') || 'none'}.`, oddbiz: b.id }); });
+  // suggested warnings: a *WARNING* section (or warning-sounding lines) in general info
+  const wjob = (kind, rec, b, f, label) => { const src = f ? f.info : rec.info; const sec = warnSection(src); const extra = warnyLines(src); const txt = [sec ? sec.text : '', ...extra].filter(Boolean).join('\n'); if (!txt) return;
+    const done = []; const tgt = f ? b : rec; if ((tgt.warnings || '').includes(txt.split('\n')[0])) done.push('general warning'); if ((tgt.sideNotes || '').includes(txt.split('\n')[0])) done.push('side note'); if ((f ? [f] : (kind === 'contact' ? bizOf(rec) : [rec]).flatMap((x) => x.farms)).some((x) => (x.warning || '').includes(txt.split('\n')[0]))) done.push('farm warning');
+    add({ type: 'warnsug', key: 'warnsug:' + (f ? f.id : rec.id) + ':' + txt.length, kind: kind === 'contact' ? 'contact' : 'business', id: kind === 'contact' ? rec.id : b.id, fid: f ? f.id : undefined, who: label, note: (sec && sec.text ? 'Has a *WARNING* section in its general info' : 'General info sounds like a warning') + (done.length ? ` — already applied as ${done.join(' and ')}` : '') + ':', warnTxt: txt, warnSrc: { kind, id: rec.id, bid: b ? b.id : null, fid: f ? f.id : null, sec: !!sec } }); };
+  D.contacts.forEach((c) => wjob('contact', c, null, null, fullName(c)));
+  D.businesses.forEach((b) => { wjob('business', b, b, null, b.name); b.farms.forEach((f) => wjob('farm', b, b, f, b.name + ' — ' + (f.name || 'farm'))); });
   // every contact needs a category
   D.contacts.forEach((c) => { if (!catOf(c)) { const bs = bizOf(c); add({ type: 'nocat', kind: 'contact', id: c.id, who: fullName(c) + (bs.length ? ' (' + bs.map((b) => b.name).join(', ') + ')' : ''), note: bs.length ? 'No category — and the business has none either. Choose one.' : 'No category — choose one.', nocat: bs[0] ? bs[0].id : null }); } });
   // more than one category on a record (only one is allowed) — e.g. edited on a device still on an older version
@@ -405,6 +442,10 @@ const JOB_TYPES = {
   photo: { t: 'Choose which photo to show', manual: false },
   bizonly: { t: 'Non-client business — is this contact actually just the business?', manual: true, btn: 'No — it is a real person' },
   biznodetails: { t: 'Non-client business with no phone, email or contact', manual: true },
+  warnsug: { t: 'Should this be a warning? (from general info)', manual: true, btn: 'Not a warning — leave it' },
+  linksuggest: { t: 'Contact may belong to another business — link them?', manual: true, btn: 'No — not linked' },
+  primnolink: { t: 'Primary contact not linked to a business', manual: true, btn: 'Leave as is' },
+  oddbiz: { t: 'Business name looks like more than one business — sort it out', manual: true, btn: 'Name is fine' },
   nocat: { t: 'Contact has no category', manual: false },
   multicat: { t: 'More than one category — pick one', manual: false },
   catpick: { t: 'Category changed to one only — check it', manual: true, btn: 'Change to new category' },
@@ -424,7 +465,7 @@ function jobs() { if (!JOBS_CACHE) JOBS_CACHE = computeJobs(); return JOBS_CACHE
 function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind === kind || (kind === 'contact' && false))); }
 
 /* ---------------- rendering: shell ---------------- */
-const TABS = [['contacts', 'Contacts'], ['biz', 'Businesses'], ['search', 'Search'], ['route', 'Plan Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
+const TABS = [['contacts', 'Contacts'], ['biz', 'Businesses'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
 function renderTabs() {
   const n = jobs().length;
   $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
@@ -546,8 +587,7 @@ function renderContactList() {
   const keepFocus = document.activeElement && document.activeElement.id === 'q';
   const rows = sortContacts(filteredContacts());
   let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="Search — use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">+ New</button></div>
-    <div class="chips">${tagChips()}</div>
-    <div class="row2"><span>${rows.length} of ${D.contacts.length} contacts${Object.keys(S.tagF).length || Object.values(S.quick).some(Boolean) || S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
+    <div class="row2"><span>${rows.length} of ${D.contacts.length} contacts${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
     <label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
   html += '<ul class="list">';
   if (S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(bizHay(b), pq)).slice(0, 15);
@@ -581,11 +621,11 @@ function bizHay(b) {
 function renderBizList() {
   const keepFocus = document.activeElement && document.activeElement.id === 'bq';
   const pq = parseQuery(S.bq);
-  const bt = S.btype || 'all';
+  const bt = 'all';
   let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)));
   rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || alphaCmp(a.name, b.name));
   let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses, farms, PICs…" value="${h(S.bq)}" autocomplete="off"><button class="btn primary" data-act="new-biz">+ New</button></div>
-  <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client businesses'], ['nonclient', 'Non-client (industry)']].map(([v, l]) => `<button class="${(S.btype || 'all') === v ? 'on' : ''}" data-act="btype" data-v="${v}">${l} (${D.businesses.filter((b) => v === 'all' || (v === 'client') === isClientBiz(b)).length})</button>`).join('')}</div>
+  <div class="hint" style="margin-top:6px">To filter by client / non-client, category, warnings and more, use <a href="#" data-act="tab" data-v="search">Search &amp; Bulk Edit</a>.</div>
   <div class="row2"><span>${rows.length} businesses</span><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
   rows.slice(0, 400).forEach((b) => {
     const cs = IDX.bizContacts.get(b.id) || [];
@@ -1114,6 +1154,8 @@ function bulkOps(t, sel) {
   if (t === 'blockcheck') ops.push({ op: 'blockyes', label: '✓ Yes — numbers blocked', green: true }, { op: 'blockno', label: 'Not yet' });
   if (t === 'nocat') ops.push({ op: 'setcat', label: 'Set this category for all selected', green: true });
   if (t === 'sheep') ops.push({ op: 'sheepreg', label: 'Change all to Sheep only (regular)' });
+  if (t === 'linksuggest') ops.push({ op: 'linkall', label: '✓ Link all selected', green: true });
+  if (t === 'noprimary') ops.push({ op: 'primall', label: '✓ Use the suggested primary contact for all selected', green: true });
   if (t === 'bizonly') ops.push({ op: 'bizonlyall', label: "✓ Yes — just the business, for all selected", green: true });
   if (t === 'noprimary') ops.push({ op: 'noprimreq', label: 'Primary contact not required' }, { op: 'nonclient', label: 'Make non-client (industry) businesses' });
   if (t === 'conflict') ops.push({ op: 'keepmine', label: "Keep this device's version for all" }, { op: 'keeptheirs', label: 'Keep the other version for all' });
@@ -1191,7 +1233,7 @@ document.addEventListener('click', (e) => {
     toast('Set — press Save to keep');
   }
 });
-function runBulk(t, op) {
+async function runBulk(t, op) {
   const sel = jobs().filter((j) => j.type === t && S.jobSel.has(j.key)); if (!sel.length) return;
   const jbCat = op === 'setcat' ? ($('#jb-cat') || {}).value : null;
   const label = op === 'setcat' ? 'Set category to ' + tagName(jbCat) : bulkOps(t, sel).find((o) => o.op === op)?.label || op;
@@ -1214,10 +1256,12 @@ function runBulk(t, op) {
     else if (op === 'usephoto' && j.photoSuggest) { const c = D.contacts.find((x) => x.id === j.id); if (c) { c.photoChoice = j.photoSuggest; touch(c); } }
     else if (op === 'setcat' && jbCat) { const c = D.contacts.find((x) => x.id === j.id); if (c) setOne(c, jbCat); }
     else if (op === 'sheepreg') { const c = D.contacts.find((x) => x.id === j.id); if (c) { setCats(c, [...effCats(c).filter((x) => x !== 'sheepocc' && x !== 'sheep'), 'sheepreg']); c.flags = (c.flags || []).filter((x) => x.type !== 'sheepconfirm'); } }
+    else if (op === 'linkall' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push({ bid: j.linkSug.bid }); reindex(); if (prev) setOne(c, prev); touch(c); } }
+    else if (op === 'primall' && j.primSuggest) { const b = IDX.biz.get(j.id), c = D.contacts.find((x) => x.id === j.primSuggest); if (b && c) { b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } } }
     else if (op === 'bizonlyall' && j.bizonly) { const c = D.contacts.find((x) => x.id === j.bizonly.cid), b = IDX.biz.get(j.bizonly.bid); if (c && b) convertBizOnly(c, b); }
     else if (op === 'noprimreq' || op === 'nonclient') { const b = IDX.biz.get(j.id); if (b) { b.primaryRequired = false; if (op === 'nonclient') b.type = 'nonclient'; touch(b); } }
   });
-  S.jobSel.clear(); NEXT_LOG_LABEL = `Jobs: ${label.replace(/^✓ /, '')} (${sel.length})`; photoCache.clear(); Sync.soon(); changed(); toast('Done — ' + sel.length + ' job' + (sel.length === 1 ? '' : 's'));
+  S.jobSel.clear(); NEXT_LOG_LABEL = `Jobs: ${label.replace(/^✓ /, '')} (${sel.length})`; photoCache.clear(); if (await changed()) { Sync.soon(); toast('✓ Done — ' + sel.length + ' job' + (sel.length === 1 ? '' : 's')); }
 }
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]'); if (!el) return; const a = el.dataset.act;
@@ -1242,8 +1286,8 @@ function renderJobs() {
     html += `<details class="jobgroup" data-type="${t}" ${isOpen ? 'open' : ''}><summary><input type="checkbox" class="jobcheck" data-act="job-selall" data-type="${t}" title="Select all" ${nSel && nSel === g.length ? 'checked' : ''}><span style="color:var(--red)">${ICONS.flag}</span><span style="flex:1">${h(JOB_TYPES[t].t)}</span><span class="count">${g.length}</span></summary>`;
     if (nSel) html += `<div class="bulkbar"><b>${nSel} selected</b>${t === 'nocat' ? `<select id="jb-cat" style="padding:6px;border:1px solid var(--line);border-radius:8px">${[...RATINGS, ...D.tags.filter((x) => x.group === 'client').map((x) => x.id)].map((v) => `<option value="${v}">${h(tagName(v))}</option>`).join('')}</select>` : ''}${ops.map((o) => `<button class="btn small ${o.green ? 'greenbtn' : ''}" data-act="job-bulk" data-type="${t}" data-op="${o.op}">${h(o.label)}</button>`).join('') || '<span class="hint">Nothing can be done to all of these at once — use each job\'s own buttons.</span>'}<button class="btn small" data-act="job-selnone" data-type="${t}">Clear selection</button></div>`;
     g.forEach((j) => {
-      html += `<div class="job ${S.jobSel.has(j.key) ? 'jobsel' : ''}"><input type="checkbox" class="jobcheck" data-act="job-sel" data-key="${h(j.key)}" ${S.jobSel.has(j.key) ? 'checked' : ''} aria-label="Select this job"><div class="t"><div class="who">${h(j.who)}</div><div class="note">${h(j.note)}</div>${j.suggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${j.suggest.km} km return (${h(j.suggest.why)})</div>` : ''}${j.photoSuggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${h(tagName(j.photoSuggest))} photo</div>` : ''}<div class="acts">
-      ${['conflict', 'bizonly', 'biznodetails'].includes(t) ? '' : `<button class="btn small" data-act="job-open" data-kind="${j.kind}" data-id="${j.id}" ${j.fid ? `data-fid="${j.fid}"` : ''}>Make a change</button>`}
+      html += `<div class="job ${S.jobSel.has(j.key) ? 'jobsel' : ''}"><input type="checkbox" class="jobcheck" data-act="job-sel" data-key="${h(j.key)}" ${S.jobSel.has(j.key) ? 'checked' : ''} aria-label="Select this job"><div class="t"><div class="who">${h(j.who)}</div><div class="note">${h(j.note)}</div>${j.suggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${j.suggest.km} km return (${h(j.suggest.why)})</div>` : ''}${j.photoSuggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${h(tagName(j.photoSuggest))} photo</div>` : ''}${j.warnTxt ? `<div class="body" style="background:#fff5f5;border:1px solid #f3c2c2;border-radius:8px;padding:6px 8px;margin:4px 0;font-size:14.5px;white-space:pre-wrap">${h(j.warnTxt)}</div>` : ''}<div class="acts">
+      ${['conflict', 'bizonly', 'biznodetails', 'linksuggest', 'oddbiz', 'primnolink'].includes(t) ? '' : `<button class="btn small" data-act="job-open" data-kind="${j.kind}" data-id="${j.id}" ${j.fid ? `data-fid="${j.fid}"` : ''}>Make a change</button>`}
       ${t === 'conflict' ? `</div><div style="width:100%">${conflictDiff(j.data)}` : ''}
       ${j.suggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-km" data-km="${j.suggest.km}" data-fids="${j.suggest.fids.join(',')}">✓ Use suggested: ${j.suggest.km} km</button>` : ''}
       ${j.suggest && IDX.farms.get(j.suggest.fids[0])?.lat != null ? `<a class="btn small" href="${gmapsRoute(IDX.farms.get(j.suggest.fids[0]))}" target="_blank" rel="noopener">🗺 View suggested route</a>` : ''}
@@ -1256,6 +1300,12 @@ function renderJobs() {
         return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">Merge into 1 (${nm(A)})</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">Merge into 2 (${nm(B)})</button>`; })() : ''}
       ${j.bizonly ? `<button class="btn small greenbtn" data-act="bizonly-convert" data-cid="${j.bizonly.cid}" data-bid="${j.bizonly.bid}">✓ Yes — it's just the business (move details onto it)</button><button class="btn small" data-act="edit-contact" data-id="${j.bizonly.cid}">Edit contact</button><button class="btn small" data-act="edit-biz" data-id="${j.bizonly.bid}">Edit business</button>` : ''}
       ${j.type === 'biznodetails' ? `<button class="btn small primary" data-act="edit-biz" data-id="${j.id}">Add phone / email</button>` : ''}
+      ${j.warnTxt ? (() => { const w = j.warnSrc; const farms = w.fid ? [IDX.farms.get(w.fid)].filter(Boolean) : (w.kind === 'contact' ? bizOf(D.contacts.find((x) => x.id === w.id) || { links: [] }) : [IDX.biz.get(w.bid)].filter(Boolean)).flatMap((b) => b.farms); const A = (to, extra, lbl) => `<button class="btn small" data-act="warn-apply" data-to="${to}" data-k="${h(j.key)}" ${extra}>${lbl}</button>`;
+        return `${A('general', '', '⚠ Apply as general warning')}${farms.slice(0, 5).map((f) => A('farm', `data-fid="${f.id}"`, `⚠ Apply as farm warning: ${h(f.name || 'farm')}`)).join('')}${A('side', '', '📝 Apply as side note')}${w.sec ? `<button class="btn small" data-act="warn-remove" data-k="${h(j.key)}" style="color:var(--red)">Remove *WARNING* section from general info</button>` : ''}`; })() : ''}
+      ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link to ${h(IDX.biz.get(j.linkSug.bid)?.name || '')}</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">Open business</button>` : ''}
+      ${j.oddbiz ? `<button class="btn small primary" data-act="oddbiz-fix" data-bid="${j.oddbiz}">Sort out this name…</button><button class="btn small" data-act="edit-biz" data-id="${j.oddbiz}">Rename by hand</button>` : ''}
+      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}
+      ${j.type === 'primnolink' ? `<button class="btn small primary" data-act="edit-contact" data-id="${j.id}">Edit contact</button>` : ''}
       ${j.nocat ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.nocat}">Choose categories for the business…</button>` : ''}
       ${j.catdiff ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.catdiff.bid}">Choose categories…</button>` : ''}
       ${j.catdiff ? [...new Set((IDX.bizContacts.get(j.catdiff.bid) || []).map(catOf))].filter(Boolean).map((v) => `<button class="btn small" data-act="cat-all" data-bid="${j.catdiff.bid}" data-tag="${v}" data-on="1">Everyone: ${h(v ? tagName(v) : 'no category')}</button>`).join('') : ''}
@@ -1362,6 +1412,7 @@ async function gfetch(url, opt = {}, interactive = false) {
    device's version is kept for now and this device's version goes to the Jobs list to be resolved. */
 const KINDS = ['contacts', 'businesses', 'tags', 'routes'];
 const strip = (r) => { const o = { ...r }; delete o._dirty; return o; };
+const adopt = (l, s) => { Object.keys(l).forEach((k) => delete l[k]); Object.assign(l, s); return l; }; // overwrite a record in place (keeps references held by open screens)
 const Sync = {
   state: 'idle', msg: '', timer: null, busy: false,
   enabled() { return !!CONFIG.googleClientId && !window.SEED; },
@@ -1391,7 +1442,13 @@ const Sync = {
     // bump revisions of everything we are sending that changed here
     KINDS.forEach((k) => D[k].forEach((r) => { if (r._dirty) r._rev = (r._rev || 0) + 1; }));
     if (D.settings._dirty) D.settings._rev = (D.settings._rev || 0) + 1;
+    const delSent = (D.deleted || []).filter((x) => !x.synced);
     const body = this.serial();
+    // mark as sent now: anything changed while the upload is in progress gets marked again and goes up next time
+    const sent = []; KINDS.forEach((k) => D[k].forEach((x) => { if (x._dirty) { sent.push(x); delete x._dirty; } }));
+    const flags = { s: !!D.settings._dirty, d: !!D._dismissDirty, t: !!D._trashDirty, l: !!D._logDirty }; delete D.settings._dirty; delete D._dismissDirty; delete D._trashDirty; delete D._logDirty;
+    const undo = () => { sent.forEach((x) => (x._dirty = true)); if (flags.s) D.settings._dirty = true; if (flags.d) D._dismissDirty = true; if (flags.t) D._trashDirty = true; if (flags.l) D._logDirty = true; };
+    try {
     let r;
     if (id) r = await gfetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media&fields=id,version`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
     else {
@@ -1401,9 +1458,9 @@ const Sync = {
       r = await gfetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,version', { method: 'POST', body: fd });
     }
     if (!r.ok) throw new Error('Drive upload error ' + r.status);
-    const js = await r.json();
-    KINDS.forEach((k) => D[k].forEach((x) => delete x._dirty)); delete D.settings._dirty; delete D._dismissDirty; delete D._trashDirty; delete D._logDirty;
-    (D.deleted || []).forEach((x) => (x.synced = true));
+    var js = await r.json();
+    } catch (e) { undo(); throw e; }
+    delSent.forEach((x) => (x.synced = true));
     D.sync.fileId = js.id; D.sync.version = js.version; D.sync.last = Date.now();
   },
   merge(srv) {
@@ -1418,13 +1475,13 @@ const Sync = {
         if (delLocal.has(s.id)) return; // deleted here; our tombstone goes up with the upload
         const l = local.get(s.id); local.delete(s.id);
         if (!l) { out.push(s); changes++; return; }
-        if (!l._dirty) { if ((s._rev || 0) !== (l._rev || 0) || s._u !== l._u) changes++; out.push(s); return; }
+        if (!l._dirty) { if ((s._rev || 0) !== (l._rev || 0) || s._u !== l._u) { changes++; adopt(l, s); } out.push(l); return; } // update in place so open screens keep the same record
         if ((s._rev || 0) === (l._rev || 0)) { out.push(l); return; } // only changed here
-        if (JSON.stringify({ ...strip(l), _rev: 0, _u: 0, _dev: 0 }) === JSON.stringify({ ...s, _rev: 0, _u: 0, _dev: 0 })) { out.push(s); return; } // same edit both sides
+        if (JSON.stringify({ ...strip(l), _rev: 0, _u: 0, _dev: 0 }) === JSON.stringify({ ...s, _rev: 0, _u: 0, _dev: 0 })) { out.push(adopt(l, s)); return; } // same edit both sides
         // changed on both devices → keep theirs, park ours for the user to choose
         for (let q = conflicts.length - 1; q >= 0; q--) if (conflicts[q].key === k + ':' + s.id) conflicts.splice(q, 1);
         conflicts.push({ key: k + ':' + s.id, kind: k, id: s.id, who: k === 'contacts' ? fullName(s) : s.name, mine: strip(l), mineAt: l._u, theirsAt: s._u, theirsDev: s._dev });
-        out.push(s); changes++;
+        out.push(adopt(l, s)); changes++;
       });
       local.forEach((l) => {
         if (delSrv.has(l.id)) { if (l._dirty) conflicts.push({ key: k + ':' + l.id, kind: k, id: l.id, who: k === 'contacts' ? fullName(l) : l.name, mine: strip(l), mineAt: l._u, deletedElsewhere: true }); changes++; return; }
@@ -1444,7 +1501,7 @@ const Sync = {
   },
   async run(interactive) {
     if (!this.enabled() || this.busy) return;
-    if (CONFIRM) { this.soon(); return; } // don't upload changes that haven't been confirmed yet
+    if (CONFIRM || SHEET) { this.soon(); return; } // don't sync while a change is being made or confirmed
     if (!navigator.onLine) { this.set('offline'); return; }
     if (!GAuth.valid() && !interactive) { this.set(D.sync.email ? 'signin' : 'setup'); return; }
     this.busy = true; this.set('syncing');
@@ -1556,6 +1613,35 @@ function contactToBiz(c, kind) { // "This entry is a business": use the same-nam
   b.type = kind === 'client' ? 'client' : 'nonclient'; if (b.type === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; }
   if (c.dnaReason && !b.dnaReason) b.dnaReason = c.dnaReason; if (c.inactiveReason && !b.inactiveReason) b.inactiveReason = c.inactiveReason;
   convertBizOnly(c, b); return b;
+}
+function oddBizSheet(b) {
+  if (!b) return; const cs = IDX.bizContacts.get(b.id) || []; const parts = parseBizName(b.name);
+  const hasStuff = b.farms.length || b.pics.length || b.patientIds.length; let renamed = false;
+  const row = (p, i) => { const ex = p.role ? null : findBizByText(p.text, b.id); let def = p.role ? 'role' : ex ? 'existing' : !renamed ? 'rename' : (isClientBiz(b) ? 'newclient' : 'newind'); if (def === 'rename') renamed = true;
+    return `<div class="card ob-row" style="padding:10px;margin-bottom:8px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="ob-text" value="${h(p.text)}" style="flex:2;min-width:180px;padding:9px;border:1px solid var(--line);border-radius:9px"><select class="ob-what" style="flex:2;min-width:220px;padding:9px;border:1px solid var(--line);border-radius:9px">
+      <option value="rename" ${def === 'rename' ? 'selected' : ''}>Rename "${h(b.name.slice(0, 30))}…" to this (keeps its farms, PICs, IDs)</option>
+      ${ex ? `<option value="existing" ${def === 'existing' ? 'selected' : ''}>Link to existing: ${h(ex.name)}</option>` : ''}
+      <option value="newclient" ${def === 'newclient' ? 'selected' : ''}>New client business</option><option value="newind" ${def === 'newind' ? 'selected' : ''}>New non-client (industry) business</option>
+      <option value="role" ${def === 'role' ? 'selected' : ''}>Not a business — a role/note (put in Role if empty)</option><option value="skip">Ignore</option></select></div>${ex ? `<input type="hidden" class="ob-ex" value="${ex.id}">` : ''}</div>`; };
+  const body = `<p>Current name: <b>${h(b.name)}</b></p><div class="hint" style="margin-bottom:8px">I've split the name into its parts — check each one. Every contact ticked below is linked to each business you keep, and roles go into their Role field (if it's empty).</div>
+    <div id="ob-rows">${parts.map(row).join('')}</div><button type="button" class="btn small" data-act="ob-add">+ Add a part</button>
+    <div class="f" style="margin-top:12px"><span class="lbl">Contacts at this business</span><div class="checks">${cs.map((c) => `<label><input type="checkbox" class="ob-c" value="${c.id}" checked>${h(fullName(c))}</label>`).join('') || '<span class="hint">No contacts linked.</span>'}</div></div>
+    ${hasStuff ? '<div class="hint">This business has farms, PICs or patient IDs, so one part must be "Rename … to this".</div>' : '<div class="hint">If no part is "Rename … to this", the old business goes to the trash once its contacts are linked to the other businesses.</div>'}`;
+  openSheet('Sort out business name', body, () => {
+    const rows = [...document.querySelectorAll('#ob-rows .ob-row')].map((r) => ({ text: r.querySelector('.ob-text').value.trim(), what: r.querySelector('.ob-what').value, ex: (r.querySelector('.ob-ex') || {}).value })).filter((r) => r.text && r.what !== 'skip');
+    const ren = rows.filter((r) => r.what === 'rename'); if (ren.length > 1) { toast('Only one part can be the rename'); return false; } if (!ren.length && hasStuff) { toast('Choose which part this business is renamed to (it has farms, PICs or IDs)'); return false; }
+    if (!rows.some((r) => r.what !== 'role')) { toast('At least one part must be a business'); return false; }
+    const ticked = [...document.querySelectorAll('#sheet .ob-c')].filter((x) => x.checked).map((x) => D.contacts.find((c) => c.id === x.value)).filter(Boolean);
+    const targets = [];
+    rows.forEach((r) => { if (r.what === 'rename') { b.name = r.text; touch(b); targets.push(b); }
+      else if (r.what === 'existing') { const x = IDX.biz.get(r.ex); if (x) targets.push(x); }
+      else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); targets.push(nb); } });
+    const roles = rows.filter((r) => r.what === 'role').map((r) => r.text).join(', ');
+    reindex();
+    ticked.forEach((c) => { const prev = catOf(c); const before = c.links.length; targets.forEach((t) => { if (!c.links.some((l) => l.bid === t.id)) c.links.push({ bid: t.id }); }); if (!ren.length) c.links = c.links.filter((l) => l.bid !== b.id); if (roles && !c.role) c.role = roles; reindex(); if (prev) setOne(c, prev); touch(c); });
+    if (!ren.length && !(IDX.bizContacts.get(b.id) || []).filter((c) => !ticked.includes(c)).length) { reindex(); trashBiz(b); }
+    S.sel = { kind: 'business', id: (targets[0] || b).id }; NEXT_LOG_LABEL = `Sorted out business name "${parts.map((p) => p.text).join(' / ')}"`; return true;
+  });
 }
 function convertBizOnly(c, b) { // contact that was really just the business → its details move onto the business
   const ph = [...c.mobiles.map((p) => ({ label: p.label || 'Mobile', value: p.value })), ...c.landlines.map((p) => ({ label: p.label || 'Phone', value: p.value }))], em = c.emails.map((p) => ({ label: p.label || '', value: p.value }));
@@ -1704,6 +1790,59 @@ function advMatch(c, A) {
   return true;
 }
 function advCentre(A) { if (A.near.type === 'home') return D.settings.home; const f = IDX.farms.get(A.near.fid); return f && f.lat != null ? f : null; }
+function advBizMatch(b, A) {
+  const hay = (bizHay(b) + ' ' + (b.farms || []).map((f) => [f.name, f.address, f.info, f.warning].join(' ')).join(' ')).toLowerCase();
+  const wAll = words(A.all), wAny = words(A.any), wNone = words(A.none), ph = A.phrase.trim().toLowerCase();
+  if (wAll.length && !wAll.every((w) => hay.includes(w))) return false; if (wAny.length && !wAny.some((w) => hay.includes(w))) return false;
+  if (wNone.length && wNone.some((w) => hay.includes(w))) return false; if (ph && !hay.includes(ph)) return false;
+  const ts = new Set([bizCat(b)].filter(Boolean));
+  if (A.tAll.length && !A.tAll.every((t) => ts.has(t))) return false; if (A.tAny.length && !A.tAny.some((t) => ts.has(t))) return false; if (A.tNone.length && A.tNone.some((t) => ts.has(t))) return false;
+  const yn = (v, cond) => (v === '' ? true : v === 'yes' ? cond : !cond);
+  if (!yn(A.warn, !!(b.warnings || '').trim())) return false; if (!yn(A.farmWarn, b.farms.some((f) => f.seeWarning))) return false;
+  if (!yn(A.flagged, jobs().some((j) => j.kind === 'business' && j.id === b.id))) return false;
+  const cs = IDX.bizContacts.get(b.id) || [];
+  for (const m of A.missing) {
+    if (m === 'email' && ((b.emails || []).length || cs.some((c) => c.emails.length))) return false;
+    if ((m === 'phone' || m === 'mobile') && ((b.phones || []).length || cs.some((c) => c.mobiles.length || (m === 'phone' && c.landlines.length)))) return false;
+    if (m === 'business' && cs.length) return false; // "no contacts"
+    if (m === 'pin' && b.farms.some((f) => f.lat != null)) return false;
+    if (m === 'km' && !b.farms.some((f) => f.kmReturn == null)) return false;
+    if (m === 'pic' && b.pics.length) return false; if (m === 'pid' && b.patientIds.length) return false;
+    if (m === 'rating' && bizCat(b)) return false; if (m === 'primary' && (!isClientBiz(b) || primaryOf(b))) return false;
+  }
+  const farmTests = []; const cmp = (op, a, c) => (op === '<' ? a < c : op === '≤' ? a <= c : op === '>' ? a > c : op === '≥' ? a >= c : op === '=' ? Math.abs(a - c) < 0.5 : true);
+  [['kmOp', 'kmVal', 'kmReturn'], ['kmOp2', 'kmVal2', 'kmReturn'], ['minOp', 'minVal', 'driveMin'], ['minOp2', 'minVal2', 'driveMin']].forEach(([o, v, field]) => { if (A[o] && A[v] !== '') farmTests.push((f) => f[field] != null && cmp(A[o], f[field], +A[v])); });
+  if (A.nearKm !== '') { const ctr = advCentre(A); if (ctr) farmTests.push((f) => f.lat != null && hav(ctr, f) <= +A.nearKm); }
+  if (farmTests.length && !b.farms.some((f) => farmTests.every((t) => t(f)))) return false;
+  return true;
+}
+function advBizResults() { const k = S.adv.kind; return D.businesses.filter((b) => (k === 'client') === isClientBiz(b) && advBizMatch(b, S.adv)).sort((a, b) => alphaCmp(a.name, b.name)); }
+function renderAdvBizResults() {
+  const r = advBizResults(); S.advBSel = S.advBSel || new Set(); const ids = new Set(r.map((b) => b.id)); [...S.advBSel].forEach((id) => { if (!ids.has(id)) S.advBSel.delete(id); });
+  const nSel = S.advBSel.size; const word = S.adv.kind === 'client' ? 'client business' : 'non-client business';
+  let html = `<div class="card"><h3><input type="checkbox" class="jobcheck" data-act="advb-selall" title="Select all results" ${nSel && nSel === r.length ? 'checked' : ''}><span class="sp">${r.length} ${word}${r.length === 1 ? '' : 'es'} found${nSel ? ` · ${nSel} selected` : ''}</span></h3>
+  ${nSel ? `<div class="bulkbar" style="border-radius:9px;margin:0 0 8px;justify-content:space-between"><b>${nSel} selected</b><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn primary" data-act="advb-edit" style="font-size:16px">✏️ Edit selected…</button><button class="btn" data-act="advb-selnone">Clear selection</button></span></div>` : ''}<ul class="list">`;
+  r.slice(0, 300).forEach((b) => { const cs = IDX.bizContacts.get(b.id) || []; html += `<li class="item ${S.advBSel.has(b.id) ? 'jobsel' : ''}" data-act="open" data-kind="business" data-id="${b.id}"><input type="checkbox" class="jobcheck" data-act="advb-sel" data-id="${b.id}" ${S.advBSel.has(b.id) ? 'checked' : ''} aria-label="Select"><div class="t"><div class="n">${bizCat(b) && RATING_SET.has(bizCat(b)) ? rbadge(bizCat(b)) : ''}${h(b.name)}</div><div class="s">${h(bizCat(b) ? tagName(bizCat(b)) : 'no category')} · ${cs.length} contact${cs.length === 1 ? '' : 's'} · ${b.farms.length} farm${b.farms.length === 1 ? '' : 's'}${cs.length ? ' · ' + h(cs.map((c) => c.first).join(', ')) : ''}</div></div></li>`; });
+  if (r.length > 300) html += `<li class="empty">Showing the first 300 — narrow the search.</li>`;
+  return html + '</ul></div>';
+}
+function advBizEditSheet() {
+  const list = D.businesses.filter((b) => S.advBSel.has(b.id)); if (!list.length) return;
+  const body = `<div class="hint" style="margin-bottom:8px">Editing: ${h(list.slice(0, 8).map((b) => b.name).join(', '))}${list.length > 8 ? ` and ${list.length - 8} more` : ''}</div>
+  <div class="lbl" style="font-size:15px">1. What do you want to change?</div>
+  <label class="bkop"><input type="radio" name="bbop" value="cat"><span><b>Set category</b><br><span class="hint">contacts set to "Same as business" follow it</span></span></label>
+  <label class="bkop"><input type="radio" name="bbop" value="client"><span><b>Make them client businesses</b></span></label>
+  <label class="bkop"><input type="radio" name="bbop" value="nonclient"><span><b>Make them non-client (industry) businesses</b><br><span class="hint">no primary contact needed</span></span></label>
+  <label class="bkop"><input type="radio" name="bbop" value="trash"><span><b>Move them to the trash</b><br><span class="hint">their contacts stay; restore from Settings → Trash</span></span></label>
+  <div class="f" style="margin-top:10px"><span class="lbl">2. Category (only for "Set category")</span>${catPicker('bbc', '', null)}</div>`;
+  openSheet(`Edit ${list.length} business${list.length === 1 ? '' : 'es'}`, body, async () => {
+    const op = ($('#sheet input[name=bbop]:checked') || {}).value; if (!op) { toast('Choose what to change'); return false; }
+    if (op === 'cat') { const v = rtVal($('#sheet'), 'bbc'); if (!v) { toast('Tick a category'); return false; } list.forEach((b) => { if (bizCat(b) !== v) setBizCat(b, v); }); NEXT_LOG_LABEL = `Search: set ${list.length} businesses to ${tagName(v)}`; }
+    if (op === 'client' || op === 'nonclient') { list.forEach((b) => { b.type = op; if (op === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; } touch(b); }); NEXT_LOG_LABEL = `Search: made ${list.length} businesses ${op === 'client' ? 'client' : 'non-client'}`; }
+    if (op === 'trash') { if (!(await ask(`Move these ${list.length} businesses to the trash?\n\n${list.slice(0, 15).map((b) => b.name).join(', ')}${list.length > 15 ? '…' : ''}`, 'Yes — move to trash', true))) return false; list.forEach((b) => trashBiz(b)); NEXT_LOG_LABEL = `Search: moved ${list.length} businesses to the trash`; }
+    S.advBSel.clear(); return true;
+  });
+}
 function advResults() { return sortContactsBy(D.contacts.filter((c) => advMatch(c, S.adv)), S.adv.sort); }
 function sortContactsBy(arr, mode) { const keep = S.sort; S.sort = mode; const r = sortContacts(arr).map((x) => x.c); S.sort = keep; return r; }
 function advTagPicker(key, label) {
@@ -1717,8 +1856,10 @@ const numFilter = (label, k, ph) => { const A = S.adv; const opSel = (key) => `<
   <div class="search" style="margin-top:6px"><span class="hint" style="align-self:center">and</span>${opSel(k + 'Op2')}<input type="number" data-adv="${k}Val2" value="${h(A[k + 'Val2'])}" placeholder="optional" style="flex:1;min-width:0"></div></div>`; };
 function renderAdvanced() {
   const A = S.adv; const nf = A.near.type === 'farm' ? IDX.farms.get(A.near.fid) : null;
-  return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Advanced search</h2>
-  <div class="hint" style="margin:-4px 0 10px">Fill in as many or as few boxes as you like — contacts must match everything you fill in. Tip: put a phrase in "quotes" to keep words together.</div>
+  const kind = A.kind || 'people';
+  return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">Search &amp; Bulk Edit</h2>
+  <div class="card"><h3>Search for</h3><div class="seg">${[['people', '👤 People'], ['client', '🐄 Client businesses'], ['nonclient', '🏢 Non-client businesses']].map(([v, l]) => `<button class="${kind === v ? 'on' : ''}" data-act="adv-kind" data-v="${v}">${l}</button>`).join('')}</div></div>
+  <div class="hint" style="margin:-4px 0 10px">Fill in as many or as few boxes as you like — results must match everything you fill in. Tick results to bulk edit them. Tip: put a phrase in "quotes" to keep words together.</div>
   <div class="card"><h3>Words</h3>
     <div class="f"><label>All of these words</label><input data-adv="all" value="${h(A.all)}" placeholder="e.g. kalgan cattle"></div>
     <div class="f"><label>Any of these words</label><input data-adv="any" value="${h(A.any)}" placeholder="e.g. narrikup porongurup"></div>
@@ -1741,7 +1882,7 @@ function renderAdvanced() {
     ${A.near.type === 'farm' ? `<input id="adv-nearsearch" placeholder="Search clients, businesses or farms" value="${nf ? h(farmLabel(nf)) : ''}" style="margin-top:6px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="adv-nearres"></div>` : ''}</div>
   </details>
   <div class="actions"><button class="btn" data-act="adv-clear">Clear all</button><label class="row2" style="padding:0">Sort <select data-adv="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Category A+ to C'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${A.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
-  <div id="adv-results">${renderAdvResults()}</div></div>`;
+  <div id="adv-results">${kind === 'people' ? renderAdvResults() : renderAdvBizResults()}</div></div>`;
 }
 function renderAdvResults() {
   const r = advResults();
@@ -1826,7 +1967,7 @@ async function advBulkApply(op, list) {
   const items = diffTouched(false); if (!items.length) { toast('Nothing to change — they already have that'); return false; }
   S.advSelPending = true; return true;
 }
-function refreshAdv() { const el = $('#adv-results'); if (el) el.innerHTML = renderAdvResults(); }
+function refreshAdv() { const el = $('#adv-results'); if (el) el.innerHTML = (S.adv.kind || 'people') === 'people' ? renderAdvResults() : renderAdvBizResults(); }
 document.addEventListener('input', (e) => {
   const t = e.target; if (S.tab !== 'search') return;
   if (t.dataset.adv) { S.adv[t.dataset.adv] = t.value; clearTimeout(t._tm); t._tm = setTimeout(refreshAdv, 150); }
@@ -1849,6 +1990,11 @@ document.addEventListener('click', (e) => {
   else if (a === 'adv-selall') { advResults().forEach((c) => (el.checked ? S.advSel.add(c.id) : S.advSel.delete(c.id))); refreshAdv(); }
   else if (a === 'adv-selnone') { S.advSel.clear(); refreshAdv(); }
   else if (a === 'adv-edit') advEditSheet();
+  else if (a === 'adv-kind') { S.adv.kind = el.dataset.v; renderAll(); }
+  else if (a === 'advb-sel') { e.stopPropagation(); el.checked ? S.advBSel.add(el.dataset.id) : S.advBSel.delete(el.dataset.id); refreshAdv(); }
+  else if (a === 'advb-selall') { advBizResults().forEach((b) => (el.checked ? S.advBSel.add(b.id) : S.advBSel.delete(b.id))); refreshAdv(); }
+  else if (a === 'advb-selnone') { S.advBSel.clear(); refreshAdv(); }
+  else if (a === 'advb-edit') advBizEditSheet();
   else if (a === 'adv-route') {
     const fids = []; advPick().forEach((c) => bizOf(c).forEach((b) => b.farms.forEach((f) => { if (f.lat != null && !fids.includes(f.id)) fids.push(f.id); })));
     const before = S.route.stops.length; fids.forEach((fid) => addStop(fid, true));
@@ -1931,6 +2077,30 @@ function mergeBiz(keep, other) {
 }
 
 /* ---------------- formatted general info ---------------- */
+/* ---------------- *WARNING* sections inside general info ---------------- */
+const WSEC_RX = /^\s*\*+\s*warnings?\s*\*+\s*:?\s*$/i, HEAD_RX = /^\s*\*[^*\n]{2,40}\*\s*:?\s*$/;
+const WARNY_RX = /\btake care\b|\bcaution\b|\bbeware\b|\bdanger|\baggressive\b|\bdo not (?:book|service|go|attend|call|enter|use)\b|\bdon'?t (?:use|go|enter|lock|put)\b|\bkick(?:s|ing)?\b|\bbad payer\b|\bslow payer\b|\bunpaid\b|\bbad debt|\bpay(?:s)? up ?front\b|\bdoes not hold\b|\bdon'?t hold\b|\bunsafe\b|\bnot safe\b|\bbroken\b|\bcareful\b/i;
+function warnSection(info) { // → {start, end, text} of the *WARNING* section (lines), or null
+  const L = (info || '').split('\n'); const i = L.findIndex((l) => WSEC_RX.test(l)); if (i < 0) return null;
+  let j = i + 1; while (j < L.length && !HEAD_RX.test(L[j])) j++;
+  const text = L.slice(i + 1, j).map((l) => l.trim()).filter((l) => l && l !== '-' && l !== '–').join('\n'); return { L, start: i, end: j, text };
+}
+function warnyLines(info) { const sec = warnSection(info); return (info || '').split('\n').filter((l, k) => (!sec || k < sec.start || k >= sec.end) && WARNY_RX.test(l) && !HEAD_RX.test(l)).map((l) => l.trim()); }
+function addToWarnSection(rec, text) { // put warning text (back) under *WARNING* in general info
+  text = (text || '').trim(); if (!text) return; const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const sec = warnSection(rec.info);
+  if (sec) { const keep = sec.L.slice(sec.start + 1, sec.end).filter((l) => l.trim() && !/^\s*[-–]\s*$/.test(l)); rec.info = [...sec.L.slice(0, sec.start + 1), ...keep, ...lines.filter((l) => !keep.some((k) => k.trim() === l)), ...sec.L.slice(sec.end)].join('\n'); }
+  else rec.info = ((rec.info || '').trim() + '\n\n*WARNING*\n' + lines.join('\n')).trim();
+  if (rec.infoHtml) { const add = lines.map((l) => `<div>${h(l)}</div>`).join(''); const m = rec.infoHtml.match(/\*\s*WARNINGS?\s*\*\s*:?/i);
+    if (m) { const at = rec.infoHtml.indexOf('>', rec.infoHtml.indexOf('</', m.index + m[0].length)); rec.infoHtml = at > 0 ? rec.infoHtml.slice(0, at + 1) + add + rec.infoHtml.slice(at + 1) : rec.infoHtml + add; }
+    else rec.infoHtml += `<div><b>*WARNING*</b></div>${add}`; }
+}
+function removeWarnSection(rec) {
+  const sec = warnSection(rec.info); if (!sec) return false;
+  rec.info = [...sec.L.slice(0, sec.start), ...sec.L.slice(sec.end)].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (rec.infoHtml) rec.infoHtml = rec.infoHtml.replace(/\*\s*WARNINGS?\s*\*\s*:?[\s\S]*?(?=\*[A-Za-z][^*<]{1,40}\*|$)/i, '').replace(/(<(div|p)>\s*(<br>)?\s*<\/\2>)+$/i, '');
+  return true;
+}
 function cleanHtml(html) {
   const tpl = document.createElement('template'); tpl.innerHTML = html || '';
   const OK = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'BR', 'DIV', 'P', 'UL', 'OL', 'LI', 'H3', 'MARK']);
@@ -2021,7 +2191,7 @@ function diffTouched(commit) {
     if (!Object.keys(after).some((f) => !LOG_SKIP.has(f))) return; // only hidden fields changed
     const item = { kind, id: r.id, name: recName(kind, r), before, after };
     if (kind === 'contacts' && ('tags' in after || 'ownCats' in after)) { // show categories in plain words
-      const effOf = (rec) => { const own = rec.ownCats || !(rec.links || []).length; const cats = own ? (rec.tags || []).filter(isCatTag) : [...new Set((rec.links || []).flatMap((l) => IDX.biz.get(l.bid)?.cats || []))]; const rt = (rec.tags || []).find((t) => RATING_SET.has(t)); const brt = rt ? [rt] : [...new Set((rec.links || []).map((l) => IDX.biz.get(l.bid)?.rating).filter(Boolean))]; return [...brt, ...cats]; };
+      const effOf = (rec) => { const own = rec.ownCats || !(rec.links || []).length; if (own) { const t = (rec.tags || []).find((x) => RATING_SET.has(x)) || (rec.tags || []).find(isCatTag); return t ? [t] : []; } const b = (rec.links || []).map((l) => IDX.biz.get(l.bid)).filter(Boolean).map(bizCat).find(Boolean); return b ? [b] : []; };
       const other = (rec) => (rec.tags || []).filter((t) => !isCatTag(t) && !RATING_SET.has(t));
       item.show = { categories: [effOf(old), effOf(now)], tags: [other(old), other(now)], follows: [!old.ownCats && (old.links || []).length > 0, !now.ownCats && (now.links || []).length > 0] };
     }
@@ -2223,6 +2393,12 @@ function migrate() {
         b.postal = [...new Set([...(b.postal || []), ...(c.postal || [])])]; if (c.gid && !b.gid) b.gid = c.gid; });
       if (tr.length && bizHasDetails(b)) { touch(b); ch = true; } });
   }
+  if (!D.settings.warnBack1) { // put warnings back into general info (*WARNING* section) to be re-applied from the Jobs list
+    D.contacts.forEach((c) => { if ((c.warnings || '').trim()) { c.warningsWas = c.warnings; addToWarnSection(c, c.warnings); c.warnings = ''; touch(c); } });
+    D.businesses.forEach((b) => { let t = false; if ((b.warnings || '').trim()) { b.warningsWas = b.warnings; addToWarnSection(b, b.warnings); b.warnings = ''; t = true; }
+      b.farms.forEach((f) => { if (f.seeWarning) { f.warningWas = f.warning || '(flagged, no text)'; addToWarnSection(f, (f.warning || '').trim() || 'This farm was flagged "see warning" — check the farm info'); f.warning = ''; f.seeWarning = false; t = true; } }); if (t) touch(b); });
+    D.settings.warnBack1 = true; touch(D.settings); ch = true;
+  }
   if (!D.settings.iceV1) { // link the existing "X's ICE (relationship: Y)" contacts to the staff member
     const tg = D.tags.find((t) => t.id === 'ice'); if (tg) { if (tg.name !== 'ICE contact') { tg.name = 'ICE contact'; touch(tg); } } else { D.tags.push({ id: 'ice', name: 'ICE contact', group: 'additional', photo: null }); touch(D.tags[D.tags.length - 1]); }
     const staff = D.contacts.filter((x) => effCats(x).includes('bvs'));
@@ -2271,6 +2447,18 @@ document.addEventListener('click', async (e) => {
       if (!(await ask(`Make "${fullName(c)}" part of the business ${b.name}?\n\n• Phone: ${ph.map((p) => p.value).join(', ') || 'none'}\n• Email: ${em.map((p) => p.value).join(', ') || 'none'}${c.postal.length ? '\n• Postal: ' + c.postal.join('; ') : ''}\n\nThese move onto the business, any notes are added to the business's info, and the contact "${fullName(c)}" goes to the trash (you can restore it from Settings → Trash).`, 'Yes — move to the business'))) break;
       convertBizOnly(c, b);
       S.skipConfirm = true; NEXT_LOG_LABEL = `Made ${b.name} a business-only entry (moved phone/email from contact)`; reindex(); await changed(); toast(b.name + ' updated'); break; }
+    case 'warn-apply': case 'warn-remove': { const j = jobs().find((x) => x.key === d.k); if (!j) break; const w = j.warnSrc;
+      const rec = w.kind === 'contact' ? D.contacts.find((x) => x.id === w.id) : IDX.biz.get(w.bid); const f = w.fid ? IDX.farms.get(w.fid) : null; if (!rec) break;
+      const join = (x, y) => [x, y].filter((t) => (t || '').trim()).join('\n'); const tgt = rec;
+      if (a === 'warn-remove') { if (!(await ask(`Remove the *WARNING* section (and the text under it) from ${f ? 'the farm info of ' + (f.name || 'this farm') : 'the general info of ' + j.who}?\n\n${j.warnTxt}`, 'Yes — remove it', true))) break; if (f) { removeWarnSection(f); touch(rec); } else { removeWarnSection(rec); touch(rec); } NEXT_LOG_LABEL = `Removed *WARNING* section from ${j.who}`; S.skipConfirm = true; if (await changed()) toast('Removed from general info'); break; }
+      if (d.to === 'general') { if ((tgt.warnings || '').includes(j.warnTxt)) { toast('Already in the general warning'); break; } tgt.warnings = join(tgt.warnings, j.warnTxt); touch(tgt); }
+      if (d.to === 'side') { if ((tgt.sideNotes || '').includes(j.warnTxt)) { toast('Already in the side note'); break; } tgt.sideNotes = join(tgt.sideNotes, j.warnTxt); touch(tgt); }
+      if (d.to === 'farm') { const ff = IDX.farms.get(d.fid); const fb = ff && IDX.farmBiz.get(ff.id); if (!ff) break; if ((ff.warning || '').includes(j.warnTxt)) { toast('Already in that farm warning'); break; } ff.seeWarning = true; ff.warning = join(ff.warning, j.warnTxt); touch(fb); }
+      NEXT_LOG_LABEL = `Applied warning for ${j.who} as ${d.to === 'general' ? 'general warning' : d.to === 'side' ? 'side note' : 'farm warning'}`;
+      if (await changed()) toast('✓ Applied — you can now remove it from general info if you like'); break; }
+    case 'prim-set': { const b = IDX.biz.get(d.bid), c = D.contacts.find((x) => x.id === d.cid); if (!b || !c) break; b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
+    case 'ob-add': $('#ob-rows').insertAdjacentHTML('beforeend', `<div class="card ob-row" style="padding:10px;margin-bottom:8px"><div style="display:flex;gap:8px;flex-wrap:wrap"><input class="ob-text" placeholder="Business name" style="flex:2;min-width:180px;padding:9px;border:1px solid var(--line);border-radius:9px"><select class="ob-what" style="flex:2;min-width:220px;padding:9px;border:1px solid var(--line);border-radius:9px"><option value="newclient">New client business</option><option value="newind">New non-client (industry) business</option><option value="rename">Rename this business to this</option><option value="role">Not a business — a role/note</option></select></div></div>`); break;
+    case 'oddbiz-fix': oddBizSheet(IDX.biz.get(d.bid)); break;
     case 'kind-pick': { el.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === el)); $('#e-kind').value = d.v; const hn = $('#e-kindhint');
       hn.style.display = d.v === 'person' ? 'none' : ''; hn.textContent = d.v === 'person' ? '' : `When you tap Save, this contact becomes ${d.v === 'client' ? 'a client business' : 'an industry (non-client) business'} — its phone, email, address and notes move onto the business and the contact goes to the trash.`; break; }
     case 'ice-add': $('#e-icerows').insertAdjacentHTML('beforeend', iceRow(null)); $('#e-icerows .icerow:last-child .ice-who').focus(); break;
@@ -2305,7 +2493,7 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'job-dismiss': { D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); const [type, fid] = d.key.split(':'); if (type === 'signfix') { const f = IDX.farms.get(fid); if (f) { f.flags = f.flags.filter((x) => x.type !== 'signfix'); touch(IDX.farmBiz.get(fid)); } } changed(); break; }
-    case 'use-km': { d.fids.split(',').forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = +d.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(fid)); }); changed(); toast('Distance updated'); break; }
+    case 'use-km': { d.fids.split(',').forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = +d.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(fid)); }); if (await changed()) toast('Distance updated'); break; }
     case 'lookup-km': { const fs = d.fids.split(',').map((x) => IDX.farms.get(x)).filter((f) => f && f.lat != null); el.disabled = true; el.textContent = 'Looking up…'; try { const r = await Maps.distances(fs.map((f) => ({ lat: f.lat, lng: f.lng }))); fs.forEach((f, i) => { if (r[i]) { f.gKm = Math.ceil(r[i].km * 2 - 1e-9); f.gMin = Math.round(r[i].min); f.gAt = Date.now(); touch(IDX.farmBiz.get(f.id)); } }); changed(); } catch (err) { toast(err.message); el.disabled = false; el.textContent = 'Get Google Maps suggestion'; } break; }
     case 'pin-diff': D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); changed(); break;
     case 'pin-same': {
@@ -2333,18 +2521,21 @@ document.addEventListener('click', async (e) => {
       const isC = d.kind === 'contact'; const keep = isC ? D.contacts.find((x) => x.id === d.keep) : IDX.biz.get(d.keep); const other = isC ? D.contacts.find((x) => x.id === d.other) : IDX.biz.get(d.other);
       if (!keep || !other) break;
       if (!(await ask(`Merge "${isC ? fullName(other) : other.name}" into "${isC ? fullName(keep) : keep.name}"?\n\nEverything is combined into one; the extra one goes to the trash.`, 'Yes — merge'))) break;
-      isC ? mergeContacts(keep, other) : mergeBiz(keep, other); changed(); toast('Merged'); break; }
+      isC ? mergeContacts(keep, other) : mergeBiz(keep, other); if (await changed()) toast('Merged'); break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
       let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) match = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev));
       c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); S.skipConfirm = true; NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
     case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && await ask(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
-    case 'cat-all': { const cs = IDX.bizContacts.get(d.bid) || []; let n = 0; cs.forEach((c) => { if (catOf(c) !== d.tag) { setOne(c, d.tag); n++; } });
-      NEXT_LOG_LABEL = `${d.on === '1' ? 'Gave' : 'Removed'} ${tagName(d.tag)} ${d.on === '1' ? 'to' : 'from'} everyone at ${IDX.biz.get(d.bid)?.name || ''}`; photoCache.clear(); Sync.soon(); changed(); toast('Updated ' + n + ' contact' + (n === 1 ? '' : 's')); break; }
-    case 'cat-apply': { const n = applyCat(d.cid, d.at); NEXT_LOG_LABEL = `Category change copied to ${n} other contact${n === 1 ? '' : 's'}`; Sync.soon(); changed(); toast('Updated ' + n + ' contact' + (n === 1 ? '' : 's')); break; }
-    case 'block-yes': setBlocked(d.cid, true); Sync.soon(); changed(); toast('Marked: Number blocked (confirmed)'); break;
-    case 'block-no': setBlocked(d.cid, false); Sync.soon(); changed(); toast('Marked: Number blocked (needs confirming)'); break;
-    case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); changed(); toast('Photo set'); } break; }
+    case 'cat-all': { const bz = IDX.biz.get(d.bid); const cs = IDX.bizContacts.get(d.bid) || []; let n = 0;
+      if (bz && bizCat(bz) !== d.tag) setBizCat(bz, d.tag); // the business takes the category too, and everyone follows it
+      cs.forEach((c) => { if (catOf(c) !== d.tag || c.ownCats) { setOne(c, d.tag); n++; } });
+      NEXT_LOG_LABEL = `Set everyone at ${bz?.name || ''} (business and ${cs.length} contact${cs.length === 1 ? '' : 's'}) to ${tagName(d.tag)}`; photoCache.clear();
+      if (await changed()) { Sync.soon(); toast(`✓ ${bz?.name || 'Business'} and its contacts are now ${tagName(d.tag)}`); } break; }
+    case 'cat-apply': { const n = applyCat(d.cid, d.at); NEXT_LOG_LABEL = `Category change copied to ${n} other contact${n === 1 ? '' : 's'}`; Sync.soon(); if (await changed()) toast('Updated ' + n + ' contact' + (n === 1 ? '' : 's')); break; }
+    case 'block-yes': setBlocked(d.cid, true); Sync.soon(); if (await changed()) toast('Marked: Number blocked (confirmed)'); break;
+    case 'block-no': setBlocked(d.cid, false); Sync.soon(); if (await changed()) toast('Marked: Number blocked (needs confirming)'); break;
+    case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); if (await changed()) toast('Photo set'); } break; }
     case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id)); changed(); break; }
     case 'check-dist': checkAllDistances(); break;
     case 'new-tag': editTag(null); break;
