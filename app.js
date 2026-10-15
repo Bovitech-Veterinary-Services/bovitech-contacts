@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '4.8 (15 Oct 2026)';
+const APP_VERSION = '4.9 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -443,7 +443,8 @@ function askBox(title, html, okLabel = 'Yes — go ahead', danger = false, noLab
     document.body.appendChild(bg); CONFIRM = { res }; try { history.pushState({ ask: 1 }, ''); } catch (e) { } updateBackBtn();
   });
 }
-function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); const ta = el && el.querySelector('textarea'); if (v && ta) v = ta.value.trim() || true; if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
+let ASK_FORM = {};
+function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); ASK_FORM = {}; if (el) el.querySelectorAll('[data-ask]').forEach((x) => (ASK_FORM[x.dataset.ask] = x.value)); const ta = el && el.querySelector('textarea'); if (v && ta) v = ta.value.trim() || true; if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
 document.addEventListener('click', (e) => { const el = e.target.closest('[data-act=ask-yes],[data-act=ask-no]'); if (!el) return; e.stopPropagation(); closeAsk(el.dataset.act === 'ask-yes'); }, true);
 const askText = (t) => `<p style="font-size:16px;line-height:1.45;white-space:pre-wrap">${h(t)}</p>`;
 async function ask(msg, okLabel, danger) { const ok = await askBox('Please confirm', askText(msg), okLabel || 'Yes — go ahead', danger); if (ok) { S.skipConfirm = true; setTimeout(() => (S.skipConfirm = false), 0); } return ok; } // already confirmed → no second pop-up
@@ -604,6 +605,7 @@ function contactDetail(c) {
     if (b.pics.length && isClientBiz(b)) html += `<div class="kv"><div class="k">PIC</div><div class="v">${b.pics.map((p) => h(p.value) + (p.label ? ` <span class="hint">${h(p.label)}</span>` : '')).join('<br>')}</div></div>`;
     if (b.patientIds.length && isClientBiz(b)) html += `<div class="kv"><div class="k">Patient IDs</div><div class="v">${b.patientIds.map((p) => `${h(p.value)} <span class="hint">${h(p.label)}</span>`).join('<br>')}</div></div>`;
     html += b.farms.map((f) => farmCard(b, f, false)).join('');
+    html += bizRoutesHtml(b);
     html += '</div>';
   });
   return html + '</div>';
@@ -637,6 +639,7 @@ function bizDetail(b) {
   <div class="hint" style="margin-top:4px">${b.primaryRequired === false ? 'Primary contact not required (non-client business).' : ''}</div></div>`;
   if (isClientBiz(b)) html += `<div class="card"><h3>Property Identification Code (PIC)</h3>${b.pics.map((p) => `<div class="kv"><div class="k">${h(p.label || 'PIC')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
   if (isClientBiz(b)) html += `<div class="card"><h3>Patient IDs</h3>${b.patientIds.map((p) => `<div class="kv"><div class="k">${h(p.label || 'ID')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
+  { const rh = bizRoutesHtml(b, false); if (rh) html += `<div class="card"><h3>Saved routes</h3>${rh}</div>`; }
   html += `<div class="card"><h3>${locWord(b, true)}</h3>${b.farms.map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} yet.</div>`}</div>`;
   html += `<div class="card"><h3>General info</h3>${infoView(b)}</div>`;
   return html + '</div>';
@@ -1921,6 +1924,7 @@ function fmtField(f, v) {
   if (f === 'rating') return tagName(v);
   if (f === 'primaryContact') { const c = D.contacts.find((x) => x.id === v); return c ? fullName(c) : '—'; }
   if (f === 'photoData') return 'custom photo';
+  if (f === 'bid') return IDX.biz.get(v)?.name || '—';
   if (f === 'stops') return v.map((x) => { const fm = IDX.farms.get(x.fid); return fm ? farmLabel(fm) : '(deleted farm)'; }).join('; ') || '—';
   if ((f === 'start' || f === 'end') && typeof v === 'object') return epLabel(v);
   if (f === 'flags') return v.map((x) => x.type).join(', ') || '—';
@@ -2126,7 +2130,7 @@ document.addEventListener('click', async (e) => {
     case 'route-add': routeAddedBox([d.fid]); break;
     case 'route-save': saveRoute(false); break;
     case 'route-saveas': saveRoute(true); break;
-    case 'route-load': loadRoute(d.id); break;
+    case 'route-load': loadRoute(d.id); if (d.go) goTab('route'); break;
     case 'route-del': deleteRoute(d.id); break;
     case 'route-add-biz': routeAddedBox(IDX.biz.get(d.bid).farms.filter((f) => f.lat != null).map((f) => f.id)); break;
     case 'rs-up': case 'rs-down': { const i = +d.i, j = a === 'rs-up' ? i - 1 : i + 1; const s = S.route.stops; [s[i], s[j]] = [s[j], s[i]]; S.route.mode = 'order'; renderAll(); break; }
@@ -2213,21 +2217,32 @@ async function routeAddedBox(fids) {
 function goTab(t) { const b = document.querySelector(`[data-act=tab][data-v="${t}"]`); if (b) b.click(); else { S.tab = t; renderAll(); } }
 /* ---------------- saved routes (synced to every device) ---------------- */
 const epLabel = (e) => (!e ? '' : e.type === 'home' ? 'Homebase' : e.type === 'farm' ? (IDX.farms.get(e.fid) ? farmLabel(IDX.farms.get(e.fid)) : 'a farm') : e.type === 'place' ? e.text || 'a place' : e.type === 'none' ? 'Last stop' : '');
+const shortTxt = (t, n) => { t = (t || '').replace(/\s*\([^)]*\)?/g, '').replace(/\s+(Pty\.? Ltd\.?|Pty|Ltd)\.?$/i, '').trim(); if (t.length <= n) return t; const cut = t.slice(0, n); return cut.slice(0, cut.lastIndexOf(' ') > n * 0.6 ? cut.lastIndexOf(' ') : n).replace(/[\s,;:-]+$/, '') + '…'; };
+const stopShort = (fid) => { const f = IDX.farms.get(fid); if (!f) return '(deleted farm)'; const b = IDX.farmBiz.get(fid); return b ? shortTxt(b.name, 32) + (b.farms.length > 1 && f.name ? ' (' + shortTxt(f.name, 28) + ')' : '') : shortTxt(f.name, 32) || 'Farm'; };
+const epShort = (e) => (e && e.type === 'farm' ? stopShort(e.fid) : epLabel(e));
+function routeSummary(r) { return [epShort(r.start), ...r.stops.map((x) => stopShort(x.fid)), r.endSame ? epShort(r.start) : epShort(r.end)].filter(Boolean).join(' > '); }
+function savedRouteRow(r, opts = {}) { const b = r.bid ? IDX.biz.get(r.bid) : null;
+  return `<div class="stop" style="${S.route.savedId === r.id ? 'background:var(--green-bg);border-radius:10px' : ''}"><div class="t"><div style="font-weight:600">${h(r.name)}${S.route.savedId === r.id ? ' <span class="hint">(loaded)</span>' : ''}</div><div style="font-size:14.5px;margin-top:2px">${h(routeSummary(r))}</div><div class="hint">${r.stops.length} stop${r.stops.length === 1 ? '' : 's'}${b && !opts.inBiz ? ' · Saved to ' + h(b.name) : ''}</div></div><button class="btn small primary" data-act="route-load" data-id="${r.id}" ${opts.go ? 'data-go="1"' : ''}>${opts.go ? 'Open in route planner' : 'Load'}</button>${opts.inBiz ? '' : `<button class="btn small" data-act="route-del" data-id="${r.id}" style="color:var(--red)">Delete</button>`}</div>`; }
+function bizRoutesHtml(b, heading = true) { const rs = (D.routes || []).filter((r) => r.bid === b.id).sort((x, y) => x.name.localeCompare(y.name)); if (!rs.length) return ''; return (heading ? `<div class="lbl" style="margin-top:10px">Saved routes</div>` : '') + rs.map((r) => savedRouteRow(r, { go: true, inBiz: true })).join(''); }
 function routeSnapshot() { const R = S.route; return { stops: R.stops.map((x) => ({ fid: x.fid })), start: { ...R.start }, end: { ...R.end }, endSame: !!R.endSame, mode: R.mode }; }
 async function saveRoute(asNew) {
   const R = S.route; if (!R.stops.length) { toast('Add some stops first'); return; }
   const cur = !asNew && R.savedId ? D.routes.find((x) => x.id === R.savedId) : null;
-  const name = await askBox(cur ? 'Save changes to route' : 'Save route', `<p>${R.stops.length} stop${R.stops.length === 1 ? '' : 's'}: ${h(R.stops.map((x) => farmLabel(IDX.farms.get(x.fid) || { id: x.fid })).join(' → '))}</p><div class="f"><span class="lbl">Route name</span><textarea rows="1" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px" placeholder="e.g. Tuesday Kendenup run">${h(cur ? cur.name : '')}</textarea></div>`, cur ? 'Save changes' : 'Save route', false, 'Cancel');
-  if (!name) return; if (name === true) { toast('Give the route a name'); return; }
+  const stopBiz = [...new Set(R.stops.map((x) => IDX.farmBiz.get(x.fid)).filter(Boolean))]; const curBid = cur ? cur.bid || '' : stopBiz.length === 1 ? stopBiz[0].id : '';
+  const others = D.businesses.filter((b) => !stopBiz.includes(b) && isClientBiz(b)).sort((a, b) => a.name.localeCompare(b.name));
+  const bizSel = `<div class="f"><span class="lbl">Save to a business (optional)</span><select data-ask="bid" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"><option value="">Not saved to a business</option><optgroup label="Businesses on this route">${stopBiz.map((b) => `<option value="${b.id}" ${b.id === curBid ? 'selected' : ''}>${h(b.name)}</option>`).join('')}</optgroup><optgroup label="Other client businesses">${others.map((b) => `<option value="${b.id}" ${b.id === curBid ? 'selected' : ''}>${h(b.name)}</option>`).join('')}</optgroup></select><div class="hint">The route will show under "Saved routes" on that business and its contacts.</div></div>`;
+  const name = await askBox(cur ? 'Save changes to route' : 'Save route', `<p style="font-weight:600">${h(routeSummary(routeSnapshot()))}</p>${bizSel}<div class="f"><span class="lbl">Route name (required)</span><textarea rows="1" style="width:100%;height:46px;min-height:46px;resize:none;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px" placeholder="e.g. Tuesday Kendenup run">${h(cur ? cur.name : '')}</textarea></div>`, cur ? 'Save changes' : 'Save route', false, 'Cancel');
+  if (!name) return; if (name === true) { toast('A route name is required — nothing was saved'); return; }
+  const bid = ASK_FORM.bid || null;
   let r = cur; if (!r) { r = { id: uid('r'), createdAt: Date.now(), by: deviceName() }; D.routes.push(r); }
-  Object.assign(r, { name }, routeSnapshot()); touch(r); R.savedId = r.id;
+  Object.assign(r, { name, bid }, routeSnapshot()); touch(r); R.savedId = r.id;
   S.skipConfirm = true; NEXT_LOG_LABEL = (cur ? 'Updated route ' : 'Saved route ') + name; await changed(); toast('Route saved: ' + name);
 }
 function loadRoute(id) { const r = D.routes.find((x) => x.id === id); if (!r) return; const stops = r.stops.filter((x) => IDX.farms.get(x.fid)); Object.assign(S.route, { stops: stops.map((x) => ({ fid: x.fid })), start: { ...r.start }, end: { ...r.end }, endSame: r.endSame, mode: r.mode, savedId: r.id }); renderAll(); toast('Loaded: ' + r.name + (stops.length < r.stops.length ? ` (${r.stops.length - stops.length} farm${r.stops.length - stops.length === 1 ? '' : 's'} no longer exist)` : '')); }
 async function deleteRoute(id) { const r = D.routes.find((x) => x.id === id); if (!r) return; if (!(await ask(`Delete the saved route "${r.name}"?`, 'Yes — delete route', true))) return; D.routes = D.routes.filter((x) => x !== r); D.deleted.push({ id: r.id, kind: 'routes', at: Date.now() }); if (S.route.savedId === r.id) S.route.savedId = null; NEXT_LOG_LABEL = 'Deleted route ' + r.name; S.skipConfirm = true; await changed(); Sync.soon(); toast('Route deleted'); }
 function savedRoutesCard() {
   const rs = (D.routes || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-  return `<div class="card"><h3>Saved routes (${rs.length})</h3>${rs.map((r) => `<div class="stop" style="${S.route.savedId === r.id ? 'background:var(--green-bg);border-radius:10px' : ''}"><div class="t"><div style="font-weight:600">${h(r.name)}${S.route.savedId === r.id ? ' <span class="hint">(loaded)</span>' : ''}</div><div class="hint">${r.stops.length} stop${r.stops.length === 1 ? '' : 's'}: ${h(r.stops.map((x) => { const f = IDX.farms.get(x.fid); return f ? farmLabel(f) : '(deleted farm)'; }).join(' → '))}<br>Start: ${h(epLabel(r.start))} · Finish: ${h(r.endSame ? 'same as start' : epLabel(r.end))}</div></div><button class="btn small primary" data-act="route-load" data-id="${r.id}">Load</button><button class="btn small" data-act="route-del" data-id="${r.id}" style="color:var(--red)">Delete</button></div>`).join('') || '<div class="hint">No saved routes yet. Plan a route above, then tap "Save route".</div>'}</div>`;
+  return `<div class="card"><h3>Saved routes (${rs.length})</h3>${rs.map((r) => savedRouteRow(r)).join('') || '<div class="hint">No saved routes yet. Plan a route above, then tap "Save route".</div>'}</div>`;
 }
 document.addEventListener('input', (e) => {
   const t = e.target;
