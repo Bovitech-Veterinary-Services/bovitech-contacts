@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '6.0 (16 Oct 2026)';
+const APP_VERSION = '6.1 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -284,6 +284,8 @@ function primaryOf(b) {
   return cs.find((c) => c.tags.includes('pa')) || cs.find((c) => c.tags.includes('pi')) || null;
 }
 const isClientBiz = (b) => b.type !== 'nonclient';
+const NONCLIENT_CATS = new Set(['industry', 'bvs', 'bfriends', 'phone', 'prac']);
+const isClientPerson = (c) => !NONCLIENT_CATS.has(catOf(c));
 /* ---------- business-name helpers: matching names in text, splitting names that hold more than one business ---------- */
 const coreBiz = (n) => (n || '').replace(/\([^)]*\)?/g, ' ').replace(/\b(pty\.?\s*ltd\.?|pty|ltd|limited|atf\b.*|as trustee.*|trading as.*|t\/a\b.*|ta\b .*|& co\b)/gi, ' ').toLowerCase().replace(/[^a-z0-9]/g, '');
 const ROLE_RX = /^(own|own farm|own enterprise|workman|producer|& ?producer|farm manager|manager|partner'?s?|parents?.*|parent'?s farm|son in law'?s farm|her dad'?s farm|book ?keeper|coordinator'?s phone|tbc|veterinarian.*|truckie|feedlot manager|customer service|professor.*|farm worker|producer & farm worker|nutrien stockie.*|dpird biosecurity officer.*|former .*|sharefarm.*|works for|also works for|office)$/i;
@@ -465,7 +467,7 @@ function jobs() { if (!JOBS_CACHE) JOBS_CACHE = computeJobs(); return JOBS_CACHE
 function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind === kind || (kind === 'contact' && false))); }
 
 /* ---------------- rendering: shell ---------------- */
-const TABS = [['contacts', 'Contacts'], ['biz', 'Businesses'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
+const TABS = [['contacts', 'People'], ['biz', 'Businesses'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
 function renderTabs() {
   const n = jobs().length;
   $('#tabs').innerHTML = TABS.map(([k, l]) => `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
@@ -585,25 +587,26 @@ function renderContactList() {
   const list = $('#list');
   if (!D.contacts.length && (D.firstRun || !D.sync.fileId)) { list.innerHTML = firstRunHtml(); return; }
   const keepFocus = document.activeElement && document.activeElement.id === 'q';
-  const rows = sortContacts(filteredContacts());
-  let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="Search — use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">+ New</button></div>
-    <div class="row2"><span>${rows.length} of ${D.contacts.length} contacts${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
+  const pt = S.ptype || 'all'; const all = filteredContacts(); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
+  let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="Search people…" title="Tip: use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">+ New</button></div>
+    <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client people'], ['nonclient', 'Non-client people']].map(([v, l]) => `<button class="${pt === v ? 'on' : ''}" data-act="ptype" data-v="${v}">${l} (${v === 'all' ? D.contacts.length : D.contacts.filter((c) => (v === 'client') === isClientPerson(c)).length})</button>`).join('')}</div>
+    <div class="row2"><span>${rows.length} of ${D.contacts.length} people${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
     <label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
   html += '<ul class="list">';
   if (S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(bizHay(b), pq)).slice(0, 15);
-    if (bo.length) { html += `<li class="group-h">Businesses (phone / email on the business)</li>`; bo.forEach((b) => { html += `<li class="item" data-act="open" data-kind="business" data-id="${b.id}"><div class="av" style="display:grid;place-items:center;background:#ece8df;font-size:20px">🏢</div><div class="t"><div class="n">${h(b.name)}</div><div class="s"><b>${isClientBiz(b) ? 'Client business' : 'Industry'}</b> · ${h(((b.phones || [])[0] || (b.emails || [])[0] || {}).value || '')}</div></div></li>`; }); html += `<li class="group-h">Contacts</li>`; } }
+    if (bo.length) { html += `<li class="group-h">Businesses (phone / email on the business)</li>`; bo.forEach((b) => { html += `<li class="item" data-act="open" data-kind="business" data-id="${b.id}"><div class="av" style="display:grid;place-items:center;background:#ece8df;font-size:20px">🏢</div><div class="t"><div class="n">${h(b.name)}</div><div class="s"><b>${isClientBiz(b) ? 'Client business' : 'Industry'}</b> · ${h(((b.phones || [])[0] || (b.emails || [])[0] || {}).value || '')}</div></div></li>`; }); html += `<li class="group-h">People</li>`; } }
   let lastG = null, shown = 0; let starredHdr = false;
   for (const { c, g } of rows) {
     if (shown > 400) { html += `<li class="empty">Showing first 400 — refine your search to see more.</li>`; break; }
     if (c.starred && !starredHdr) { html += `<li class="group-h">★ Starred</li>`; starredHdr = true; }
     if (!c.starred && g !== null && g !== lastG) { html += `<li class="group-h">${h(g)}</li>`; lastG = g; }
-    if (!c.starred && g === null && starredHdr && lastG !== '__all') { html += `<li class="group-h">All contacts</li>`; lastG = '__all'; }
+    if (!c.starred && g === null && starredHdr && lastG !== '__all') { html += `<li class="group-h">All people</li>`; lastG = '__all'; }
     const bs = bizOf(c); const rs = distinctRatings(c);
     const sub = [rs.map(rbadge).join(''), h(bs.map((b) => b.name).join(', ') || c.role || (c.mobiles[0] || c.landlines[0] || {}).value || '')].join('');
     html += `<li class="item ${S.sel?.id === c.id ? 'sel' : ''}" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c)}<div class="t"><div class="n">${c.starred ? '<span class="star">★</span> ' : ''}${h(fullName(c))}</div><div class="s">${sub}</div></div>${hasWarning(c) ? '<span class="wdot" title="Has warnings"></span>' : ''}</li>`;
     shown++;
   }
-  if (!rows.length) html += `<li class="empty">No contacts match.</li>`;
+  if (!rows.length) html += `<li class="empty">No people match.</li>`;
   html += '</ul>';
   list.innerHTML = html;
   if (keepFocus) { const q = $('#q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
@@ -621,12 +624,12 @@ function bizHay(b) {
 function renderBizList() {
   const keepFocus = document.activeElement && document.activeElement.id === 'bq';
   const pq = parseQuery(S.bq);
-  const bt = 'all';
+  const bt = S.btype || 'all';
   let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)));
   rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || alphaCmp(a.name, b.name));
-  let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses, farms, PICs…" value="${h(S.bq)}" autocomplete="off"><button class="btn primary" data-act="new-biz">+ New</button></div>
-  <div class="hint" style="margin-top:6px">To filter by client / non-client, category, warnings and more, use <a href="#" data-act="tab" data-v="search">Search &amp; Bulk Edit</a>.</div>
-  <div class="row2"><span>${rows.length} businesses</span><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
+  let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses…" title="Tip: use -word to exclude" value="${h(S.bq)}" autocomplete="off"><button class="btn" data-act="go-adv-biz" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-biz">+ New</button></div>
+    <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client businesses'], ['nonclient', 'Non-client businesses']].map(([v, l]) => `<button class="${bt === v ? 'on' : ''}" data-act="btype" data-v="${v}">${l} (${D.businesses.filter((b) => v === 'all' || (v === 'client') === isClientBiz(b)).length})</button>`).join('')}</div>
+    <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
   rows.slice(0, 400).forEach((b) => {
     const cs = IDX.bizContacts.get(b.id) || [];
     const flagged = jobs().some((j) => j.kind === 'business' && j.id === b.id);
@@ -2005,7 +2008,8 @@ document.addEventListener('click', (e) => {
     advPick().forEach((c) => { const bs = bizOf(c); rows.push([c.first, c.last, bs.map((b) => b.name).join('; '), distinctRatings(c).map((r) => RATING_SHORT[r]).join('; '), effTags(c).filter((t) => !RATING_SET.has(t)).map(tagName).join('; '), c.mobiles.map((p) => p.value).join('; '), c.landlines.map((p) => p.value).join('; '), c.emails.map((p) => p.value).join('; '), c.postal.join('; '), bs.flatMap((b) => b.pics.map((p) => p.value)).join('; '), bs.flatMap((b) => b.patientIds.map((p) => p.value)).join('; '), c.warnings]); });
     const blob = new Blob(['﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const l = document.createElement('a'); l.href = URL.createObjectURL(blob); l.download = `bovitech-contacts-search-${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(l); l.click(); l.remove();
-  } else if (a === 'go-adv') { S.tab = 'search'; S.sel = null; renderAll(); }
+  } else if (a === 'go-adv') { S.adv.kind = 'people'; S.tab = 'search'; S.sel = null; renderAll(); }
+  else if (a === 'go-adv-biz') { S.adv.kind = S.btype === 'nonclient' ? 'nonclient' : 'client'; S.tab = 'search'; S.sel = null; renderAll(); }
 });
 
 
@@ -2527,6 +2531,8 @@ document.addEventListener('click', async (e) => {
       c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); S.skipConfirm = true; NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
     case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && await ask(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
+    case 'ptype': S.ptype = d.v; renderContactList(); break;
+    case 'bclear': e.preventDefault(); S.bq = ''; renderBizList(); break;
     case 'cat-all': { const bz = IDX.biz.get(d.bid); const cs = IDX.bizContacts.get(d.bid) || []; let n = 0;
       if (bz && bizCat(bz) !== d.tag) setBizCat(bz, d.tag); // the business takes the category too, and everyone follows it
       cs.forEach((c) => { if (catOf(c) !== d.tag || c.ownCats) { setOne(c, d.tag); n++; } });

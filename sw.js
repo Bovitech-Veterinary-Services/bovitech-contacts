@@ -1,5 +1,5 @@
 // Offline cache for the app shell. Bump VERSION on every release.
-const VERSION = 'bvt-v49';
+const VERSION = 'bvt-v50';
 const SHELL = ['./', 'index.html', 'app.js', 'config.js', 'defaults.json', 'privacy.html', 'terms.html', 'manifest.webmanifest', ...['a','aplus','b','c','bfriends','bvs','payup','dna','inactive','industry','newfac','newassess','newmaybe','occ','phone','prac','sheepreg','sheepocc','icon-192','icon-512'].map(n => `img/${n}.png`)];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
