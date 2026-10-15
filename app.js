@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '5.2 (15 Oct 2026)';
+const APP_VERSION = '5.3 (15 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -608,7 +608,7 @@ const iceLabel = (x) => fullName(x) + ((x.mobiles[0] || x.landlines[0]) ? ' — 
 const iceFor = (c) => D.contacts.filter((s2) => (s2.ice || []).some((i) => i.cid === c.id)).map((s2) => ({ staff: s2, rel: s2.ice.find((i) => i.cid === c.id).rel }));
 function iceCard(c) {
   let out = '';
-  if (isStaff(c) || (c.ice || []).length) out += `<div class="card" style="border-left:5px solid var(--red)"><h3>🚨 ICE contacts (in case of emergency)</h3>${(c.ice || []).map((i) => { const x = D.contacts.find((y) => y.id === i.cid); if (!x) return ''; return `<div style="margin:6px 0"><div class="biz-link" data-act="open" data-kind="contact" data-id="${x.id}" style="font-weight:700">${h(fullName(x))}${i.rel ? ` <span class="hint" style="font-weight:400">(${h(i.rel)})</span>` : ''}</div>${phoneLinks([...x.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), ...x.landlines.map((p) => ({ ...p, label: p.label || 'Landline' }))], false, 'call')}</div>`; }).join('') || '<div class="hint">No ICE contact recorded — tap Edit to add one.</div>'}</div>`;
+  if (isStaff(c) || (c.ice || []).length) out += `<div class="card" style="border-left:5px solid var(--red)"><h3>🚨 ICE contacts (in case of emergency)</h3>${(c.ice || []).map((i) => { const x = D.contacts.find((y) => y.id === i.cid); if (!x) return ''; return `<div style="margin:6px 0"><div class="biz-link" data-act="open" data-kind="contact" data-id="${x.id}" style="font-weight:700">${h(fullName(x))}${i.rel ? ` <span class="hint" style="font-weight:400">(${h(i.rel)})</span>` : ''}</div>${phoneLinks(x.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), true, 'call')}${phoneLinks(x.landlines.map((p) => ({ ...p, label: p.label || 'Landline' })), false, 'call')}</div>`; }).join('') || '<div class="hint">No ICE contact recorded — tap Edit to add one.</div>'}</div>`;
   const forList = iceFor(c);
   if (forList.length) out += `<div class="card" style="border-left:5px solid var(--red)"><h3>🚨 ICE contact for</h3>${forList.map((f) => `<div class="biz-link" data-act="open" data-kind="contact" data-id="${f.staff.id}" style="margin:4px 0"><b>${h(fullName(f.staff))}</b>${f.rel ? ` <span class="hint">(${h(f.rel)})</span>` : ''}</div>`).join('')}</div>`;
   return out;
