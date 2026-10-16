@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.4 (16 Oct 2026)';
+const APP_VERSION = '7.5 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1519,6 +1519,9 @@ function renderSettings() {
     <div class="f"><label>1. What do you want Claude to do or find?</label><textarea id="ai-req" style="min-height:70px" placeholder="e.g. Link Kiara Trowbridge to Zambonetti Transport and make her C client · Which A clients have no PIC? · Make all the Ravenhill contacts A+">${h(S.aiReq || '')}</textarea></div>
     <div class="f"><label>Send Claude</label><select id="ai-scope"><option value="mentioned">Only the people and businesses named in my request (plus who they're linked to)</option><option value="all" ${S.aiScope === 'all' ? 'selected' : ''}>Everyone, in short form (for questions across all clients)</option></select></div>
     <div class="actions"><button class="btn primary" data-act="ai-copy">2. Copy for Claude &amp; open Claude</button></div><div id="ai-copyinfo" class="hint"></div>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Open a particular Claude chat or project instead of a new chat${D.settings.aiChatUrl ? ' <b>(set)</b>' : ''}</summary>
+      <div class="hint" style="margin:6px 0">Open the chat (or Claude project) in Claude, copy its address from the address bar or Share menu, and paste it here. Leave empty to start a new chat each time. Applies on every device.</div>
+      <div class="search"><input id="ai-chaturl" value="${h(D.settings.aiChatUrl || '')}" placeholder="https://claude.ai/chat/…"><button class="btn small" data-act="ai-chat-save">Save</button></div></details>
     <div class="f" style="margin-top:10px"><label>3. Paste Claude's reply here</label><textarea id="ai-reply" style="min-height:90px" placeholder="Paste Claude's whole reply">${h(S.aiReply || '')}</textarea></div>
     <div class="actions"><button class="btn primary" data-act="ai-apply">Check changes</button></div><div id="ai-result" class="hint">${S.aiResult || ''}</div></div>
   <div class="card"><h3><span class="sp">Tags &amp; photos</span><button class="btn small" data-act="new-tag">+ New tag</button></h3>
@@ -2807,6 +2810,7 @@ document.addEventListener('click', async (e) => {
       }
       changed(); break; }
     case 'prio': { const o = photoOrder(); const i = o.indexOf(d.id), j = i + +d.dir; if (i < 0 || j < 0 || j >= o.length) break; [o[i], o[j]] = [o[j], o[i]]; D.settings.photoPriority = o; touch(D.settings); photoCache.clear(); S.skipConfirm = true; changed(); break; }
+    case 'ai-chat-save': { const v = $('#ai-chaturl').value.trim(); if (v && !/^https:\/\/claude\.ai\//.test(v)) { toast('That needs to be a claude.ai link (starting https://claude.ai/)'); break; } if (v) D.settings.aiChatUrl = v; else delete D.settings.aiChatUrl; touch(D.settings); changed(); toast(v ? 'Ask Claude will open that chat' : 'Ask Claude will open a new chat'); break; }
     case 'prio-reset': delete D.settings.photoPriority; touch(D.settings); photoCache.clear(); changed(); break;
     case 'app-refresh': refreshApp(); break;
     case 'trash-restore': { const t = (D.trash || []).find((x) => x.tid === d.tid); if (t && await ask(`Restore ${trashLabel(t)} from the trash?`, 'Yes — restore')) restoreTrash(d.tid); break; }
@@ -2864,7 +2868,7 @@ document.addEventListener('click', async (e) => {
     case 'ai-copy': { const req = $('#ai-req').value.trim(); S.aiReq = req; S.aiScope = $('#ai-scope').value; if (!req) { toast('Type what you want Claude to do first'); break; }
       const txt = aiPrompt(req, S.aiScope); let ok = false; try { await navigator.clipboard.writeText(txt); ok = true; } catch (err) { }
       const info = $('#ai-copyinfo'); const n = S.aiScope === 'all' ? 'everyone (short form)' : (() => { const r = aiRecords(req, 'mentioned'); return `${r.contacts.length} contact${r.contacts.length === 1 ? '' : 's'} and ${r.businesses.length} business${r.businesses.length === 1 ? '' : 'es'}`; })();
-      if (ok) { info.innerHTML = `✓ Copied (${h(n)}). Paste it into Claude, then copy Claude's whole reply into box 3.`; window.open('https://claude.ai/new', '_blank'); toast('Copied — now paste it into Claude'); }
+      if (ok) { info.innerHTML = `✓ Copied (${h(n)}). Paste it into Claude, then copy Claude's whole reply into box 3.`; window.open(D.settings.aiChatUrl || 'https://claude.ai/new', '_blank'); toast('Copied — now paste it into Claude'); }
       else { info.innerHTML = `Couldn't copy automatically — select all of this, copy it, and paste it into Claude:<textarea readonly style="min-height:120px;margin-top:6px">${h(txt)}</textarea>`; }
       if (S.aiScope !== 'all' && n.startsWith('0 contact') && n.includes(' 0 business')) info.innerHTML += '<br><b>Note:</b> no names in your request matched anyone — check spelling, or choose "Everyone".'; break; }
     case 'ai-apply': { const txt = $('#ai-reply').value; if (!txt.trim()) { toast("Paste Claude's reply first"); break; } const res = aiApply(txt); const out = $('#ai-result');
