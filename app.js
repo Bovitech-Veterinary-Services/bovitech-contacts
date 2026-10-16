@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '8.5 (17 Oct 2026)';
+const APP_VERSION = '8.6 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1114,8 +1114,10 @@ const Maps = {
     const out = [];
     for (let i = 0; i < dests.length; i += 25) {
       const chunk = dests.slice(i, i + 25);
-      const body = { origins: [{ waypoint: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } }, routeModifiers: this.mods() }], destinations: chunk.map((d) => ({ waypoint: { location: { latLng: { latitude: d.lat, longitude: d.lng } } } })), travelMode: 'DRIVE' }; /* route matrix takes avoid-tolls etc. on each origin, not at the top */
-      const r = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.key(), 'X-Goog-FieldMask': 'originIndex,destinationIndex,distanceMeters,duration,condition' }, body: JSON.stringify(body) });
+      const mods = this.mods(); const o = { waypoint: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } } }; if (Object.values(mods).some(Boolean)) o.routeModifiers = mods; /* only send avoid settings when one is on */
+      const body = { origins: [o], destinations: chunk.map((d) => ({ waypoint: { location: { latLng: { latitude: d.lat, longitude: d.lng } } } })), travelMode: 'DRIVE' }; /* route matrix takes avoid-tolls etc. on each origin, not at the top */
+      const send = () => fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.key(), 'X-Goog-FieldMask': 'originIndex,destinationIndex,distanceMeters,duration,condition' }, body: JSON.stringify(body) });
+      let r = await send(); if (r.status === 400 && o.routeModifiers) { const t = await r.clone().text(); if (/routeModifiers/.test(t)) { delete o.routeModifiers; r = await send(); } } /* Google refused the avoid settings: try again without them */
       if (!r.ok) throw new Error('Google Maps error ' + r.status + ': ' + (await r.text()).slice(0, 160));
       const js = await r.json();
       js.forEach((e) => { if (e.condition === 'ROUTE_EXISTS' || e.distanceMeters) out[i + e.destinationIndex] = { km: e.distanceMeters / 1000, min: parseInt(e.duration) / 60 }; });
