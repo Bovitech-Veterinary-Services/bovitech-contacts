@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.8 (16 Oct 2026)';
+const APP_VERSION = '7.9 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1377,7 +1377,7 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       ${j.linkRev ? `<button class="btn small" data-act="link-past" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" data-v="1">Past employee</button><button class="btn small" data-act="linkrev-undo" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" style="color:var(--red)">Undo — remove the link</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkRev.cid}">View contact</button>` : ''}
       ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as current employee</button><button class="btn small greenbtn" data-act="link-pick-past" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as past employee</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkSug.cid}">View contact</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">View business</button>` : ''}
       ${j.oddbiz ? `<button class="btn small primary" data-act="oddbiz-fix" data-bid="${j.oddbiz}">Sort out this name…</button><button class="btn small" data-act="edit-biz" data-id="${j.oddbiz}">Rename by hand</button>` : ''}
-      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}
+      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}${t === 'noprimary' ? `<button class="btn small" data-act="prim-find" data-bid="${j.id}">🔍 Find a contact…</button>` : ''}
       ${j.type === 'primnolink' ? `<button class="btn small primary" data-act="edit-contact" data-id="${j.id}">Edit contact</button>` : ''}
       ${j.nocat ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.nocat}">Choose categories for the business…</button>` : ''}
       ${j.catdiff ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.catdiff.bid}">Choose categories…</button>` : ''}
@@ -2307,6 +2307,18 @@ function dupeJobs(add) {
   group(em, (x) => x.k || null, (a, b) => { if (a.c !== b.c) pair('contact', a.c, b.c, 'same email address'); });
 }
 /* ---------------- Merge with… (pick the other record, settle any conflicts, then merge) ---------------- */
+function primFindSheet(b) { /* search any contact to make primary; links them to the business if needed */
+  openSheet('Primary contact for ' + b.name, `<div class="hint" style="margin-bottom:8px">Search for the person to make the primary contact. If they aren't linked to ${h(b.name)} yet, they'll be linked as a current contact.</div>
+    <input id="pf-search" data-bid="${b.id}" placeholder="Search by name, phone or business" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><div id="pf-res">${primFindRes(b, '')}</div>`, () => true);
+  $('#sheet-save').style.display = 'none'; setTimeout(() => $('#pf-search') && $('#pf-search').focus(), 50);
+}
+function primFindRes(b, q) {
+  const pq = parseQuery(q); const cur = IDX.bizContacts.get(b.id) || [], past = IDX.bizPast.get(b.id) || [];
+  const res = pq.inc.length ? D.contacts.filter((c) => matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...c.landlines.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((x) => x.name)].join(' ').toLowerCase(), pq)).sort((x, y) => (cur.includes(y) - cur.includes(x)) || fullName(x).localeCompare(fullName(y))).slice(0, 15) : cur;
+  const note = (c) => (cur.includes(c) ? 'linked here' : past.includes(c) ? 'past employee here — will be made current' : 'will be linked') + (bizOf(c).filter((x) => x.id !== b.id).length ? ' · ' + bizOf(c).filter((x) => x.id !== b.id).map((x) => x.name).join(', ') : '');
+  if (!pq.inc.length && !res.length) return '<div class="hint">No contacts are linked yet — type a name to search everyone.</div>';
+  return `${pq.inc.length ? '' : '<div class="lbl" style="margin-top:10px">Linked contacts</div>'}<div class="results">${res.map((c) => `<div data-act="pf-pick" data-bid="${b.id}" data-cid="${c.id}"><b>${h(fullName(c))}</b> <span class="hint">${h(note(c))}</span></div>`).join('') || '<div class="hint">No matching contacts.</div>'}</div>`;
+}
 function mergeStart(kind, id) {
   const isC = kind === 'contact'; const a = isC ? D.contacts.find((x) => x.id === id) : IDX.biz.get(id); if (!a) return;
   openSheet(`Merge ${isC ? fullName(a) : a.name} with…`, `<div class="hint" style="margin-bottom:6px">Search for the ${isC ? 'person' : 'business'} to merge into <b>${h(isC ? fullName(a) : a.name)}</b>. Their numbers, emails, ${isC ? 'businesses' : 'farms, PICs, contacts'} and notes are combined; if anything clashes you'll be asked which to keep. The other record goes to the trash (it can be restored).</div>
@@ -2841,6 +2853,13 @@ document.addEventListener('click', async (e) => {
       if (!keep || !other) break;
       if (!(await ask(`Merge "${isC ? fullName(other) : other.name}" into "${isC ? fullName(keep) : keep.name}"?\n\nEverything is combined into one; the extra one goes to the trash.`, 'Yes — merge'))) break;
       isC ? mergeContacts(keep, other) : mergeBiz(keep, other); if (await changed()) toast('Merged'); break; }
+    case 'prim-find': { const b = IDX.biz.get(d.bid); if (b) primFindSheet(b); break; }
+    case 'pf-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (!c || !b) break; closeSheet();
+      const l = c.links.find((x) => x.bid === b.id); let extra = '';
+      if (!l || l.past) { const prev = catOf(c); let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Nothing was changed'); break; } match = r === 'match'; }
+        if (l) delete l.past; else c.links.push({ bid: b.id }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); extra = l ? ' (was a past employee — now current)' : ' (linked to the business)'; }
+      b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) c.tags.push('pa'); touch(c);
+      NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}${extra}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
       let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Not linked — nothing was changed'); break; } match = r === 'match'; }
       c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); S.skipConfirm = true; NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
@@ -3005,6 +3024,7 @@ function savedRoutesCard() {
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderContactList, 120); }
+  else if (t.id === 'pf-search') { const b = IDX.biz.get(t.dataset.bid); if (b) $('#pf-res').innerHTML = primFindRes(b, t.value); }
   else if (t.id === 'mg-search') { const isC = t.dataset.kind === 'contact'; const pq = parseQuery(t.value); const box = $('#mg-res');
     const res = !pq.inc.length ? [] : isC ? D.contacts.filter((c) => c.id !== t.dataset.id && matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...c.landlines.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 12) : D.businesses.filter((b) => b.id !== t.dataset.id && matchQ(bizHay(b), pq)).slice(0, 12);
     box.innerHTML = t.value.trim() ? `<div class="results">${res.map((r) => `<div data-act="mg-pick" data-kind="${t.dataset.kind}" data-a="${t.dataset.id}" data-b="${r.id}"><b>${h(isC ? fullName(r) : r.name)}</b> <span class="hint">${h(isC ? (bizOf(r).map((b) => b.name).join(', ') || (r.mobiles[0] || r.landlines[0] || {}).value || '') : ((IDX.bizContacts.get(r.id) || []).map((c) => c.first).join(', ') + ' · ' + r.farms.length + ' farms'))}</span></div>`).join('') || '<div class="hint">No matches.</div>'}</div>` : ''; }
