@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '8.3 (17 Oct 2026)';
+const APP_VERSION = '8.4 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1056,7 +1056,7 @@ function editFarm(b, f) {
   f = f || { id: uid('f'), name: '', address: '', lat: null, lng: null, kmReturn: null, driveMin: null, kmStatus: 'missing', info: '', seeWarning: false, flags: [] };
   const startGps = f.lat != null ? `${f.lat}, ${f.lng}` : '';
   const body = `<div class="f"><label>${locWord(b)} label / name</label><input id="e-fname" value="${h(f.name)}" placeholder='e.g. "Jarrahvale" cattle yards'></div>
-  <div class="f"><label>GPS location</label><input id="e-fgps" value="${h(startGps)}" placeholder="-34.94943, 118.02134  (or paste a Google Maps link)"><div class="hint" id="e-fgpshint">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">Open pin in Google Maps</a>` : 'Drop a pin in Google Maps, copy the coordinates, paste here.'}</div></div>
+  <div class="f"><label>GPS location</label><input id="e-fgps" value="${h(startGps)}" placeholder="-34.94943, 118.02134  (or paste a Google Maps link)"><div class="hint" id="e-fgpshint">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">Open pin in Google Maps</a>` : 'Drop a pin in Google Maps, copy the coordinates, paste here.'}</div><div class="actions" style="margin-top:6px"><button type="button" class="btn small" data-act="farm-pinsuggest">📍 Suggest a pin from the address</button></div><div id="pin-res" class="hint"></div><div id="pin-prev"></div></div>
   <div class="f"><label>Physical address (not linked to maps)</label><input id="e-faddr" value="${h(f.address)}"></div>
   <div class="grid2"><div class="f"><label>Distance from homebase — km return</label><input id="e-fkm" type="number" step="0.1" value="${f.kmReturn ?? ''}"></div>
   <div class="f"><label>Drive time each way (minutes)</label><input id="e-fmin" type="number" step="1" value="${f.driveMin != null ? Math.round(f.driveMin) : ''}"></div></div>
@@ -1114,7 +1114,7 @@ const Maps = {
     const out = [];
     for (let i = 0; i < dests.length; i += 25) {
       const chunk = dests.slice(i, i + 25);
-      const body = { origins: [{ waypoint: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } } }], destinations: chunk.map((d) => ({ waypoint: { location: { latLng: { latitude: d.lat, longitude: d.lng } } } })), travelMode: 'DRIVE', routeModifiers: this.mods() };
+      const body = { origins: [{ waypoint: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } }, routeModifiers: this.mods() }], destinations: chunk.map((d) => ({ waypoint: { location: { latLng: { latitude: d.lat, longitude: d.lng } } } })), travelMode: 'DRIVE' }; /* route matrix takes avoid-tolls etc. on each origin, not at the top */
       const r = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.key(), 'X-Goog-FieldMask': 'originIndex,destinationIndex,distanceMeters,duration,condition' }, body: JSON.stringify(body) });
       if (!r.ok) throw new Error('Google Maps error ' + r.status + ': ' + (await r.text()).slice(0, 160));
       const js = await r.json();
@@ -2329,7 +2329,7 @@ function dupeJobs(add) {
 /* ---------------- Merge with… (pick the other record, settle any conflicts, then merge) ---------------- */
 /* ---------------- farm with an address but no pin: look the address up and confirm a pin ---------------- */
 function pinFindSheet(f) {
-  const b = IDX.farmBiz.get(f.id); if (!f || !b) return; S.pinFid = f.id;
+  const b = IDX.farmBiz.get(f.id); if (!f || !b) return; S.pinFid = f.id; S.pinMode = 'job';
   const q = (f.address || f.name || '').trim();
   openSheet('Find pin — ' + (f.name || b.name), `<div class="hint" style="margin-bottom:8px">${h(b.name)}${f.name ? ' · ' + h(f.name) : ''}</div>
     <div class="f"><label>Address to search</label><div class="search"><input id="pf-addr" value="${h(q)}" placeholder="Farm address"><button class="btn small primary" data-act="pin-search">Search</button></div></div>
@@ -2350,9 +2350,9 @@ async function geocode(q) { /* → [{name, address, lat, lng, prec}] using which
   const e = new Error(errs.every((x) => x === 'nothing found') ? 'Google couldn\'t find that address.' : errs.filter((x) => x !== 'nothing found').join(' · ')); e.notFound = errs.includes('nothing found'); throw e;
 }
 async function pinSearch() {
-  const q = ($('#pf-addr') || {}).value || ''; const box = $('#pin-res'); if (!box) return; if (!q.trim()) { box.textContent = 'Type an address first.'; return; }
+  const q = ($(S.pinMode === 'farm' ? '#e-faddr' : '#pf-addr') || {}).value || ''; const box = $('#pin-res'); if (!box) return; if (!q.trim()) { box.textContent = S.pinMode === 'farm' ? 'Type the physical address first.' : 'Type an address first.'; return; }
   const gm = $('#pin-gmaps'); if (gm) gm.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q + (/\bWA\b|Western Australia/i.test(q) ? '' : ', WA'))}`;
-  if (!Maps.key()) { box.innerHTML = 'No Google Maps key in Settings — use <b>Search in Google Maps</b> and paste the pin below.'; return; }
+  if (!Maps.key()) { box.innerHTML = S.pinMode === 'farm' ? `No Google Maps key in Settings, so the app can't search for you. <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q + (/\bWA\b|Western Australia/i.test(q) ? '' : ', WA'))}" target="_blank" rel="noopener">Search in Google Maps</a>, press and hold the yards, then copy the pin into GPS location above.` : 'No Google Maps key in Settings — use <b>Search in Google Maps</b> and paste the pin below.'; return; }
   if (!navigator.onLine) { box.textContent = 'You are offline — searching needs internet.'; return; }
   box.textContent = 'Searching…';
   try { const res = await geocode(q + (/\bWA\b|Western Australia/i.test(q) ? '' : ', WA')); S.pinRes = res;
@@ -2364,9 +2364,9 @@ function pinPreview(p) {
   const el = $('#pin-prev'); if (!el) return; S.pinCand = p; const home = D.settings.home || {};
   const km = home.lat != null ? hav(home, p) : null;
   el.innerHTML = `<div class="card" style="padding:10px;margin-top:10px"><div class="lbl">Is this the right spot?</div><div class="hint" style="margin:4px 0 6px">${p.name ? h(p.name) + ' · ' : ''}${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.prec ? ' · ' + h(p.prec) : ''}${km != null ? ` · ${km.toFixed(0)} km from homebase in a straight line` : ''}</div>
-    ${/approximate|middle of/.test(p.prec || '') ? '<div class="hint" style="color:var(--yellow-ink);margin-bottom:6px">⚠ Rural addresses often only find the road or town — check the pin is on the farm or yards before confirming. You can move it in Google Maps and paste the new pin above.</div>' : ''}
+    ${/approximate|middle of/.test(p.prec || '') ? '<div class="hint" style="color:var(--yellow-ink);margin-bottom:6px">⚠ Rural addresses often only find the road or town — check the pin is on the farm or yards before confirming. You can move it in Google Maps and paste the new pin ' + (S.pinMode === 'farm' ? 'into GPS location' : 'above') + '.</div>' : ''}
     <iframe title="Map preview" src="https://maps.google.com/maps?q=${p.lat},${p.lng}&z=16&t=h&output=embed" style="width:100%;height:280px;border:0;border-radius:9px" loading="lazy"></iframe>
-    <div class="actions" style="margin-top:8px"><button class="btn primary" data-act="pin-confirm">✓ Create pin here</button><a class="btn small" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Open in Google Maps</a></div></div>`;
+    <div class="actions" style="margin-top:8px">${S.pinMode === 'farm' ? '<button type="button" class="btn primary" data-act="pin-use">✓ Use this pin</button>' : '<button class="btn primary" data-act="pin-confirm">✓ Create pin here</button>'}<a class="btn small" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Open in Google Maps</a></div></div>`;
 }
 document.addEventListener('input', (e) => { if (e.target.id !== 'pin-paste') return; const g = parseGps(e.target.value); if (g && Math.abs(g.lat) <= 90 && Math.abs(g.lng) <= 180) pinPreview({ name: 'Pasted pin', lat: g.lat, lng: g.lng, prec: '' }); else if (e.target.value.trim()) $('#pin-prev').innerHTML = '<div class="hint" style="color:var(--red)">Not recognised yet — paste numbers like -34.95, 117.88 or a Google Maps link.</div>'; });
 document.addEventListener('keydown', (e) => { if (e.target.id === 'pf-addr' && e.key === 'Enter') { e.preventDefault(); pinSearch(); } });
@@ -2932,6 +2932,8 @@ document.addEventListener('click', async (e) => {
       if (!keep || !other) break; mergeSheet(d.kind, keep.id, other.id); break; }
     case 'pin-find': { const f = IDX.farms.get(d.fid); if (f) pinFindSheet(f); break; }
     case 'pin-search': pinSearch(); break;
+    case 'farm-pinsuggest': S.pinMode = 'farm'; pinSearch(); break;
+    case 'pin-use': { const p = S.pinCand, el = $('#e-fgps'); if (!p || !el) break; el.value = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`; el.dispatchEvent(new Event('input', { bubbles: true })); $('#pin-prev').innerHTML = ''; $('#pin-res').innerHTML = '✓ Pin added to GPS location — check the km below, then Save.'; break; }
     case 'pin-pick': if (S.pinRes && S.pinRes[+d.i]) pinPreview(S.pinRes[+d.i]); break;
     case 'pin-confirm': { const f = IDX.farms.get(S.pinFid), p = S.pinCand, b = f && IDX.farmBiz.get(f.id); if (!f || !p || !b) break; closeSheet();
       f.lat = +p.lat.toFixed(6); f.lng = +p.lng.toFixed(6); if (f.kmReturn != null) f.kmStatus = 'needs-verify'; touch(b);
