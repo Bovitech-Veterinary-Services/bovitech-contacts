@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '6.7 (16 Oct 2026)';
+const APP_VERSION = '6.8 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -737,6 +737,7 @@ function contactDetail(c) {
     html += bizRoutesHtml(b);
     html += '</div>';
   });
+  html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="rec-ai" data-kind="contact" data-id="${c.id}">🤖 Ask Claude about ${h(c.first || fullName(c))}</button></div>`;
   return html + '</div>';
 }
 function tagPill(t) { const src = tagPhotoSrc(t); return `<span class="tag ${src ? '' : 'noimg'}">${src ? `<img src="${src}" alt="">` : ''}${h(tagName(t))}</span>`; }
@@ -773,6 +774,7 @@ function bizDetail(b) {
   { const rh = bizRoutesHtml(b, false); if (rh) html += `<div class="card"><h3>Saved routes</h3>${rh}</div>`; }
   html += `<div class="card"><h3>${locWord(b, true)}</h3>${b.farms.map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} yet.</div>`}</div>`;
   html += `<div class="card"><h3>General info</h3>${infoView(b)}</div>`;
+  html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="rec-ai" data-kind="business" data-id="${b.id}">🤖 Ask Claude about ${h(b.name)}</button></div>`;
   return html + '</div>';
 }
 
@@ -2715,6 +2717,9 @@ document.addEventListener('click', async (e) => {
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
       let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) match = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev));
       c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); S.skipConfirm = true; NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
+    case 'rec-ai': { const isC = d.kind === 'contact'; const r = isC ? D.contacts.find((x) => x.id === d.id) : IDX.biz.get(d.id); if (!r) break;
+      S.aiExtra = isC ? { cids: [r.id], bids: [] } : { cids: [], bids: [r.id] }; S.aiScope = 'mentioned'; S.aiReq = `About ${isC ? fullName(r) : r.name}: `; S.aiReply = ''; S.aiResult = '';
+      S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const t = $('#ai-req'); if (t) { t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 60); toast('Type what you want, then tap "Copy for Claude"'); break; }
     case 'job-ai': { const j = jobs().find((x) => x.key === d.k || x.key === d.key); if (!j) break; const cids = new Set(), bids = new Set();
       if (j.kind === 'contact') cids.add(j.id); else bids.add(j.id); [j.linkSug, j.linkRev, j.bizonly].forEach((x) => { if (x) { if (x.cid) cids.add(x.cid); if (x.bid) bids.add(x.bid); } }); if (j.oddbiz) bids.add(j.oddbiz); if (j.catdiff) bids.add(j.catdiff.bid); if (j.primSuggest) cids.add(j.primSuggest);
       S.aiExtra = { cids: [...cids], bids: [...bids] }; S.aiScope = 'mentioned'; S.aiReq = `Help me sort out this item from the app's Jobs list.\nJob: ${JOB_TYPES[j.type]?.t || j.type}\n${j.who}: ${j.note}${j.warnTxt ? '\n' + j.warnTxt : ''}\nTell me what you'd suggest and why, and include the changes if you're fairly sure.`; S.aiReply = ''; S.aiResult = '';
