@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '6.4 (16 Oct 2026)';
+const APP_VERSION = '6.5 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -716,8 +716,9 @@ function contactDetail(c) {
   html += `<div class="card"><h3>Contact</h3>${phoneLinks(c.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), true)}${phoneLinks(c.landlines.map((p) => ({ ...p, label: p.label || 'Landline' })))}${c.emails.map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div></div>`).join('')}${c.postal.map((p) => `<div class="kv"><div class="k">Postal</div><div class="v">${h(p)}</div></div>`).join('')}${!c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length ? '<div class="hint">No contact details yet.</div>' : ''}</div>`;
   if (tags.length) html += `<div class="card"><h3>Categories and tags</h3><div class="tagrow">${tags.map(tagPill).join('')}</div>${followsBiz(c) && effCats(c).length ? '<div class="hint" style="margin-top:6px">Categories follow the business</div>' : c.ownCats && bs.length ? '<div class="hint" style="margin-top:6px">This contact has its own categories (different to the business)</div>' : ''}</div>`;
   html += `<div class="card"><h3>General info</h3>${infoView(c)}</div>`;
+  html += `<h2 class="sec-h" style="font-size:20px;margin:18px 0 8px;display:flex;align-items:center;gap:8px">🔗 Linked ${bs.length === 1 ? 'business' : 'businesses'} <span class="count" style="font-size:14px;background:var(--ink);color:#fff;border-radius:99px;padding:1px 9px">${bs.length}</span></h2>${bs.length ? '' : `<div class="card"><div class="hint">Not linked to a business yet — tap Edit to link one.</div></div>`}`;
   bs.forEach((b) => {
-    html += `<div class="card"><h3>${b.rating ? rbadge(b.rating) : ''}<span class="sp">${h(b.name)}${isClientBiz(b) ? '' : ' <span class="hint">(industry)</span>'}</span><button class="btn small" data-act="open" data-kind="business" data-id="${b.id}">Open business</button></h3>`;
+    html += `<div class="card" style="border-left:5px solid var(--ink3)"><h3>${b.rating ? rbadge(b.rating) : ''}<span class="sp">${h(b.name)}${isClientBiz(b) ? '' : ' <span class="hint">(industry)</span>'}</span><button class="btn small" data-act="open" data-kind="business" data-id="${b.id}">Open business</button></h3>`;
     if (b.pics.length && isClientBiz(b)) html += `<div class="kv"><div class="k">PIC</div><div class="v">${b.pics.map((p) => h(p.value) + (p.label ? ` <span class="hint">${h(p.label)}</span>` : '')).join('<br>')}</div></div>`;
     if (b.patientIds.length && isClientBiz(b)) html += `<div class="kv"><div class="k">Patient IDs</div><div class="v">${b.patientIds.map((p) => `${h(p.value)} <span class="hint">${h(p.label)}</span>`).join('<br>')}</div></div>`;
     html += b.farms.map((f) => farmCard(b, f, false)).join('');
@@ -1335,7 +1336,7 @@ function renderJobs() {
       ${j.type === 'biznodetails' ? `<button class="btn small primary" data-act="edit-biz" data-id="${j.id}">Add phone / email</button>` : ''}
       ${j.warnTxt ? (() => { const w = j.warnSrc; const farms = w.fid ? [IDX.farms.get(w.fid)].filter(Boolean) : (w.kind === 'contact' ? bizOf(D.contacts.find((x) => x.id === w.id) || { links: [] }) : [IDX.biz.get(w.bid)].filter(Boolean)).flatMap((b) => b.farms); const A = (to, extra, lbl) => `<button class="btn small" data-act="warn-apply" data-to="${to}" data-k="${h(j.key)}" ${extra}>${lbl}</button>`;
         return `${A('general', '', '⚠ Apply as general warning')}${farms.slice(0, 5).map((f) => A('farm', `data-fid="${f.id}"`, `⚠ Apply as farm warning: ${h(f.name || 'farm')}`)).join('')}${A('side', '', '📝 Apply as side note')}${w.sec ? `<button class="btn small" data-act="warn-remove" data-k="${h(j.key)}" style="color:var(--red)">Remove *WARNING* section from general info</button>` : ''}`; })() : ''}
-      ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link to ${h(IDX.biz.get(j.linkSug.bid)?.name || '')}</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">Open business</button>` : ''}
+      ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link to ${h(IDX.biz.get(j.linkSug.bid)?.name || '')}</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkSug.cid}">View contact</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">View business</button>` : ''}
       ${j.oddbiz ? `<button class="btn small primary" data-act="oddbiz-fix" data-bid="${j.oddbiz}">Sort out this name…</button><button class="btn small" data-act="edit-biz" data-id="${j.oddbiz}">Rename by hand</button>` : ''}
       ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}
       ${j.type === 'primnolink' ? `<button class="btn small primary" data-act="edit-contact" data-id="${j.id}">Edit contact</button>` : ''}
@@ -2591,7 +2592,7 @@ document.addEventListener('click', async (e) => {
   if (el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.type !== 'checkbox')) return;
   if (el.tagName === 'A' && a !== 'clear') return;
   switch (a) {
-    case 'tab': S.backTo = null; S.tab = d.v; if (d.v === 'contacts' && S.sel?.kind !== 'contact') S.sel = null; if (d.v === 'biz' && S.sel?.kind !== 'business') S.sel = null; document.body.classList.remove('show-detail'); renderAll(); $('#list').scrollTop = 0; break;
+    case 'tab': S.backTo = null; S.tab = d.v; S.sel = null; if (d.v === 'contacts') S.q = ''; if (d.v === 'biz') S.bq = ''; /* every menu starts afresh */ document.body.classList.remove('show-detail'); renderAll(); $('#list').scrollTop = 0; break;
     case 'open': {
       if (d.kind === 'business' && S.tab === 'contacts') S.tab = 'biz';
       if (d.kind === 'contact' && S.tab === 'biz') S.tab = 'contacts';
