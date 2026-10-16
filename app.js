@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '6.3 (16 Oct 2026)';
+const APP_VERSION = '6.4 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -572,7 +572,7 @@ function renderAll() {
   else if (S.tab === 'search') { $('#list').innerHTML = renderAdvanced(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'route') { $('#list').innerHTML = renderRoute(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'jobs') { $('#list').innerHTML = renderJobs(); document.body.classList.remove('show-detail'); }
-  else if (S.tab === 'settings') { $('#list').innerHTML = renderSettings(); document.body.classList.remove('show-detail'); }
+  else if (S.tab === 'settings') { $('#list').innerHTML = renderSettings(); collapseSettings(); document.body.classList.remove('show-detail'); }
   renderSyncPill();
 }
 
@@ -1372,9 +1372,108 @@ async function checkAllDistances() {
 }
 
 /* ---------------- settings ---------------- */
+// every Settings card folds up to its heading; tap a heading to open it (stays open until closed)
+/* ---------------- Ask Claude (copy & paste through the person's own Claude account) ---------------- */
+function aiRecords(req, scope) {
+  const cOut = (c) => ({ id: c.id, name: fullName(c), first: c.first, middle: c.middle, last: c.last, role: c.role, category: catOf(c) || null, categorySetOnContact: !followsBiz(c), tags: c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)), businesses: c.links.map((l) => l.bid), mobiles: c.mobiles, landlines: c.landlines, emails: c.emails, postal: c.postal, info: c.info, warnings: c.warnings, sideNotes: c.sideNotes, ...(c.ice ? { ice: c.ice } : {}) });
+  const bOut = (b) => ({ id: b.id, name: b.name, type: isClientBiz(b) ? 'client' : 'nonclient', category: bizCat(b) || null, primaryContact: b.primaryContact || null, contacts: (IDX.bizContacts.get(b.id) || []).map((c) => c.id), phones: b.phones || [], emails: b.emails || [], pics: b.pics, patientIds: b.patientIds, farms: b.farms.map((f) => ({ id: f.id, name: f.name, address: f.address, kmReturn: f.kmReturn, warning: f.warning || '' })), info: b.info, warnings: b.warnings, sideNotes: b.sideNotes });
+  if (scope === 'all') return { contacts: D.contacts.map((c) => [c.id, fullName(c), catOf(c) || '', c.links.map((l) => l.bid).join(' '), (c.mobiles[0] || c.landlines[0] || {}).value || '', c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)).join(' ')]), contactColumns: ['id', 'name', 'category', 'businessIds', 'phone', 'tags'], businesses: D.businesses.map((b) => [b.id, b.name, isClientBiz(b) ? 'client' : 'nonclient', bizCat(b) || '', b.pics.map((p) => p.value).join(' '), b.farms.map((f) => (f.name || '') + (f.kmReturn != null ? ' ' + f.kmReturn + 'km' : '')).join('; ')]), businessColumns: ['id', 'name', 'type', 'category', 'PICs', 'farms'], note: 'Short form. Ask me to send full details of specific records if you need their notes.' };
+  const t = ' ' + req.toLowerCase().replace(/[^a-z0-9&' -]/g, ' ').replace(/\s+/g, ' ') + ' ';
+  const hit = (name) => { const n = (name || '').toLowerCase().trim(); return n.length >= 3 && t.includes(' ' + n + ' '); };
+  const cs = new Set(), bs = new Set();
+  D.contacts.forEach((c) => { if (hit(fullName(c)) || (c.last && c.last.length >= 4 && t.includes(' ' + c.last.toLowerCase() + ' ')) || (c.first && c.last && hit(c.first + ' ' + c.last))) cs.add(c); });
+  D.businesses.forEach((b) => { if (hit(b.name) || (coreBiz(b.name).length >= 6 && t.replace(/[^a-z0-9]/g, '').includes(coreBiz(b.name)))) bs.add(b); });
+  [...cs].forEach((c) => bizOf(c).forEach((b) => bs.add(b))); [...bs].forEach((b) => (IDX.bizContacts.get(b.id) || []).forEach((c) => cs.add(c)));
+  return { contacts: [...cs].slice(0, 80).map(cOut), businesses: [...bs].slice(0, 60).map(bOut) };
+}
+function aiPrompt(req, scope) {
+  const data = aiRecords(req, scope);
+  const cats = [...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)].map((id) => `${id} = ${tagName(id)}`).join('; ');
+  const addl = D.tags.filter((t) => t.group === 'additional').map((t) => `${t.id} = ${t.name}`).join('; ');
+  return `You are helping update the Bovitech Contacts app (a mobile large-animal vet practice's client list in Albany, WA). Below is my request and the relevant records.
+
+MY REQUEST:
+${req}
+
+RULES
+- If my request is a question, answer it in plain words. If it needs changes, ALSO give one JSON block (in \`\`\`json fences) exactly in the format below — I will paste your reply back into the app, which shows me the changes to confirm.
+- Only use ids that appear in the data. For something new, use "new_contact"/"new_business" with a "ref" (like "n1") and use that ref as the id in later changes.
+- Each contact and business has exactly ONE category. Category ids: ${cats}. Use "same_as_business" for a contact who should follow their business.
+- Additional tags (a contact can have several, but never both pa and pi): ${addl}.
+- Business "type" is "client" or "nonclient". Phone/email lists look like [{"label":"Mobile","value":"0400 000 000"}].
+- When changing a list (mobiles, emails, postal…) give the WHOLE new list. When changing info, give the WHOLE new text.
+- If something is unclear, ask me instead of guessing.
+
+JSON FORMAT
+{"summary":"one line describing the changes","changes":[
+ {"op":"update_contact","id":"c…","fields":{"first":"","middle":"","last":"","role":"","info":"","warnings":"","sideNotes":"","mobiles":[],"landlines":[],"emails":[],"postal":[],"inactiveReason":"","dnaReason":""}},
+ {"op":"update_business","id":"b…","fields":{"name":"","type":"client","info":"","warnings":"","sideNotes":"","phones":[],"emails":[],"postal":[],"inactiveReason":"","dnaReason":""}},
+ {"op":"set_category","kind":"contact","id":"c…","category":"a"},
+ {"op":"set_category","kind":"business","id":"b…","category":"industry"},
+ {"op":"add_tag","id":"c…","tag":"pa"}, {"op":"remove_tag","id":"c…","tag":"pi"},
+ {"op":"link","contact":"c…","business":"b…"}, {"op":"unlink","contact":"c…","business":"b…"},
+ {"op":"set_primary","business":"b…","contact":"c…"},
+ {"op":"new_business","ref":"n1","fields":{"name":"","type":"client"},"category":"c"},
+ {"op":"new_contact","ref":"n2","fields":{"first":"","last":"","mobiles":[]},"businesses":["b…"],"category":"same_as_business"},
+ {"op":"trash_contact","id":"c…"}
+]}
+(Only include the fields you are changing.)
+
+DATA (${scope === 'all' ? 'everyone, short form' : 'records named in my request and who they are linked to'}):
+${JSON.stringify(data)}`;
+}
+function aiApply(text) { // → {done:[lines], errors:[lines]}; changes are made but not saved until confirmed
+  const m = text.match(/```(?:json)?\s*([\s\S]*?)```/i); let raw = m ? m[1] : null;
+  if (!raw) { const i = text.indexOf('{"'), j = text.lastIndexOf('}'); if (i >= 0 && j > i) raw = text.slice(i, j + 1); }
+  if (!raw) return { none: true };
+  let js; try { js = JSON.parse(raw); } catch (e) { return { bad: 'The changes block could not be read (' + e.message + '). Ask Claude to resend the JSON.' }; }
+  const done = [], errors = [], refs = {};
+  const C = (id) => D.contacts.find((x) => x.id === (refs[id] || id)), B = (id) => IDX.biz.get(refs[id] || id) || D.businesses.find((x) => x.id === (refs[id] || id));
+  const okCat = (v) => v === 'same_as_business' || RATING_SET.has(v) || IDX.tags.get(v)?.group === 'client';
+  const listF = ['mobiles', 'landlines', 'emails', 'phones'];
+  const clean = (k, v) => (listF.includes(k) ? (Array.isArray(v) ? v.filter((x) => x && x.value).map((x) => ({ label: String(x.label || ''), value: String(x.value) })) : []) : k === 'postal' ? (Array.isArray(v) ? v.map(String) : [String(v)]) : String(v ?? ''));
+  const CF = ['first', 'middle', 'last', 'role', 'info', 'warnings', 'sideNotes', 'mobiles', 'landlines', 'emails', 'postal', 'inactiveReason', 'dnaReason'];
+  const BF = ['name', 'info', 'warnings', 'sideNotes', 'phones', 'emails', 'postal', 'inactiveReason', 'dnaReason'];
+  for (const ch of js.changes || []) { try {
+    const op = ch.op;
+    if (op === 'new_business') { const nb = { id: uid('b'), name: String((ch.fields || {}).name || 'New business'), type: (ch.fields || {}).type === 'nonclient' ? 'nonclient' : 'client', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; BF.forEach((k) => { if (ch.fields && k in ch.fields) nb[k] = clean(k, ch.fields[k]); }); D.businesses.push(nb); reindex(); if (ch.category && okCat(ch.category) && ch.category !== 'same_as_business') setBizCat(nb, ch.category); touch(nb); if (ch.ref) refs[ch.ref] = nb.id; done.push('New business: ' + nb.name); continue; }
+    if (op === 'new_contact') { const f = ch.fields || {}; const c = { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [], createdAt: Date.now() }; CF.forEach((k) => { if (k in f) c[k] = clean(k, f[k]); }); (ch.businesses || []).forEach((bid) => { const b = B(bid); if (b) c.links.push({ bid: b.id }); }); D.contacts.push(c); reindex(); if (ch.category && okCat(ch.category)) { if (ch.category === 'same_as_business') c.ownCats = false; else setOne(c, ch.category); } touch(c); if (ch.ref) refs[ch.ref] = c.id; done.push('New contact: ' + fullName(c)); continue; }
+    if (op === 'update_contact') { const c = C(ch.id); if (!c) throw new Error('contact ' + ch.id + ' not found'); Object.entries(ch.fields || {}).forEach(([k, v]) => { if (CF.includes(k)) { c[k] = clean(k, v); if (k === 'info') delete c.infoHtml; } }); touch(c); done.push('Updated ' + fullName(c) + ': ' + Object.keys(ch.fields || {}).join(', ')); continue; }
+    if (op === 'update_business') { const b = B(ch.id); if (!b) throw new Error('business ' + ch.id + ' not found'); Object.entries(ch.fields || {}).forEach(([k, v]) => { if (BF.includes(k)) { b[k] = clean(k, v); if (k === 'info') delete b.infoHtml; } if (k === 'type' && (v === 'client' || v === 'nonclient')) b.type = v; }); touch(b); done.push('Updated ' + b.name + ': ' + Object.keys(ch.fields || {}).join(', ')); continue; }
+    if (op === 'set_category') { if (!okCat(ch.category)) throw new Error('unknown category ' + ch.category); if (ch.kind === 'business') { const b = B(ch.id); if (!b) throw new Error('business ' + ch.id + ' not found'); setBizCat(b, ch.category); done.push(b.name + ' → ' + tagName(ch.category)); } else { const c = C(ch.id); if (!c) throw new Error('contact ' + ch.id + ' not found'); if (ch.category === 'same_as_business') { c.tags = c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)); c.ownCats = false; touch(c); done.push(fullName(c) + ' → same as business'); } else { setOne(c, ch.category); done.push(fullName(c) + ' → ' + tagName(ch.category)); } } continue; }
+    if (op === 'add_tag' || op === 'remove_tag') { const c = C(ch.id); const tg = IDX.tags.get(ch.tag); if (!c) throw new Error('contact ' + ch.id + ' not found'); if (!tg || tg.group !== 'additional') throw new Error('unknown tag ' + ch.tag); if (op === 'add_tag') { if (!c.tags.includes(ch.tag)) c.tags.push(ch.tag); if (ch.tag === 'pa') c.tags = c.tags.filter((t) => t !== 'pi'); if (ch.tag === 'pi') c.tags = c.tags.filter((t) => t !== 'pa'); } else c.tags = c.tags.filter((t) => t !== ch.tag); touch(c); done.push(`${op === 'add_tag' ? 'Added' : 'Removed'} ${tg.name} ${op === 'add_tag' ? 'to' : 'from'} ${fullName(c)}`); continue; }
+    if (op === 'link' || op === 'unlink') { const c = C(ch.contact), b = B(ch.business); if (!c || !b) throw new Error('contact or business not found'); if (op === 'link') { if (!c.links.some((l) => l.bid === b.id)) { const prev = catOf(c); c.links.push({ bid: b.id }); reindex(); if (prev) setOne(c, prev); } } else c.links = c.links.filter((l) => l.bid !== b.id); touch(c); done.push(`${op === 'link' ? 'Linked' : 'Unlinked'} ${fullName(c)} ${op === 'link' ? 'to' : 'from'} ${b.name}`); continue; }
+    if (op === 'set_primary') { const c = C(ch.contact), b = B(ch.business); if (!c || !b) throw new Error('contact or business not found'); b.primaryContact = c.id; if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } touch(b); done.push(fullName(c) + ' made primary for ' + b.name); continue; }
+    if (op === 'trash_contact') { const c = C(ch.id); if (!c) throw new Error('contact ' + ch.id + ' not found'); done.push('Moved ' + fullName(c) + ' to the trash'); trashContact(c); continue; }
+    throw new Error('unknown change "' + op + '"');
+  } catch (e) { errors.push(e.message); } }
+  reindex(); return { done, errors, summary: js.summary || '' };
+}
+document.addEventListener('input', (e) => { if (e.target.id === 'ai-req') S.aiReq = e.target.value; if (e.target.id === 'ai-reply') S.aiReply = e.target.value; });
+function collapseSettings() {
+  S.setOpen = S.setOpen || new Set();
+  document.querySelectorAll('#list .d-wrap > .card').forEach((card) => {
+    const h3 = card.querySelector(':scope > h3'); if (!h3) return;
+    const title = (h3.querySelector('.sp') || h3).textContent.trim().replace(/\s*\(this device\)\s*$/, '');
+    const det = document.createElement('details'); det.className = 'card setsec'; det.dataset.sec = title; if (S.setOpen.has(title)) det.open = true;
+    const sum = document.createElement('summary'); sum.innerHTML = `<span>${h3.innerHTML.replace(/<button[\s\S]*?<\/button>/g, '').replace(/<span class="sp">|<\/span>/g, '')}</span>`; det.appendChild(sum);
+    const body = document.createElement('div'); body.className = 'setbody';
+    const btns = [...h3.querySelectorAll('button')]; if (btns.length) { const bar = document.createElement('div'); bar.className = 'actions'; btns.forEach((b) => bar.appendChild(b)); body.appendChild(bar); }
+    h3.remove(); while (card.firstChild) body.appendChild(card.firstChild); det.appendChild(body);
+    det.addEventListener('toggle', () => { det.open ? S.setOpen.add(title) : S.setOpen.delete(title); });
+    card.replaceWith(det);
+  });
+}
 function renderSettings() {
   const st = D.settings;
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('settings'))}</h2>
+  <div class="card"><h3>🤖 Ask Claude</h3>
+    <div class="hint" style="margin-bottom:8px">Free — uses your own Claude account. 1) Type what you want. 2) Tap <b>Copy for Claude</b> and paste it into Claude. 3) Copy Claude's whole reply, paste it in box 3 and tap <b>Check changes</b>. Nothing is saved until you confirm.</div>
+    <div class="f"><label>1. What do you want Claude to do or find?</label><textarea id="ai-req" style="min-height:70px" placeholder="e.g. Link Kiara Trowbridge to Zambonetti Transport and make her C client · Which A clients have no PIC? · Make all the Ravenhill contacts A+">${h(S.aiReq || '')}</textarea></div>
+    <div class="f"><label>Send Claude</label><select id="ai-scope"><option value="mentioned">Only the people and businesses named in my request (plus who they're linked to)</option><option value="all" ${S.aiScope === 'all' ? 'selected' : ''}>Everyone, in short form (for questions across all clients)</option></select></div>
+    <div class="actions"><button class="btn primary" data-act="ai-copy">2. Copy for Claude &amp; open Claude</button></div><div id="ai-copyinfo" class="hint"></div>
+    <div class="f" style="margin-top:10px"><label>3. Paste Claude's reply here</label><textarea id="ai-reply" style="min-height:90px" placeholder="Paste Claude's whole reply">${h(S.aiReply || '')}</textarea></div>
+    <div class="actions"><button class="btn primary" data-act="ai-apply">Check changes</button></div><div id="ai-result" class="hint">${S.aiResult || ''}</div></div>
   <div class="card"><h3><span class="sp">Tags &amp; photos</span><button class="btn small" data-act="new-tag">+ New tag</button></h3>
   ${['client', 'additional'].map((g) => `<div class="lbl" style="margin-top:10px">${{ client: 'Contact category', additional: 'Additional tags' }[g]}${g === 'client' ? ' <span class="hint">(A+ to C are set on the business)</span>' : ''}</div>${D.tags.filter((t) => (g === 'client' ? t.group === 'rating' || t.group === 'client' : t.group === g)).map((t) => { const src = tagPhotoSrc(t.id); const n = D.contacts.filter((c) => contactTagSet(c).has(t.id)).length; return `<div class="kv" style="align-items:center">${src ? `<img src="${src}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : '<span style="width:36px;height:36px;border-radius:50%;background:#eee;display:inline-block"></span>'}<div class="v">${h(t.name)} <span class="hint">${n} contact${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="edit-tag" data-id="${t.id}">Edit</button></div>`; }).join('')}`).join('')}</div>
   <div class="card"><h3>Photo priority</h3><div class="hint" style="margin-bottom:6px">When a contact has more than one tag with a photo and nobody has chosen one, the tag highest on this list is shown. Use the arrows to reorder. Changes apply on every device.</div>
@@ -2614,6 +2713,18 @@ document.addEventListener('click', async (e) => {
     case 'new-tag': editTag(null); break;
     case 'edit-tag': editTag(IDX.tags.get(d.id)); break;
     case 'del-tag': if (await ask(`Delete the tag "${tagName(d.id)}"?\n\nIt will be removed from ${D.contacts.filter((c) => contactTagSet(c).has(d.id)).length} contacts.`, 'Yes — delete tag', true)) { D.tags = D.tags.filter((t) => t.id !== d.id); (D.deleted = D.deleted || []).push({ id: d.id, kind: 'tags', at: Date.now() }); D.contacts.forEach((c) => { if (c.tags.includes(d.id)) { c.tags = c.tags.filter((t) => t !== d.id); touch(c); } }); closeSheet(); changed(); } break;
+    case 'ai-copy': { const req = $('#ai-req').value.trim(); S.aiReq = req; S.aiScope = $('#ai-scope').value; if (!req) { toast('Type what you want Claude to do first'); break; }
+      const txt = aiPrompt(req, S.aiScope); let ok = false; try { await navigator.clipboard.writeText(txt); ok = true; } catch (err) { }
+      const info = $('#ai-copyinfo'); const n = S.aiScope === 'all' ? 'everyone (short form)' : (() => { const r = aiRecords(req, 'mentioned'); return `${r.contacts.length} contact${r.contacts.length === 1 ? '' : 's'} and ${r.businesses.length} business${r.businesses.length === 1 ? '' : 'es'}`; })();
+      if (ok) { info.innerHTML = `✓ Copied (${h(n)}). Paste it into Claude, then copy Claude's whole reply into box 3.`; window.open('https://claude.ai/new', '_blank'); toast('Copied — now paste it into Claude'); }
+      else { info.innerHTML = `Couldn't copy automatically — select all of this, copy it, and paste it into Claude:<textarea readonly style="min-height:120px;margin-top:6px">${h(txt)}</textarea>`; }
+      if (S.aiScope !== 'all' && n.startsWith('0 contact') && n.includes(' 0 business')) info.innerHTML += '<br><b>Note:</b> no names in your request matched anyone — check spelling, or choose "Everyone".'; break; }
+    case 'ai-apply': { const txt = $('#ai-reply').value; if (!txt.trim()) { toast("Paste Claude's reply first"); break; } const res = aiApply(txt); const out = $('#ai-result');
+      if (res.none) { out.innerHTML = 'No changes in that reply — Claude may have just answered your question (see the chat).'; break; } if (res.bad) { out.innerHTML = `<span style="color:var(--red)">${h(res.bad)}</span>`; break; }
+      if (!res.done.length) { revertTouched(); out.innerHTML = `<span style="color:var(--red)">Nothing could be applied:</span><br>${res.errors.map(h).join('<br>')}`; break; }
+      NEXT_LOG_LABEL = 'Claude: ' + (res.summary || res.done.length + ' changes'); const ok = await changed();
+      S.aiResult = ok ? `✓ Saved ${res.done.length} change${res.done.length === 1 ? '' : 's'}.${res.errors.length ? `<br><span style="color:var(--red)">Skipped: ${res.errors.map(h).join('; ')}</span>` : ''}` : 'Cancelled — nothing was changed.'; if ($('#ai-result')) $('#ai-result').innerHTML = S.aiResult;
+      if (ok) { if ($('#ai-reply')) $('#ai-reply').value = ''; S.aiReply = ''; toast('✓ Claude\'s changes saved'); } break; }
     case 'tpl-save': D.settings.tplContact = $('#s-tplc').value; D.settings.tplBiz = $('#s-tplb').value; touch(D.settings); NEXT_LOG_LABEL = 'General info templates updated'; S.skipConfirm = true; await changed(); toast('Templates saved'); break;
     case 'tpl-reset': delete D.settings.tplContact; delete D.settings.tplBiz; touch(D.settings); NEXT_LOG_LABEL = 'General info templates reset'; S.skipConfirm = true; await changed(); toast('Templates reset'); break;
     case 'backup-now': if (!Sync.enabled() || !GAuth.valid()) { toast('Sign in to Google (Settings → Sync) to back up'); break; } toast('Backing up…'); await Backup.maybe(true); break;
