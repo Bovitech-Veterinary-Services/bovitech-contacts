@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '6.6 (16 Oct 2026)';
+const APP_VERSION = '6.7 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -295,7 +295,7 @@ const PREF = (() => { try { return JSON.parse(localStorage.getItem('bvt-prefs') 
 function savePref(k, v) { PREF[k] = v; try { localStorage.setItem('bvt-prefs', JSON.stringify(PREF)); } catch (e) { } }
 function applyUi() { const th = PREF.theme || 'auto'; const dark = th === 'dark' || (th === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = dark ? 'dark' : 'light'; document.body.style.zoom = { normal: '', large: '1.12', xl: '1.25' }[PREF.size || 'normal'] || ''; }
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyUi); } catch (e) { }
-const REVIEW_LINKS_FROM = new Date('2026-10-16T00:00:00+08:00').getTime(); // links made from v6.0 onwards get reviewed
+const REVIEW_LINKS_FROM = new Date('2026-10-16T00:00:00+08:00').getTime(), REVIEW_LINKS_TO = new Date('2026-10-16T21:05:00+08:00').getTime(); // links made from v6.0 onwards get reviewed
 const ROUTE_DEF = { avoidTolls: false, avoidHighways: false, avoidFerries: false, pinM: 20, kmTol: 1 };
 const routeSet = () => ({ ...ROUTE_DEF, ...((D && D.settings && D.settings.route) || {}) });
 const REQ_FIELDS = [['email', 'Email'], ['phone', 'Phone number (mobile or landline)'], ['mobile', 'Mobile number'], ['business', 'Linked to a business'], ['gps', 'Farm with a GPS pin'], ['pic', 'PIC'], ['pid', 'Patient ID'], ['category', 'Contact category'], ['postal', 'Postal address']];
@@ -430,7 +430,7 @@ function computeJobs() {
     cs.filter((c) => sameAsBizName(c, b)).forEach((c) => add({ type: 'bizonly', key: 'bizonly:' + c.id + ':' + b.id, kind: 'business', id: b.id, who: b.name, note: `The contact "${fullName(c)}" has the same name as the business. Is it actually just the business (no individual person)? If so, its phone and email can move onto the business.`, bizonly: { cid: c.id, bid: b.id } }));
     if (!cs.length && !bizHasDetails(b)) add({ type: 'biznodetails', kind: 'business', id: b.id, who: b.name, note: 'No phone, email or contact person — add a phone/email to the business, or link a contact.' }); });
   // links added recently from the Jobs list / quick link — keep, make past, or undo (person decides)
-  (D.changelog || []).filter((e) => e.at >= REVIEW_LINKS_FROM && /link all selected|^linked /i.test(e.label || '')).forEach((e) => (e.items || []).forEach((it) => {
+  (D.changelog || []).filter((e) => e.at >= REVIEW_LINKS_FROM && e.at < REVIEW_LINKS_TO && /link all selected|^linked /i.test(e.label || '')).forEach((e) => (e.items || []).forEach((it) => {
     if (it.kind !== 'contacts' || !it.after || !it.after.links) return; const before = new Set(((it.before || {}).links || []).map((l) => l.bid)); const c = D.contacts.find((x) => x.id === it.id); if (!c) return;
     it.after.links.filter((l) => !before.has(l.bid)).forEach((l) => { const cur = c.links.find((x) => x.bid === l.bid); const b = IDX.biz.get(l.bid); if (!cur || cur.past || !b) return;
       add({ type: 'linkreview', key: 'linkreview:' + c.id + ':' + b.id, kind: 'contact', id: c.id, who: fullName(c) + '  →  ' + b.name, note: `Linked on ${new Date(e.at).toLocaleString('en-AU')}${e.dev ? ' by ' + e.dev : ''}${before.size ? '' : ' (they had no business before)'}. Is ${c.first || fullName(c)} a current or past employee/contact of ${b.name} — or should the link be undone?`, linkRev: { cid: c.id, bid: b.id } }); });
@@ -1202,7 +1202,7 @@ function bulkOps(t, sel) {
   if (t === 'nocat') ops.push({ op: 'setcat', label: 'Set this category for all selected', green: true });
   if (t === 'sheep') ops.push({ op: 'sheepreg', label: 'Change all to Sheep only (regular)' });
   if (t === 'linkreview') ops.push({ op: 'lrpast', label: 'Make all selected past employees' }, { op: 'lrundo', label: 'Undo — remove all selected links' });
-  if (t === 'linksuggest') ops.push({ op: 'linkall', label: '✓ Link all selected', green: true });
+  if (t === 'linksuggest') ops.push({ op: 'linkall', label: '✓ Link all selected as current employees', green: true }, { op: 'linkallpast', label: '✓ Link all selected as past employees', green: true });
   if (t === 'noprimary') ops.push({ op: 'primall', label: '✓ Use the suggested primary contact for all selected', green: true });
   if (t === 'bizonly') ops.push({ op: 'bizonlyall', label: "✓ Yes — just the business, for all selected", green: true });
   if (t === 'noprimary') ops.push({ op: 'noprimreq', label: 'Primary contact not required' }, { op: 'nonclient', label: 'Make non-client (industry) businesses' });
@@ -1305,6 +1305,7 @@ async function runBulk(t, op) {
     else if (op === 'setcat' && jbCat) { const c = D.contacts.find((x) => x.id === j.id); if (c) setOne(c, jbCat); }
     else if (op === 'sheepreg') { const c = D.contacts.find((x) => x.id === j.id); if (c) { setCats(c, [...effCats(c).filter((x) => x !== 'sheepocc' && x !== 'sheep'), 'sheepreg']); c.flags = (c.flags || []).filter((x) => x.type !== 'sheepconfirm'); } }
     else if ((op === 'lrpast' || op === 'lrundo') && j.linkRev) { const c = D.contacts.find((x) => x.id === j.linkRev.cid); if (c) { const prev = catOf(c); c.links = op === 'lrundo' ? c.links.filter((l) => l.bid !== j.linkRev.bid) : c.links.map((l) => (l.bid === j.linkRev.bid ? { bid: l.bid, past: true } : l)); reindex(); if (prev) setOne(c, prev); touch(c); } }
+    else if (op === 'linkallpast' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push({ bid: j.linkSug.bid, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); } }
     else if (op === 'linkall' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push({ bid: j.linkSug.bid }); reindex(); if (prev) setOne(c, prev); touch(c); } }
     else if (op === 'primall' && j.primSuggest) { const b = IDX.biz.get(j.id), c = D.contacts.find((x) => x.id === j.primSuggest); if (b && c) { b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } } }
     else if (op === 'bizonlyall' && j.bizonly) { const c = D.contacts.find((x) => x.id === j.bizonly.cid), b = IDX.biz.get(j.bizonly.bid); if (c && b) convertBizOnly(c, b); }
@@ -1352,7 +1353,7 @@ function renderJobs() {
       ${j.warnTxt ? (() => { const w = j.warnSrc; const farms = w.fid ? [IDX.farms.get(w.fid)].filter(Boolean) : (w.kind === 'contact' ? bizOf(D.contacts.find((x) => x.id === w.id) || { links: [] }) : [IDX.biz.get(w.bid)].filter(Boolean)).flatMap((b) => b.farms); const A = (to, extra, lbl) => `<button class="btn small" data-act="warn-apply" data-to="${to}" data-k="${h(j.key)}" ${extra}>${lbl}</button>`;
         return `${A('general', '', '⚠ Apply as general warning')}${farms.slice(0, 5).map((f) => A('farm', `data-fid="${f.id}"`, `⚠ Apply as farm warning: ${h(f.name || 'farm')}`)).join('')}${A('side', '', '📝 Apply as side note')}${w.sec ? `<button class="btn small" data-act="warn-remove" data-k="${h(j.key)}" style="color:var(--red)">Remove *WARNING* section from general info</button>` : ''}`; })() : ''}
       ${j.linkRev ? `<button class="btn small" data-act="link-past" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" data-v="1">Past employee</button><button class="btn small" data-act="linkrev-undo" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" style="color:var(--red)">Undo — remove the link</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkRev.cid}">View contact</button>` : ''}
-      ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link to ${h(IDX.biz.get(j.linkSug.bid)?.name || '')}</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkSug.cid}">View contact</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">View business</button>` : ''}
+      ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as current employee</button><button class="btn small greenbtn" data-act="link-pick-past" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as past employee</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkSug.cid}">View contact</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">View business</button>` : ''}
       ${j.oddbiz ? `<button class="btn small primary" data-act="oddbiz-fix" data-bid="${j.oddbiz}">Sort out this name…</button><button class="btn small" data-act="edit-biz" data-id="${j.oddbiz}">Rename by hand</button>` : ''}
       ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}
       ${j.type === 'primnolink' ? `<button class="btn small primary" data-act="edit-contact" data-id="${j.id}">Edit contact</button>` : ''}
@@ -2719,6 +2720,8 @@ document.addEventListener('click', async (e) => {
       S.aiExtra = { cids: [...cids], bids: [...bids] }; S.aiScope = 'mentioned'; S.aiReq = `Help me sort out this item from the app's Jobs list.\nJob: ${JOB_TYPES[j.type]?.t || j.type}\n${j.who}: ${j.note}${j.warnTxt ? '\n' + j.warnTxt : ''}\nTell me what you'd suggest and why, and include the changes if you're fairly sure.`; S.aiReply = ''; S.aiResult = '';
       S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const el = document.querySelector('details.setsec'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 50); toast('Check the request, then tap "Copy for Claude"'); break; }
     case 'linkrev-undo': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b) break; const prev = catOf(c); c.links = c.links.filter((l) => l.bid !== b.id); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Undid link: ${fullName(c)} → ${b.name}`; S.skipConfirm = true; if (await changed()) toast('Link removed'); break; }
+    case 'link-pick-past': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b || c.links.some((l) => l.bid === b.id)) break; const prev = catOf(c);
+      c.links.push({ bid: b.id, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name} as a past employee`; S.skipConfirm = true; if (await changed()) toast(`✓ ${fullName(c)} linked to ${b.name} (past)`); break; }
     case 'link-past': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b) break; const prev = catOf(c);
       c.links = c.links.map((l) => (l.bid === b.id ? (d.v === '1' ? { bid: b.id, past: true } : { bid: b.id }) : l)); if (d.v === '1' && b.primaryContact === c.id) { b.primaryContact = null; touch(b); }
       reindex(); if (prev) setOne(c, prev); touch(c); // their category stays as it was
