@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-AU">
+<html lang="en-AU" style="background:#fff">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -32,10 +32,12 @@ header.top h1 .hi:empty{display:none}
 header.top .pill{min-width:0;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;display:block}
 header.top .hbtn{flex:0 0 auto}
 @media(max-width:420px){header.top h1{font-size:18px}header.top{gap:7px;padding-left:10px;padding-right:10px}}
-#splash{position:fixed;inset:0;z-index:200;background:#fff;color:#141414;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px;text-align:center;transition:opacity .35s}
-#splash img{width:min(70vw,340px);height:auto}
-#splash h1{font-family:var(--cond);font-size:28px;margin:4px 0 0}
-#splash .hi{font-size:20px;color:#555;min-height:26px}
+#splash{position:fixed;inset:0;z-index:200;background:#fff;color:#141414;transition:opacity .35s}
+#splash img{position:absolute;left:50%;top:50%;width:192px;height:192px;transform:translate(-50%,-50%);object-fit:contain}
+#splash .txt{position:absolute;left:16px;right:16px;top:calc(50% + 110px);text-align:center;animation:splashin .4s ease-out both}
+#splash h1{font-family:var(--cond);font-size:28px;margin:0}
+#splash .hi{font-size:20px;color:#555;min-height:26px;margin-top:4px}
+@keyframes splashin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 #splash.gone{opacity:0;pointer-events:none}
 .pill{font-size:12px;padding:3px 9px;border-radius:99px;background:#2c2b29;color:#ddd;white-space:nowrap}
 .pill.off{background:#5a3b00;color:#ffd77a}
@@ -244,7 +246,7 @@ html[data-theme=dark] .btn.primary,html[data-theme=dark] .seg button.on,html[dat
 </style>
 </head>
 <body>
-<div id="splash"><img src="img/icon-512.png" alt="Bovitech Veterinary Services"><h1>Bovitech Contacts App</h1><div class="hi" id="splash-hi"></div></div>
+<div id="splash"><img src="img/icon-512.png" alt="Bovitech Veterinary Services"><div class="txt"><h1>Bovitech Contacts App</h1><div class="hi" id="splash-hi"></div></div></div>
 <script>(function(){var n='';try{n=localStorage.getItem('bvt-nick')||(localStorage.getItem('bvt-devname')||'').split(/\s+[\u2013-]\s+/)[0].replace(/'s (phone|pc|laptop|computer|tablet)$/i,'');}catch(e){}document.getElementById('splash-hi').textContent=n?'Hi '+n:'';var t0=Date.now(),done=false;window.hideSplash=function(){if(done)return;done=true;setTimeout(function(){var s=document.getElementById('splash');if(!s)return;s.classList.add('gone');setTimeout(function(){s.remove();},400);},Math.max(0,1200-(Date.now()-t0)));};setTimeout(window.hideSplash,5000);})();</script>
 <div class="app">
   <header class="top">
