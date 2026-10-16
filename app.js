@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.0 (16 Oct 2026)';
+const APP_VERSION = '7.1 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -287,7 +287,8 @@ function primaryOf(b) {
   if (b.primaryContact && cs.some((c) => c.id === b.primaryContact)) return cs.find((c) => c.id === b.primaryContact);
   return cs.find((c) => c.tags.includes('pa')) || cs.find((c) => c.tags.includes('pi')) || null;
 }
-const isClientBiz = (b) => { const cat = bizCat(b); return cat ? catClass('b', cat) !== 'n' : b.type !== 'nonclient'; }; // category decides (Settings → Categories); no category → the business type
+const isClientBiz = (b) => { if (b.typeLocked) return b.type !== 'nonclient'; const cat = bizCat(b); return cat ? catClass('b', cat) !== 'n' : b.type !== 'nonclient'; }; // a type chosen on the business wins; otherwise its category decides (Settings → Categories)
+function setBizType(b, v) { b.type = v === 'nonclient' ? 'nonclient' : 'client'; const cat = bizCat(b); b.typeLocked = !!cat && (b.type === 'client') !== (catClass('b', cat) !== 'n'); if (b.type === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; } touch(b); } // category decides (Settings → Categories); no category → the business type
 const NONCLIENT_CATS = new Set(['industry', 'bvs', 'bfriends', 'phone', 'prac']); // default; changeable in Settings → Categories
 const catClass = (who, cat) => { const m = ((D.settings || {}).catClass || {})[who]; return m && cat in m ? m[cat] : NONCLIENT_CATS.has(cat) ? 'n' : 'c'; }; // who: 'p' people, 'b' businesses
 const isClientPerson = (c) => catClass('p', catOf(c)) !== 'n';
@@ -968,7 +969,7 @@ function editBiz(b) {
   const isNew = !b;
   b = b || { id: uid('b'), name: '', farms: [], pics: [], patientIds: [], info: D.settings.tplBiz != null ? D.settings.tplBiz : TPL_BIZ, warnings: '', flags: [], rating: null };
   const body = `<div class="f"><label>Business name</label><input id="e-bname" value="${h(b.name)}"></div>
-  <div class="f"><label>Business type</label><select id="e-btype"><option value="client">Client business</option><option value="nonclient" ${isClientBiz(b) ? '' : 'selected'}>Non-client business (industry)</option></select><div class="hint">Non-client businesses don't need a PIC, patient IDs, A+ to C category or farms — they have business locations instead.</div></div>
+  <div class="f"><label>Business type</label><select id="e-btype"><option value="client">Client business</option><option value="nonclient" ${isClientBiz(b) ? '' : 'selected'}>Non-client business (industry)</option></select><div class="hint">Normally set by the business's category (Settings → Categories). If you pick a different type here, the business keeps your choice.</div><div class="hint">Non-client businesses don't need a PIC, patient IDs, A+ to C category or farms — they have business locations instead.</div></div>
   <div class="f"><label>Business phone numbers</label>${repRows('bphone', b.phones || [], [{ k: 'value', ph: 'e.g. 08 9841 7857', w: 2 }, { k: 'label', ph: 'Label (e.g. Office, Mobile)', w: 2 }])}</div>
   <div class="f"><label>Business emails</label>${repRows('bemail', b.emails || [], [{ k: 'value', ph: 'e.g. sales@business.com.au', w: 3 }, { k: 'label', ph: 'Label (optional)', w: 2 }])}</div>
   <div class="f"><label>Business postal / street address</label><textarea id="e-bpostal" style="min-height:50px">${h((b.postal || []).join('\n'))}</textarea></div>
@@ -990,7 +991,7 @@ function editBiz(b) {
     const pick = rtVal($('#sheet'), 'bcat'); const newRating = RATING_SET.has(pick) ? pick : null;
     if (!pick) { toast('Choose a category for the business'); return false; }
     if (newRating !== b.rating) b.flags = (b.flags || []).filter((f) => f.type !== 'ratingconflict');
-    b.type = $('#e-btype').value; b.primaryRequired = $('#e-bpreq').value !== 'no';
+    const pickedType = $('#e-btype').value; b.type = pickedType; b.primaryRequired = $('#e-bpreq').value !== 'no';
     b.phones = readRep('bphone'); b.emails = readRep('bemail'); b.postal = $('#e-bpostal').value.split('\n').map((x) => x.trim()).filter(Boolean);
     if (b.type === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; }
     const pSel = b.type === 'nonclient' ? null : $('#e-bprimary'); if (pSel) { b.primaryContact = pSel.value || null; const pc = D.contacts.find((x) => x.id === b.primaryContact); if (pc && !pc.tags.includes('pa') && !pc.tags.includes('pi')) { pc.tags.push('pa'); touch(pc); } }
@@ -1002,6 +1003,7 @@ function editBiz(b) {
       if (!oldBc.includes('dna') && b.cats.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); touch(c); }
     });
     Object.assign(b, { name, rating: newRating, pics: readRep('pic').map((p) => ({ ...p, value: p.value.toUpperCase().replace(/\s+/g, '') })), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim(), sideNotes: $('#e-bside').value.trim(), dnaReason: $('#e-bdnareason').value.trim(), inactiveReason: $('#e-binreason').value.trim() });
+    setBizType(b, pickedType); // keeps the type you chose even if the category says otherwise
     touch(b); if (isNew) D.businesses.push(b);
     S.sel = { kind: 'business', id: b.id }; if (isNew) S.tab = 'biz';
     return true;
@@ -1328,7 +1330,7 @@ async function runBulk(t, op) {
     else if (op === 'linkall' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push({ bid: j.linkSug.bid }); reindex(); if (prev) setOne(c, prev); touch(c); } }
     else if (op === 'primall' && j.primSuggest) { const b = IDX.biz.get(j.id), c = D.contacts.find((x) => x.id === j.primSuggest); if (b && c) { b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } } }
     else if (op === 'bizonlyall' && j.bizonly) { const c = D.contacts.find((x) => x.id === j.bizonly.cid), b = IDX.biz.get(j.bizonly.bid); if (c && b) convertBizOnly(c, b); }
-    else if (op === 'noprimreq' || op === 'nonclient') { const b = IDX.biz.get(j.id); if (b) { b.primaryRequired = false; if (op === 'nonclient') b.type = 'nonclient'; touch(b); } }
+    else if (op === 'noprimreq' || op === 'nonclient') { const b = IDX.biz.get(j.id); if (b) { b.primaryRequired = false; if (op === 'nonclient') setBizType(b, 'nonclient'); touch(b); } }
   });
   S.jobSel.clear(); NEXT_LOG_LABEL = `Jobs: ${label.replace(/^✓ /, '')} (${sel.length})`; photoCache.clear(); if (await changed()) { Sync.soon(); toast('✓ Done — ' + sel.length + ' job' + (sel.length === 1 ? '' : 's')); }
 }
@@ -1481,7 +1483,7 @@ function aiApply(text) { // → {done:[lines], errors:[lines]}; changes are made
     if (op === 'new_business') { const nb = { id: uid('b'), name: String((ch.fields || {}).name || 'New business'), type: (ch.fields || {}).type === 'nonclient' ? 'nonclient' : 'client', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; BF.forEach((k) => { if (ch.fields && k in ch.fields) nb[k] = clean(k, ch.fields[k]); }); D.businesses.push(nb); reindex(); if (ch.category && okCat(ch.category) && ch.category !== 'same_as_business') setBizCat(nb, ch.category); touch(nb); if (ch.ref) refs[ch.ref] = nb.id; done.push('New business: ' + nb.name); continue; }
     if (op === 'new_contact') { const f = ch.fields || {}; const c = { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [], createdAt: Date.now() }; CF.forEach((k) => { if (k in f) c[k] = clean(k, f[k]); }); (ch.businesses || []).forEach((bid) => { const b = B(bid); if (b) c.links.push({ bid: b.id }); }); D.contacts.push(c); reindex(); if (ch.category && okCat(ch.category)) { if (ch.category === 'same_as_business') c.ownCats = false; else setOne(c, ch.category); } touch(c); if (ch.ref) refs[ch.ref] = c.id; done.push('New contact: ' + fullName(c)); continue; }
     if (op === 'update_contact') { const c = C(ch.id); if (!c) throw new Error('contact ' + ch.id + ' not found'); Object.entries(ch.fields || {}).forEach(([k, v]) => { if (CF.includes(k)) { c[k] = clean(k, v); if (k === 'info') delete c.infoHtml; } }); touch(c); done.push('Updated ' + fullName(c) + ': ' + Object.keys(ch.fields || {}).join(', ')); continue; }
-    if (op === 'update_business') { const b = B(ch.id); if (!b) throw new Error('business ' + ch.id + ' not found'); Object.entries(ch.fields || {}).forEach(([k, v]) => { if (BF.includes(k)) { b[k] = clean(k, v); if (k === 'info') delete b.infoHtml; } if (k === 'type' && (v === 'client' || v === 'nonclient')) b.type = v; }); touch(b); done.push('Updated ' + b.name + ': ' + Object.keys(ch.fields || {}).join(', ')); continue; }
+    if (op === 'update_business') { const b = B(ch.id); if (!b) throw new Error('business ' + ch.id + ' not found'); Object.entries(ch.fields || {}).forEach(([k, v]) => { if (BF.includes(k)) { b[k] = clean(k, v); if (k === 'info') delete b.infoHtml; } if (k === 'type' && (v === 'client' || v === 'nonclient')) setBizType(b, v); }); touch(b); done.push('Updated ' + b.name + ': ' + Object.keys(ch.fields || {}).join(', ')); continue; }
     if (op === 'set_category') { if (!okCat(ch.category)) throw new Error('unknown category ' + ch.category); if (ch.kind === 'business') { const b = B(ch.id); if (!b) throw new Error('business ' + ch.id + ' not found'); setBizCat(b, ch.category); done.push(b.name + ' → ' + tagName(ch.category)); } else { const c = C(ch.id); if (!c) throw new Error('contact ' + ch.id + ' not found'); if (ch.category === 'same_as_business') { c.tags = c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)); c.ownCats = false; touch(c); done.push(fullName(c) + ' → same as business'); } else { setOne(c, ch.category); done.push(fullName(c) + ' → ' + tagName(ch.category)); } } continue; }
     if (op === 'add_tag' || op === 'remove_tag') { const c = C(ch.id); const tg = IDX.tags.get(ch.tag); if (!c) throw new Error('contact ' + ch.id + ' not found'); if (!tg || tg.group !== 'additional') throw new Error('unknown tag ' + ch.tag); if (op === 'add_tag') { if (!c.tags.includes(ch.tag)) c.tags.push(ch.tag); if (ch.tag === 'pa') c.tags = c.tags.filter((t) => t !== 'pi'); if (ch.tag === 'pi') c.tags = c.tags.filter((t) => t !== 'pa'); } else c.tags = c.tags.filter((t) => t !== ch.tag); touch(c); done.push(`${op === 'add_tag' ? 'Added' : 'Removed'} ${tg.name} ${op === 'add_tag' ? 'to' : 'from'} ${fullName(c)}`); continue; }
     if (op === 'link' || op === 'unlink') { const c = C(ch.contact), b = B(ch.business); if (!c || !b) throw new Error('contact or business not found'); if (op === 'link') { const prev = catOf(c); c.links = c.links.filter((l) => l.bid !== b.id); c.links.push(ch.past ? { bid: b.id, past: true } : { bid: b.id }); reindex(); if (prev) setOne(c, prev); } else c.links = c.links.filter((l) => l.bid !== b.id); touch(c); done.push(`${op === 'link' ? 'Linked' : 'Unlinked'} ${fullName(c)} ${op === 'link' ? 'to' : 'from'} ${b.name}`); continue; }
@@ -1819,7 +1821,7 @@ function contactToBiz(c, kind) { // "This entry is a business": use the same-nam
   const cat = catOf(c) || (kind === 'industry' ? 'industry' : '');
   if (!b) { b = { id: uid('b'), name: fullName(c), farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; D.businesses.push(b); reindex(); if (cat) setBizCat(b, cat); }
   else if (!bizCat(b) && cat) setBizCat(b, cat);
-  b.type = kind === 'client' ? 'client' : 'nonclient'; if (b.type === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; }
+  setBizType(b, kind === 'client' ? 'client' : 'nonclient');
   if (c.dnaReason && !b.dnaReason) b.dnaReason = c.dnaReason; if (c.inactiveReason && !b.inactiveReason) b.inactiveReason = c.inactiveReason;
   convertBizOnly(c, b); return b;
 }
@@ -2049,7 +2051,7 @@ function advBizEditSheet() {
   openSheet(`Edit ${list.length} business${list.length === 1 ? '' : 'es'}`, body, async () => {
     const op = ($('#sheet input[name=bbop]:checked') || {}).value; if (!op) { toast('Choose what to change'); return false; }
     if (op === 'cat') { const v = rtVal($('#sheet'), 'bbc'); if (!v) { toast('Tick a category'); return false; } list.forEach((b) => { if (bizCat(b) !== v) setBizCat(b, v); }); NEXT_LOG_LABEL = `Search: set ${list.length} businesses to ${tagName(v)}`; }
-    if (op === 'client' || op === 'nonclient') { list.forEach((b) => { b.type = op; if (op === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; } touch(b); }); NEXT_LOG_LABEL = `Search: made ${list.length} businesses ${op === 'client' ? 'client' : 'non-client'}`; }
+    if (op === 'client' || op === 'nonclient') { list.forEach((b) => { setBizType(b, op); }); NEXT_LOG_LABEL = `Search: made ${list.length} businesses ${op === 'client' ? 'client' : 'non-client'}`; }
     if (op === 'trash') { if (!(await ask(`Move these ${list.length} businesses to the trash?\n\n${list.slice(0, 15).map((b) => b.name).join(', ')}${list.length > 15 ? '…' : ''}`, 'Yes — move to trash', true))) return false; list.forEach((b) => trashBiz(b)); NEXT_LOG_LABEL = `Search: moved ${list.length} businesses to the trash`; }
     S.advBSel.clear(); return true;
   });
@@ -2617,6 +2619,7 @@ function migrate() {
     D.businesses.forEach((b) => { let t = false; b.pics.forEach((p) => { if (/found in notes/i.test(p.label || '')) { p.label = ''; t = true; } const v = (p.value || '').trim(); const m = v.match(/^(W[A-Z]{3}\d{4})\b\s*[(,-]?\s*(.*?)\)?\s*$/i); if (m && v !== m[1].toUpperCase()) { p.value = m[1].toUpperCase(); if (m[2] && !p.label) p.label = m[2]; t = true; } }); if (t) touch(b); });
     D.settings.picFix1 = true; touch(D.settings); ch = true;
   }
+  if (!D.settings.typeLock1) { D.businesses.forEach((b) => { const cat = bizCat(b); if (b.type === 'nonclient' && cat && catClass('b', cat) !== 'n' && !b.typeLocked) { b.typeLocked = true; touch(b); } }); D.settings.typeLock1 = true; touch(D.settings); ch = true; }
   if (!D.settings.iceV1) { // link the existing "X's ICE (relationship: Y)" contacts to the staff member
     const tg = D.tags.find((t) => t.id === 'ice'); if (tg) { if (tg.name !== 'ICE contact') { tg.name = 'ICE contact'; touch(tg); } } else { D.tags.push({ id: 'ice', name: 'ICE contact', group: 'additional', photo: null }); touch(D.tags[D.tags.length - 1]); }
     const staff = D.contacts.filter((x) => effCats(x).includes('bvs'));
