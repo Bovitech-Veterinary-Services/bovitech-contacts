@@ -223,6 +223,11 @@ html[data-theme=dark] .btn.primary,html[data-theme=dark] .seg button.on,html[dat
 .setsec>summary::after{content:'▸';margin-left:auto;color:var(--ink3);transition:transform .15s}
 .setsec[open]>summary::after{transform:rotate(90deg)}
 .setsec[open]>summary{margin-bottom:10px}
+.flagjob>summary{list-style:none;cursor:pointer}
+.flagjob>summary::-webkit-details-marker{display:none}
+.flagjob[open]>summary{border-bottom-left-radius:0;border-bottom-right-radius:0;margin-bottom:0}
+.flagjob .flagbody{border:1px solid #f0d78a;border-top:0;border-radius:0 0 9px 9px;background:var(--card);padding:4px 8px;margin-bottom:6px}
+.flagjob .flagbody .job{border:0;padding:6px 0}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;z-index:99;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .sec-h{font-family:var(--cond);font-size:20px;margin:16px 0 8px}
 </style>
