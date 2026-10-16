@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.6 (16 Oct 2026)';
+const APP_VERSION = '7.7 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1426,7 +1426,7 @@ async function checkAllDistances() {
 // every Settings card folds up to its heading; tap a heading to open it (stays open until closed)
 /* ---------------- Ask Claude (copy & paste through the person's own Claude account) ---------------- */
 function aiRecords(req, scope) {
-  const cOut = (c) => ({ id: c.id, name: fullName(c), first: c.first, middle: c.middle, last: c.last, role: c.role, category: catOf(c) || null, categorySetOnContact: !followsBiz(c), tags: c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)), businesses: curLinks(c).map((l) => l.bid), pastBusinesses: c.links.filter((l) => l.past).map((l) => l.bid), mobiles: c.mobiles, landlines: c.landlines, emails: c.emails, postal: c.postal, info: c.info, warnings: c.warnings, sideNotes: c.sideNotes, ...(c.ice ? { ice: c.ice } : {}) });
+  const cOut = (c) => ({ id: c.id, name: fullName(c), first: c.first, middle: c.middle, last: c.last, role: c.role, category: catOf(c) || null, categorySetOnContact: !followsBiz(c), tags: c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)), businesses: curLinks(c).map((l) => l.bid), pastBusinesses: c.links.filter((l) => l.past).map((l) => l.bid), mobiles: c.mobiles, landlines: c.landlines, emails: c.emails, postal: c.postal, info: c.info, warnings: c.warnings, sideNotes: c.sideNotes, ...(c.ice ? { ice: c.ice } : {}), ...(() => { const { dr, ptags } = photoCandidates(c); const opts = [...new Set([...dr, ...ptags])]; if (opts.length < 2) return {}; const pc = effChoice(c); return { photo: pc === 'auto' || pc === 'custom' ? pc : pc.startsWith('split:') ? pc.slice(6).split(',') : [pc], photoOptions: opts, ...(needsPhotoChoice(c) ? { photoNeedsChoosing: true } : {}) }; })() });
   const bOut = (b) => ({ id: b.id, name: b.name, type: isClientBiz(b) ? 'client' : 'nonclient', category: bizCat(b) || null, primaryContact: b.primaryContact || null, contacts: (IDX.bizContacts.get(b.id) || []).map((c) => c.id), pastContacts: (IDX.bizPast.get(b.id) || []).map((c) => c.id), phones: b.phones || [], emails: b.emails || [], pics: b.pics, patientIds: b.patientIds, farms: b.farms.map((f) => ({ id: f.id, name: f.name, address: f.address, kmReturn: f.kmReturn, warning: f.warning || '' })), info: b.info, warnings: b.warnings, sideNotes: b.sideNotes });
   if (scope === 'all') return { contacts: D.contacts.map((c) => [c.id, fullName(c), catOf(c) || '', c.links.map((l) => l.bid).join(' '), (c.mobiles[0] || c.landlines[0] || {}).value || '', c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)).join(' ')]), contactColumns: ['id', 'name', 'category', 'businessIds', 'phone', 'tags'], businesses: D.businesses.map((b) => [b.id, b.name, isClientBiz(b) ? 'client' : 'nonclient', bizCat(b) || '', b.pics.map((p) => p.value).join(' '), b.farms.map((f) => (f.name || '') + (f.kmReturn != null ? ' ' + f.kmReturn + 'km' : '')).join('; ')]), businessColumns: ['id', 'name', 'type', 'category', 'PICs', 'farms'], note: 'Short form. Ask me to send full details of specific records if you need their notes.' };
   const t = ' ' + req.toLowerCase().replace(/[^a-z0-9&' -]/g, ' ').replace(/\s+/g, ' ') + ' ';
@@ -1455,6 +1455,7 @@ RULES
 - A link can be a past employee/contact ("past":true) — past links don't set the person's category.
 - Business "type" is "client" or "nonclient". Phone/email lists look like [{"label":"Mobile","value":"0400 000 000"}].
 - When changing a list (mobiles, emails, postal…) give the WHOLE new list. When changing info, give the WHOLE new text.
+- Photos: a contact with "photoOptions" can show one of those photos, or two side by side (a split photo). Use set_photo with ONE id from their photoOptions for a single photo, TWO ids for a split photo, or ["auto"] to go back to automatic. Businesses have no photo choice (their photo comes from their category).
 - If something is unclear, ask me instead of guessing.
 
 JSON FORMAT
@@ -1466,6 +1467,7 @@ JSON FORMAT
  {"op":"add_tag","id":"c…","tag":"pa"}, {"op":"remove_tag","id":"c…","tag":"pi"},
  {"op":"link","contact":"c…","business":"b…"}, {"op":"link","contact":"c…","business":"b…","past":true}, {"op":"unlink","contact":"c…","business":"b…"},
  {"op":"set_primary","business":"b…","contact":"c…"},
+ {"op":"set_photo","id":"c…","photo":["b"]}, {"op":"set_photo","id":"c…","photo":["b","aplus"]},
  {"op":"new_business","ref":"n1","fields":{"name":"","type":"client"},"category":"c"},
  {"op":"new_contact","ref":"n2","fields":{"first":"","last":"","mobiles":[]},"businesses":["b…"],"category":"same_as_business"},
  {"op":"trash_contact","id":"c…"}
@@ -1497,6 +1499,14 @@ function aiApply(text) { // → {done:[lines], errors:[lines]}; changes are made
     if (op === 'add_tag' || op === 'remove_tag') { const c = C(ch.id); const tg = IDX.tags.get(ch.tag); if (!c) throw new Error('contact ' + ch.id + ' not found'); if (!tg || tg.group !== 'additional') throw new Error('unknown tag ' + ch.tag); if (op === 'add_tag') { if (!c.tags.includes(ch.tag)) c.tags.push(ch.tag); if (ch.tag === 'pa') c.tags = c.tags.filter((t) => t !== 'pi'); if (ch.tag === 'pi') c.tags = c.tags.filter((t) => t !== 'pa'); } else c.tags = c.tags.filter((t) => t !== ch.tag); touch(c); done.push(`${op === 'add_tag' ? 'Added' : 'Removed'} ${tg.name} ${op === 'add_tag' ? 'to' : 'from'} ${fullName(c)}`); continue; }
     if (op === 'link' || op === 'unlink') { const c = C(ch.contact), b = B(ch.business); if (!c || !b) throw new Error('contact or business not found'); if (op === 'link') { const prev = catOf(c); c.links = c.links.filter((l) => l.bid !== b.id); c.links.push(ch.past ? { bid: b.id, past: true } : { bid: b.id }); reindex(); if (prev) setOne(c, prev); } else c.links = c.links.filter((l) => l.bid !== b.id); touch(c); done.push(`${op === 'link' ? 'Linked' : 'Unlinked'} ${fullName(c)} ${op === 'link' ? 'to' : 'from'} ${b.name}`); continue; }
     if (op === 'set_primary') { const c = C(ch.contact), b = B(ch.business); if (!c || !b) throw new Error('contact or business not found'); b.primaryContact = c.id; if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } touch(b); done.push(fullName(c) + ' made primary for ' + b.name); continue; }
+    if (op === 'set_photo') { const c = C(ch.id); if (!c) { if (B(ch.id)) throw new Error(B(ch.id).name + ': businesses have no photo choice — their photo comes from their category'); throw new Error('contact ' + ch.id + ' not found'); }
+      let ph = ch.photo; if (typeof ph === 'string') ph = ph.startsWith('split:') ? ph.slice(6).split(',') : [ph]; if (!Array.isArray(ph)) throw new Error('set_photo for ' + fullName(c) + ': "photo" must be a list of ids');
+      ph = [...new Set(ph.map((x) => String(x).trim()).filter(Boolean))];
+      if (ph.length === 1 && ph[0] === 'auto') { c.photoChoice = 'auto'; touch(c); done.push(fullName(c) + ': photo back to automatic'); continue; }
+      if (!ph.length || ph.length > 2) throw new Error('set_photo for ' + fullName(c) + ': give one id (single photo) or two (split photo)');
+      const { dr, ptags } = photoCandidates(c); const opts = [...new Set([...dr, ...ptags])]; const bad = ph.filter((x) => !opts.includes(x));
+      if (bad.length) throw new Error(`set_photo for ${fullName(c)}: ${bad.map((x) => `"${IDX.tags.get(x) ? tagName(x) : x}"`).join(', ')} is not a category or tag with a photo that this contact has${opts.length ? ' (choose from: ' + opts.map((x) => x + ' = ' + tagName(x)).join(', ') + ')' : ''}`);
+      c.photoChoice = ph.length === 1 ? ph[0] : 'split:' + ph.join(','); touch(c); done.push(fullName(c) + ': photo → ' + ph.map(tagName).join(' + ') + (ph.length > 1 ? ' (split)' : '')); continue; }
     if (op === 'trash_contact') { const c = C(ch.id); if (!c) throw new Error('contact ' + ch.id + ' not found'); done.push('Moved ' + fullName(c) + ' to the trash'); trashContact(c); continue; }
     throw new Error('unknown change "' + op + '"');
   } catch (e) { errors.push(e.message); } }
