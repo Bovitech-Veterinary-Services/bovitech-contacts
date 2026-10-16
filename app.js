@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '8.6 (17 Oct 2026)';
+const APP_VERSION = '9.0 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -21,6 +21,7 @@ const ICONS = {
   contacts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7"/><path d="M17 4a4 4 0 0 1 0 8M22 21c0-3-1.5-5.5-4-6.5"/></svg>',
   biz: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-7h6v7"/></svg>',
   route: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5"/></svg>',
+  map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>',
   jobs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/><path d="M8 10.5h5M10.5 8v5"/></svg>',
@@ -66,7 +67,7 @@ const Store = {
 let saveTimer = null;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => Store.set('data', D), 150); }
 function touch(rec) { rec._u = Date.now(); rec._dev = DEVICE; rec._dirty = true; if (typeof TOUCHED !== 'undefined') TOUCHED.add(rec); if (window.Sync) Sync.soon(); }
-function pendingCount() { if (!D) return 0; return [...D.contacts, ...D.businesses, ...D.tags, D.settings].filter((r) => r && r._dirty).length + (D.deleted || []).filter((x) => !x.synced).length + (D._dismissDirty ? 1 : 0) + (D._trashDirty ? 1 : 0) + (D._logDirty ? 1 : 0); }
+function pendingCount() { if (!D) return 0; return [...D.contacts, ...D.businesses, ...D.tags, ...(D.farms || []), ...(D.routes || []), D.settings].filter((r) => r && r._dirty).length + (D.deleted || []).filter((x) => !x.synced).length + (D._dismissDirty ? 1 : 0) + (D._trashDirty ? 1 : 0) + (D._logDirty ? 1 : 0); }
 
 async function loadSeed() {
   if (window.SEED) { const d = JSON.parse(JSON.stringify(window.SEED)); d.importedAt = '14 Oct 2026'; return d; }
@@ -74,17 +75,49 @@ async function loadSeed() {
   const r = await fetch('defaults.json'); const d = await r.json(); return { ...d, contacts: [], businesses: [], dismissed: {}, firstRun: true };
 }
 
+/* ---------------- farms are shared records (D.farms); a business links to them as current or past ---------------- */
+function farmProps(b, farms) {
+  /* older data (or an older app version) kept farms inside the business: move them into the shared list */
+  const own = Object.getOwnPropertyDescriptor(b, 'farms');
+  if (own && 'value' in own) { const arr = Array.isArray(own.value) ? own.value : []; delete b.farms; b.farmLinks = Array.isArray(b.farmLinks) ? b.farmLinks : [];
+    arr.forEach((f) => { if (!f || !f.id) return; if (!farms.has(f.id)) { if (!f.owner) f.owner = { bid: b.id }; if (!f.pinType) f.pinType = guessPinType(f.name); D.farms.push(f); farms.set(f.id, f); touch(f); } if (!b.farmLinks.some((l) => l.fid === f.id)) b.farmLinks.push({ fid: f.id }); });
+    if (arr.length) touch(b); }
+  if (!Array.isArray(b.farmLinks)) b.farmLinks = [];
+  if (!own || 'value' in own) Object.defineProperty(b, 'farms', { configurable: true, enumerable: false, get() { return this.farmLinks.filter((l) => !l.past).map((l) => IDX.farms.get(l.fid)).filter(Boolean); }, set(v) { Object.defineProperty(this, 'farms', { value: v, writable: true, enumerable: true, configurable: true }); } });
+  if (!Object.getOwnPropertyDescriptor(b, 'pastFarms')) Object.defineProperty(b, 'pastFarms', { configurable: true, enumerable: false, get() { return this.farmLinks.filter((l) => l.past).map((l) => IDX.farms.get(l.fid)).filter(Boolean); } });
+}
+const farmUsersOf = (fid) => (IDX.farmUsers && IDX.farmUsers.get(fid)) || [];
+function guessPinType(name) { const n = (name || '').toLowerCase(); return /dairy/.test(n) ? 'dairy' : /feedlot/.test(n) ? 'feedlot' : /depot/.test(n) ? 'depot' : /office|house|homestead/.test(n) && !/yard/.test(n) ? 'office' : /shear/.test(n) ? 'shed' : /sheep/.test(n) && !/cattle/.test(n) ? 'sheep' : 'cattle'; }
+function newFarm(over) { return { id: uid('f'), name: '', address: '', lat: null, lng: null, kmReturn: null, driveMin: null, kmStatus: 'missing', info: '', seeWarning: false, flags: [], pinType: 'cattle', extra: [], photos: [], createdAt: Date.now(), ...(over || {}) }; }
+function linkFarm(b, f, past) { const l = b.farmLinks.find((x) => x.fid === f.id); if (l) { if (past) l.past = true; else delete l.past; } else b.farmLinks.push(past ? { fid: f.id, past: true } : { fid: f.id }); touch(b); }
+function unlinkFarm(b, fid) { b.farmLinks = b.farmLinks.filter((l) => l.fid !== fid); touch(b); }
+function remapFarmId(from, to) { S.route.stops.forEach((st) => { if (st.fid === from) st.fid = to; }); (D.routes || []).forEach((r) => { let ch = false; (r.stops || []).forEach((st) => { if (st.fid === from) { st.fid = to; ch = true; } }); if (ch) touch(r); }); }
+function dropFarmRecord(f) { D.farms = D.farms.filter((x) => x !== f); D.deleted.push({ id: f.id, kind: 'farms', at: Date.now() }); }
+function combineFarms(keep, other) { /* one shared farm: every business using either now uses keep */
+  const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
+  keep.info = join(keep.info, other.info); keep.warning = join(keep.warning, other.warning); keep.seeWarning = !!(keep.seeWarning || other.seeWarning);
+  ['address', 'name', 'turn', 'access', 'biosec', 'reception', 'fac', 'safety', 'owner'].forEach((k) => { if ((keep[k] == null || keep[k] === '') && other[k] != null && other[k] !== '') keep[k] = other[k]; });
+  if (keep.lat == null && other.lat != null) { keep.lat = other.lat; keep.lng = other.lng; }
+  if (keep.kmReturn == null) { keep.kmReturn = other.kmReturn; keep.kmStatus = other.kmStatus; } if (keep.driveMin == null) keep.driveMin = other.driveMin;
+  keep.extra = [...(keep.extra || []), ...(other.extra || [])]; keep.photos = [...(keep.photos || []), ...(other.photos || [])];
+  if (other.name && keep.name && other.name !== keep.name) keep.aka = join(keep.aka, other.name);
+  delete keep.sharedWith; touch(keep);
+  D.businesses.forEach((b) => { const l = b.farmLinks.find((x) => x.fid === other.id); if (!l) return; const k = b.farmLinks.find((x) => x.fid === keep.id); if (k) { if (!l.past) delete k.past; b.farmLinks = b.farmLinks.filter((x) => x !== l); } else l.fid = keep.id; touch(b); });
+  remapFarmId(other.id, keep.id); dropFarmRecord(other); reindex();
+}
 /* ---------------- indexes & helpers ---------------- */
 function reindex() {
   D.routes = D.routes || [];
   const biz = new Map(D.businesses.map((b) => [b.id, b]));
   const tags = new Map(D.tags.map((t) => [t.id, t]));
-  const farms = new Map(); const farmBiz = new Map();
-  D.businesses.forEach((b) => b.farms.forEach((f) => { farms.set(f.id, f); farmBiz.set(f.id, b); }));
+  D.farms = D.farms || [];
+  const farms = new Map(D.farms.map((f) => [f.id, f])); const farmBiz = new Map(); const farmUsers = new Map();
+  D.businesses.forEach((b) => { farmProps(b, farms); b.farmLinks.forEach((l) => { if (!farms.has(l.fid)) return; if (!farmUsers.has(l.fid)) farmUsers.set(l.fid, []); farmUsers.get(l.fid).push({ b, past: !!l.past }); }); });
+  farmUsers.forEach((us, fid) => farmBiz.set(fid, (us.find((u) => !u.past) || us[0]).b));
   const bizContacts = new Map(D.businesses.map((b) => [b.id, []]));
   const bizPast = new Map(D.businesses.map((b) => [b.id, []]));
   D.contacts.forEach((c) => c.links.forEach((l) => { const m = l.past ? bizPast : bizContacts; if (m.has(l.bid)) m.get(l.bid).push(c); }));
-  IDX = { biz, tags, farms, farmBiz, bizContacts, bizPast, hay: new Map(), bhay: new Map(), personNames: new Set(D.contacts.map((c) => fullName(c).toLowerCase().trim())) };
+  IDX = { biz, tags, farms, farmBiz, farmUsers, bizContacts, bizPast, hay: new Map(), bhay: new Map(), personNames: new Set(D.contacts.map((c) => fullName(c).toLowerCase().trim())) };
 }
 // alphabetical, but names starting with a letter come before names starting with a number/symbol
 const alphaKey = (str) => { const t = (str || '').trim().toLowerCase(); return (/^[a-z]/.test(t) ? '1' : '2') + t; };
@@ -132,6 +165,8 @@ const fmtKm = (f) => (f.kmReturn == null ? '—' : `${+f.kmReturn.toFixed(1)} km
 const fmtMin = (m) => (m == null ? '' : m >= 60 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${Math.round(m)} min`);
 // Google Maps driving directions from homebase to a farm (the route the km suggestion is based on)
 const gmapsRoute = (f) => `https://www.google.com/maps/dir/?api=1&origin=${D.settings.home.lat},${D.settings.home.lng}&destination=${f.lat},${f.lng}&travelmode=driving`;
+const farmRoutePt = (f) => (f.turn && f.turn.lat != null ? { lat: f.turn.lat, lng: f.turn.lng } : { lat: f.lat, lng: f.lng }); /* drive to the turn-off when there is one */
+const gmapsNav = (p) => `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}&travelmode=driving`;
 const gmapsPin = (f) => `https://www.google.com/maps/search/?api=1&query=${f.lat},${f.lng}`;
 function toast(msg) { document.querySelectorAll('.toast').forEach((x) => x.remove()); const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
 /* ---------------- tap feedback: every button flashes when pressed; ⟳ buttons spin ---------------- */
@@ -314,7 +349,7 @@ const REQ_DEF = ['email', 'phone', 'business', 'gps', 'pic', 'pid', 'category'];
 const reqOn = (k) => (D.settings.required || REQ_DEF).includes(k);
 const TPL_CONTACT = '*General info*\n-\n\n*Relationships*\n-\n\n*Preg test info*\n-Frequency:\n-Type:\n-Speed:\n-Comment:\n\n*Bull test info*\n-Frequency:\n-Speed:\n-Power:\n-Comment:\n\n*Book under*\n-\n\n*WARNING*\n-';
 const TPL_BIZ = '*General info*\n-\n\n*Billing*\n-\n\n*WARNING*\n-';
-const TAB_DEFAULTS = { contacts: 'People', biz: 'Businesses', search: 'Search & Bulk Edit', route: 'Plan Route', jobs: 'Jobs', settings: 'Settings' };
+const TAB_DEFAULTS = { contacts: 'People', biz: 'Businesses', search: 'Search & Bulk Edit', route: 'Plan Route', map: 'Farm Map', jobs: 'Jobs', settings: 'Settings' };
 const lab = (k) => (((D && D.settings) || {}).labels || {})[k] || TAB_DEFAULTS[k];
 /* ---------- business-name helpers: matching names in text, splitting names that hold more than one business ---------- */
 const coreBiz = (n) => (n || '').replace(/\([^)]*\)?/g, ' ').replace(/\b(pty\.?\s*ltd\.?|pty|ltd|limited|atf\b.*|as trustee.*|trading as.*|t\/a\b.*|ta\b .*|& co\b)/gi, ' ').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -378,9 +413,9 @@ function computeJobs() {
   const jobs = []; const dis = D.dismissed || {};
   const add = (j) => { j.key = j.key || j.type + ':' + (j.fid || j.id); if (!dis[j.key]) jobs.push(j); };
   // farms
-  const byGps = new Map();
-  D.businesses.forEach((b) => {
-    b.farms.forEach((f) => {
+  const byGps = new Map(); const seenF = new Set();
+  D.businesses.forEach((b0) => {
+    b0.farms.forEach((f) => { if (seenF.has(f.id)) return; seenF.add(f.id); const b = IDX.farmBiz.get(f.id) || b0; /* a shared farm is checked once */
       const who = b.name + (f.name ? ' — ' + f.name : '');
       if (f.lat == null) add({ type: 'nogps', kind: 'business', id: b.id, fid: f.id, who, note: 'Address but no GPS pin' + (f.address ? ': ' + f.address : '') });
       if (f.kmReturn == null) add({ type: 'nokm', kind: 'business', id: b.id, fid: f.id, who, note: 'No distance recorded', suggest: f.gKm != null ? { km: f.gKm, fids: [f.id], why: 'Google Maps' } : null, needsLookup: f.gKm == null && f.lat != null ? [f.id] : null });
@@ -388,18 +423,19 @@ function computeJobs() {
       (f.flags || []).forEach((fl) => { if (['signfix', 'kmcheck'].includes(fl.type)) add({ type: fl.type, kind: 'business', id: b.id, fid: f.id, who, note: fl.note, data: fl, suggest: fl.type === 'kmcheck' ? { km: fl.google, fids: [f.id], why: 'Google Maps, rounded up' } : null }); });
       if (f.lat != null && f.kmReturn != null) { const k = f.lat.toFixed(3) + ',' + f.lng.toFixed(3); if (!byGps.has(k)) byGps.set(k, []); byGps.get(k).push({ b, f }); }
     });
+    const b = b0;
     (b.flags || []).forEach((fl) => { if (fl.type !== 'catpick') add({ type: fl.type, kind: 'business', id: b.id, who: b.name, note: fl.note }); });
     if (isClientBiz(b) && b.primaryRequired !== false && !primaryOf(b)) add({ type: 'noprimary', kind: 'business', id: b.id, who: b.name, primSuggest: (suggestPrimary(b) || {}).id, note: (IDX.bizContacts.get(b.id) || []).length ? 'Choose the primary contact (Edit business → Primary contact)' : 'No contacts linked — add a contact and make them primary' });
   });
   // two farms on the same GPS pin: same farm or different farm?
-  const pinned = []; D.businesses.forEach((b) => b.farms.forEach((f) => { if (f.lat != null) pinned.push({ b, f }); }));
+  const pinned = []; D.farms.forEach((f) => { const b = IDX.farmBiz.get(f.id); if (b && f.lat != null) pinned.push({ b, f }); });
   for (let i = 0; i < pinned.length; i++) for (let k = i + 1; k < pinned.length; k++) {
     const A = pinned[i], B = pinned[k];
     if (Math.abs(A.f.lat - B.f.lat) > 0.01 || Math.abs(A.f.lng - B.f.lng) > 0.012) continue;
     const dkm = hav(A.f, B.f); if (dkm >= routeSet().pinM / 1000) continue; // only pins on the same spot (Settings → Travel)
     const key = 'nearpin:' + [A.f.id, B.f.id].sort().join('|');
     const nm = (x) => x.b.name + (x.f.name ? ' — ' + x.f.name : '');
-    add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two farms have the same GPS pin. Are they the same farm or different farms? (1 = ${nm(A)}, 2 = ${nm(B)})`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
+    add({ type: 'nearpin', key, kind: 'business', id: A.b.id, fid: A.f.id, who: nm(A) + '  ↔  ' + nm(B), note: `These two farms have the same GPS pin. If they're the same yards, combine them into one shared farm (used by both). (1 = ${nm(A)}, 2 = ${nm(B)})`, pair: { a: A.f.id, b: B.f.id, same: A.b.id === B.b.id } });
   }
   dupeJobs(add);
   byGps.forEach((arr) => {
@@ -512,7 +548,7 @@ function jobs() { if (!JOBS_CACHE) { const off = new Set(PREF.jobsOff || []); JO
 function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind === kind || (kind === 'contact' && false))); }
 
 /* ---------------- rendering: shell ---------------- */
-const TABS = [['contacts', 'People'], ['biz', 'Businesses'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['jobs', 'Jobs'], ['settings', 'Settings']];
+const TABS = [['contacts', 'People'], ['biz', 'Businesses'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['map', 'Farm Map'], ['jobs', 'Jobs'], ['settings', 'Settings']];
 function renderTabs() {
   const n = jobs().length;
   $('#tabs').innerHTML = TABS.map(([k]) => { const l = lab(k); return `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`; }).join('');
@@ -597,15 +633,74 @@ function renderAll() {
   navRecord(); updateBackBtn();
   renderTabs();
   const main = $('#main');
-  main.classList.toggle('single', ['search', 'route', 'jobs', 'settings'].includes(S.tab));
+  main.classList.toggle('single', ['search', 'route', 'map', 'jobs', 'settings'].includes(S.tab));
   if (S.tab === 'contacts') { renderContactList(); renderDetail(); }
   else if (S.tab === 'biz') { renderBizList(); renderDetail(); }
   else if (S.tab === 'search') { $('#list').innerHTML = renderAdvanced(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'route') { $('#list').innerHTML = renderRoute(); document.body.classList.remove('show-detail'); }
+  else if (S.tab === 'map') { renderMapTab(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'jobs') { $('#list').innerHTML = renderJobs(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'settings') { $('#list').innerHTML = renderSettings(); collapseSettings(); document.body.classList.remove('show-detail'); }
   renderSyncPill();
 }
+
+
+/* ---------------- farm map (Leaflet + OpenStreetMap; needs internet for the map tiles) ---------------- */
+let FMAP = null, FMAP_LAYER = null, LEAFLET_P = null;
+function loadLeaflet() { if (window.L) return Promise.resolve(); if (LEAFLET_P) return LEAFLET_P;
+  LEAFLET_P = new Promise((res, rej) => { const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'vendor/leaflet/leaflet.css'; document.head.appendChild(css); const sc = document.createElement('script'); sc.src = 'vendor/leaflet/leaflet.js'; sc.onload = () => res(); sc.onerror = () => { LEAFLET_P = null; rej(new Error('Map could not load')); }; document.head.appendChild(sc); }); return LEAFLET_P; }
+function mapFarms() { const fl = S.mapF || (S.mapF = { cat: '', type: '', past: false, q: '' }); const q = (fl.q || '').toLowerCase().trim();
+  return D.farms.filter((f) => { const us = farmUsersOf(f.id); const cur = us.filter((u) => !u.past); if (!us.length) return false; if (!fl.past && !cur.length) return false;
+    if (fl.type && f.pinType !== fl.type && !(f.extra || []).some((x) => x.type === fl.type)) return false;
+    const bs = (fl.past ? us : cur).map((u) => u.b);
+    if (fl.cat === 'client' && !bs.some(isClientBiz)) return false; if (fl.cat === 'nonclient' && !bs.some((b) => !isClientBiz(b))) return false;
+    if (fl.cat && !['client', 'nonclient'].includes(fl.cat) && !bs.some((b) => bizCat(b) === fl.cat)) return false;
+    if (q && ![f.name, f.address, ...bs.map((b) => b.name)].join(' ').toLowerCase().includes(q)) return false;
+    return f.lat != null || (f.turn && f.turn.lat != null) || (f.extra || []).some((x) => x.lat != null); }); }
+function renderMapTab() {
+  const fl = S.mapF || (S.mapF = { cat: '', type: '', past: false, q: '' }); const cats = [...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)];
+  const n = mapFarms().length;
+  if (!$('#fmap') || !FMAP) {
+    $('#list').innerHTML = `<div class="d-wrap" style="max-width:none;padding-bottom:8px"><h2 class="sec-h" style="font-size:26px;margin-bottom:6px">${h(lab('map'))}</h2>
+      <div class="mapbar"><input id="map-q" value="${h(fl.q || '')}" placeholder="Search farm or business"><select data-mapf="cat"><option value="">All businesses</option><option value="client">Client businesses</option><option value="nonclient">Non-client businesses</option>${cats.map((c) => `<option value="${h(c)}">${h(tagName(c))}</option>`).join('')}</select><select data-mapf="type"><option value="">All pin types</option>${pinTypes().map((t) => `<option value="${h(t.id)}">${t.emoji} ${h(t.name)}</option>`).join('')}</select><label class="hint" style="display:flex;align-items:center;gap:4px"><input type="checkbox" data-mapf="past"> Include not current</label><button class="btn small" data-act="map-me">◎ Near me</button><span class="hint" id="map-n"></span></div>
+      <div id="fmap"></div><div class="hint" style="margin-top:4px">Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. Needs internet for the map itself. Zoom in to see turn-offs and extra pins.</div></div>`;
+    document.querySelectorAll('[data-mapf]').forEach((x) => { const k = x.dataset.mapf; if (x.type === 'checkbox') x.checked = !!fl[k]; else x.value = fl[k] || ''; });
+    FMAP = null; buildMap();
+  } else { drawMapPins(); }
+  const mn = $('#map-n'); if (mn) mn.textContent = `${n} farm${n === 1 ? '' : 's'}`;
+}
+async function buildMap() {
+  try { await loadLeaflet(); } catch (e) { const el = $('#fmap'); if (el) el.innerHTML = `<div class="empty">${h(e.message)} — check the internet connection.</div>`; return; }
+  const el = $('#fmap'); if (!el || S.tab !== 'map') return;
+  const home = D.settings.home || { lat: -34.97, lng: 117.99 }; const v = S.mapView || { c: [home.lat, home.lng], z: 9 };
+  FMAP = L.map(el, { zoomControl: true }).setView(v.c, v.z);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(FMAP);
+  FMAP.on('moveend zoomend', () => { S.mapView = { c: [FMAP.getCenter().lat, FMAP.getCenter().lng], z: FMAP.getZoom() }; if (FMAP._lastZ !== FMAP.getZoom()) { FMAP._lastZ = FMAP.getZoom(); drawMapPins(); } });
+  if (home.lat != null) L.marker([home.lat, home.lng], { icon: L.divIcon({ className: '', html: '<div class="mpin home" title="Homebase">🏥</div>', iconSize: [34, 34], iconAnchor: [17, 17] }) }).addTo(FMAP).bindPopup('<b>Bovitech homebase</b>');
+  FMAP._lastZ = FMAP.getZoom(); drawMapPins();
+}
+function drawMapPins() {
+  if (!FMAP || !window.L) return; if (FMAP_LAYER) FMAP_LAYER.remove(); FMAP_LAYER = L.layerGroup().addTo(FMAP);
+  const z = FMAP.getZoom(); const fl = S.mapF || {};
+  const icon = (emo, cls, size = 30) => L.divIcon({ className: '', html: `<div class="mpin ${cls || ''}">${emo}</div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2] });
+  mapFarms().forEach((f) => {
+    const sf = f.safety || {}; const cls = sf.status === 'stop' ? 'mstop' : sf.status === 'caution' ? 'mcaution' : farmBiosecOf(f).length ? 'bio' : ''; const pop = () => mapPopup(f);
+    if (f.lat != null && (!fl.type || f.pinType === fl.type)) L.marker([f.lat, f.lng], { icon: icon(pinT(f.pinType).emoji, cls), title: farmLabel(f) }).addTo(FMAP_LAYER).bindPopup(pop, { maxWidth: 300 });
+    if (z >= 12 || f.lat == null) { (f.extra || []).forEach((x) => { if (x.lat != null && (!fl.type || x.type === fl.type)) L.marker([x.lat, x.lng], { icon: icon(pinT(x.type).emoji, x.safety && x.safety.status && x.safety.status !== 'ok' ? 'm' + x.safety.status : '', 26), title: x.name || pinT(x.type).name }).addTo(FMAP_LAYER).bindPopup(pop, { maxWidth: 300 }); });
+      if (f.turn && f.turn.lat != null && !fl.type) L.marker([f.turn.lat, f.turn.lng], { icon: icon(TURN_EMOJI, 'turn', 24), title: 'Turn-off — ' + farmLabel(f) }).addTo(FMAP_LAYER).bindPopup(pop, { maxWidth: 300 }); }
+  });
+}
+function mapPopup(f) {
+  const us = farmUsersOf(f.id); const sf = f.safety || {};
+  return `<div class="mpop"><div style="font-weight:700;font-size:15px">${pinT(f.pinType).emoji} ${h(f.name || pinT(f.pinType).name)}</div>${f.address ? `<div class="hint">${h(f.address)}</div>` : ''}
+    <div style="margin:4px 0">${us.map((u) => `<span class="lnk" data-act="map-open" data-id="${u.b.id}">${h(u.b.name)}</span>${u.past ? ' <span class="hint">(not current)</span>' : ''}`).join('<br>')}</div>
+    ${sf.status && sf.status !== 'ok' ? `<div class="fsafety ${SAFETY[sf.status].c}" style="font-size:13px">${sf.status === 'stop' ? '⛔' : '⚠'} ${SAFETY[sf.status].l}${sf.note ? ' — ' + h(sf.note) : ''}</div>` : ''}
+    ${farmBiosecOf(f).map((x) => `<div class="fbiosec" style="font-size:13px">🦠 ${h(x.txt)}</div>`).join('')}
+    <div class="hint">${fmtKm(f)}${f.driveMin != null ? ' · ' + fmtMin(f.driveMin) + ' each way' : ''}${f.reception && f.reception.status ? ' · 📶 ' + RECEPTION[f.reception.status] : ''}</div>
+    <div class="actions" style="margin-top:6px"><a class="btn small" href="${gmapsNav(farmRoutePt(f))}" target="_blank" rel="noopener">🧭 Navigate</a>${f.lat != null ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">+ Route</button>` : ''}<button class="btn small" data-act="map-near" data-fid="${f.id}">Nearby</button></div></div>`;
+}
+document.addEventListener('change', (e) => { const t = e.target; if (!t.dataset || !('mapf' in t.dataset)) return; S.mapF = S.mapF || {}; S.mapF[t.dataset.mapf] = t.type === 'checkbox' ? t.checked : t.value; drawMapPins(); const n = mapFarms().length; const mn = $('#map-n'); if (mn) mn.textContent = `${n} farm${n === 1 ? '' : 's'}`; });
+document.addEventListener('input', (e) => { if (e.target.id !== 'map-q') return; S.mapF = S.mapF || {}; S.mapF.q = e.target.value; clearTimeout(S.mapQT); S.mapQT = setTimeout(() => { drawMapPins(); const fs = mapFarms(); const mn = $('#map-n'); if (mn) mn.textContent = `${fs.length} farm${fs.length === 1 ? '' : 's'}`; if (FMAP && S.mapF.q && fs.length && fs.length <= 30) { const pts = fs.map((f) => (f.lat != null ? [f.lat, f.lng] : f.turn ? [f.turn.lat, f.turn.lng] : null)).filter(Boolean); if (pts.length) FMAP.fitBounds(pts, { maxZoom: 14, padding: [30, 30] }); } }, 350); });
 
 /* ---------------- contacts list ---------------- */
 function sortContacts(arr) {
@@ -744,6 +839,7 @@ function contactDetail(c) {
   if (hasWarning(c)) {
     html += `<div class="card warn"><h3>⚠ General warnings</h3>${c.warnings ? `<div class="body">${h(c.warnings)}</div>` : ''}${bs.filter((b) => b.warnings).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.warnings)}</div>`).join('')}</div>`;
   }
+  html += bs.map((b) => biosecBanner(b.biosec, bs.length > 1 ? b.name : '')).join('');
   if ((c.sideNotes || '').trim() || bs.some((b) => (b.sideNotes || '').trim())) {
     html += `<div class="card side"><h3>📝 Side notes</h3>${c.sideNotes ? `<div class="body">${h(c.sideNotes)}</div>` : ''}${bs.filter((b) => b.sideNotes).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.sideNotes)}</div>`).join('')}</div>`;
   }
@@ -765,17 +861,55 @@ function contactDetail(c) {
   return html + '</div>';
 }
 function tagPill(t) { const src = tagPhotoSrc(t); return `<span class="tag ${src ? '' : 'noimg'}">${src ? `<img src="${src}" alt="">` : ''}${h(tagName(t))}</span>`; }
-function farmCard(b, f, withFlags = true) {
-  const verify = f.kmStatus === 'needs-verify';
-  return `<div class="farm ${f.seeWarning ? 'red' : ''}"><div class="fn">${f.seeWarning ? '⚠ ' : ''}${h(f.name || locWord(b))}</div>
+/* ---------------- farms: pin types, facilities, safety, reception, photos ---------------- */
+const DEFAULT_PIN_TYPES = [{ id: 'cattle', name: 'Cattle yards', emoji: '🐄' }, { id: 'sheep', name: 'Sheep yards', emoji: '🐑' }, { id: 'dairy', name: 'Dairy', emoji: '🥛' }, { id: 'office', name: 'Main office / house', emoji: '🏡' }, { id: 'depot', name: 'Depot', emoji: '🏬' }, { id: 'feedlot', name: 'Feedlot', emoji: '🌾' }, { id: 'shed', name: 'Shearing shed', emoji: '✂️' }, { id: 'saleyard', name: 'Saleyards', emoji: '🔨' }, { id: 'other', name: 'Other', emoji: '📍' }];
+const PIN_EMOJIS = ['🐄', '🐂', '🐃', '🐑', '🐐', '🐖', '🐎', '🥛', '🏡', '🏠', '🏬', '🏭', '🌾', '🚜', '✂️', '🔨', '⚖️', '💉', '🧪', '🐕', '⛽', '🅿️', '🚚', '💧', '🌳', '⛺', '📦', '📍', '⭐'];
+const pinTypes = () => (D.settings.pinTypes && D.settings.pinTypes.length ? D.settings.pinTypes : DEFAULT_PIN_TYPES);
+const pinT = (id) => pinTypes().find((t) => t.id === id) || { id: id || 'other', name: id ? id : 'Pin', emoji: '📍' };
+const TURN_EMOJI = '🚩';
+const FAC_FIELDS = [
+  ['crush', 'Crush', [['', 'Not recorded'], ['left', 'Left-sided'], ['right', 'Right-sided'], ['both', 'Either side'], ['none', 'No crush']]],
+  ['headbail', 'Headbail', [['', 'Not recorded'], ['auto', 'Auto / self-catching'], ['manual', 'Manual'], ['none', 'No headbail']]],
+  ['race', 'Race', [['', 'Not recorded'], ['fixed', 'Fixed race'], ['portable', 'Portable panels'], ['none', 'No race']]],
+  ['power', 'Power', [['', 'Not recorded'], ['onsite', 'Power at the yards'], ['generator', 'Their generator'], ['byo', 'BYO power']]],
+];
+const FAC_TICKS = [['cover', 'Cover / shade'], ['light', 'Lighting'], ['water', 'Water'], ['ramp', 'Loading ramp'], ['scales', 'Scales'], ['cradle', 'Calf cradle'], ['vetgate', 'Vet gate / kick gate']];
+const SAFETY = { ok: { l: 'OK', c: '' }, caution: { l: 'Caution', c: 'caution' }, stop: { l: 'No routine work until fixed', c: 'sfstop' } };
+const RECEPTION = { '': 'Not known', good: 'Good reception', patchy: 'Patchy reception', none: 'No reception' };
+const WET = { '': 'Not recorded', any: 'OK in all weather', '4wd': '4WD needed when wet', dry: 'Dry weather only' };
+function facSummary(fac) { if (!fac) return ''; const out = []; FAC_FIELDS.forEach(([k, , opts]) => { if (fac[k]) out.push((opts.find((o) => o[0] === fac[k]) || [, fac[k]])[1] + (k === 'crush' && fac[k] !== 'none' ? ' crush' : k === 'headbail' && fac[k] !== 'none' ? ' headbail' : k === 'race' && !['none', 'fixed'].includes(fac[k]) ? ' race' : '')); }); FAC_TICKS.forEach(([k, l]) => { if (fac[k]) out.push(l); }); return out.join(' · '); }
+function svUrl(p, w = 640, hgt = 360) { const k = Maps.key(); if (!k || !p) return ''; return `https://maps.googleapis.com/maps/api/streetview?size=${w}x${hgt}&location=${p.lat},${p.lng}&radius=${p.radius || 1500}&fov=${p.fov || 80}${p.heading != null ? '&heading=' + p.heading : ''}&source=outdoor&return_error_code=true&key=${encodeURIComponent(k)}`; }
+function photoSrc(ph, w, hgt) { return ph.kind === 'sv' ? svUrl(ph, w, hgt) : ph.data || ''; }
+function farmPhotosHtml(f, small) { const ps = (f.photos || []).filter((ph) => photoSrc(ph)); if (!ps.length) return ''; return `<div class="fphotos">${ps.map((ph) => `<a href="${ph.kind === 'sv' ? `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${ph.lat},${ph.lng}` : photoSrc(ph)}" target="_blank" rel="noopener" title="${h(ph.caption || '')}"><img loading="lazy" src="${photoSrc(ph, small ? 320 : 640, small ? 180 : 360)}" alt="${h(ph.caption || 'Farm photo')}" onerror="this.parentNode.style.display='none'"></a>`).join('')}</div>`; }
+function safetyBanner(sf, label) { if (!sf || !sf.status || sf.status === 'ok') return ''; return `<div class="fsafety ${SAFETY[sf.status].c}">${sf.status === 'stop' ? '⛔' : '⚠'} <b>${h(label ? label + ': ' : '')}${SAFETY[sf.status].l}</b>${sf.note ? ' — ' + h(sf.note) : ''}${sf.date ? `<span class="hint"> (${h(sf.date)}${sf.by ? ', ' + h(sf.by) : ''})</span>` : ''}</div>`; }
+function biosecBanner(txt, from) { return (txt || '').trim() ? `<div class="fbiosec">🦠 <b>Biosecurity${from ? ' — ' + h(from) : ''}:</b> ${h(txt)}</div>` : ''; }
+function farmBiosecOf(f) { /* the farm's own note plus any from the businesses using it */ const out = []; if ((f.biosec || '').trim()) out.push({ txt: f.biosec, from: '' }); farmUsersOf(f.id).filter((u) => !u.past && (u.b.biosec || '').trim()).forEach((u) => out.push({ txt: u.b.biosec, from: u.b.name })); return out; }
+function farmCard(b, f, withFlags = true, past = false) {
+  const verify = f.kmStatus === 'needs-verify'; const pt = pinT(f.pinType); const sf = f.safety || {};
+  const users = farmUsersOf(f.id).filter((u) => u.b !== b); const owner = f.owner && (f.owner.bid ? IDX.biz.get(f.owner.bid) : null);
+  const ownerTxt = owner ? (owner === b ? '' : owner.name) : (f.owner && f.owner.text) || '';
+  const nav = f.lat != null || (f.turn && f.turn.lat != null);
+  return `<div class="farm ${f.seeWarning || sf.status === 'stop' ? 'red' : sf.status === 'caution' ? 'amber' : ''} ${past ? 'pastfarm' : ''}"><div class="fn"><span class="pinemo" title="${h(pt.name)}">${pt.emoji}</span> ${f.seeWarning ? '⚠ ' : ''}${h(f.name || pt.name)}${past ? ' <span class="pill" style="background:var(--line);color:var(--ink2)">Not current</span>' : ''}</div>
   ${f.address ? `<div>${h(f.address)}</div>` : ''}
-  ${f.sharedWith && IDX.farmBiz.get(f.sharedWith) ? `<div class="hint">Same yards also used by ${h(IDX.farmBiz.get(f.sharedWith).name)}</div>` : ''}
-  <div class="meta">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">📍 ${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}</a>` : '<span>No GPS pin</span>'}
-  <span>${verify ? '<span class="verify">Distance requires verification</span> ' : ''}${fmtKm(f)}</span>${f.driveMin != null ? `<span>🚗 ${fmtMin(f.driveMin)} each way</span>` : ''}</div>
+  ${safetyBanner(sf)}${(f.extra || []).map((x) => safetyBanner(x.safety, pinT(x.type).emoji + ' ' + (x.name || pinT(x.type).name))).join('')}
+  ${farmBiosecOf(f).filter((x) => x.from !== b.name).map((x) => biosecBanner(x.txt, x.from)).join('')}
+  <div class="meta">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">${pt.emoji} ${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}</a>` : '<span>No GPS pin</span>'}${f.turn && f.turn.lat != null ? `<a href="${gmapsPin(f.turn)}" target="_blank" rel="noopener">${TURN_EMOJI} Turn-off</a>` : ''}
+  <span>${verify ? '<span class="verify">Distance requires verification</span> ' : ''}${fmtKm(f)}</span>${f.driveMin != null ? `<span>🚗 ${fmtMin(f.driveMin)} each way</span>` : ''}${f.reception && f.reception.status ? `<span class="recep ${f.reception.status}">📶 ${RECEPTION[f.reception.status]}</span>` : ''}</div>
+  ${(f.access || {}).notes || (f.access || {}).wet ? `<div class="body" style="margin-top:4px;font-size:14.5px">🚪 <b>Access:</b> ${h((f.access || {}).notes || '')}${(f.access || {}).wet ? ` <span class="hint">(${h(WET[f.access.wet])})</span>` : ''}</div>` : ''}
+  ${facSummary(f.fac) ? `<div class="hint" style="margin-top:3px">🛠 ${h(facSummary(f.fac))}</div>` : ''}
+  ${(f.extra || []).length ? `<div class="hint" style="margin-top:3px">${f.extra.map((x) => `${pinT(x.type).emoji} ${x.lat != null ? `<a href="${gmapsPin(x)}" target="_blank" rel="noopener">${h(x.name || pinT(x.type).name)}</a>` : h(x.name || pinT(x.type).name)}`).join(' · ')}</div>` : ''}
+  ${(f.reception || {}).note ? `<div class="hint">📶 ${h(f.reception.note)}</div>` : ''}
+  ${users.length || ownerTxt ? `<div class="hint" style="margin-top:3px">${users.length ? `Also used by: ${users.map((u) => `<span class="lnk" data-act="open" data-kind="business" data-id="${u.b.id}">${h(u.b.name)}</span>${u.past ? ' (past)' : ''}`).join(', ')}` : ''}${users.length && ownerTxt ? ' · ' : ''}${ownerTxt ? `Owned by: ${owner ? `<span class="lnk" data-act="open" data-kind="business" data-id="${owner.id}">${h(ownerTxt)}</span>` : h(ownerTxt)}` : ''}</div>` : ''}
   ${f.seeWarning ? `<div class="body" style="margin-top:4px;font-weight:700">⚠ Farm warnings: ${h(f.warning || 'check farm info')}</div>` : ''}
   ${f.info ? `<div class="body" style="margin-top:4px;font-size:14.5px">${h(f.info)}</div>` : ''}
+  ${farmPhotosHtml(f, true)}${!past ? svAsk(f) : ''}
   ${withFlags ? flagLines('business', b.id, f.id) : ''}
-  <div class="actions" style="margin:8px 0 0">${f.lat != null ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">+ Add to route</button>` : ''}<button class="btn small" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}">Edit ${locWord(b).toLowerCase()}</button></div></div>`;
+  <div class="actions" style="margin:8px 0 0">${nav ? `<a class="btn small" href="${gmapsNav(farmRoutePt(f))}" target="_blank" rel="noopener">🧭 Navigate${f.turn && f.turn.lat != null ? ' to turn-off' : ''}</a>` : ''}${f.turn && f.turn.lat != null && f.lat != null ? `<a class="btn small" href="${gmapsNav(f)}" target="_blank" rel="noopener">${pt.emoji} To the yards</a>` : ''}${f.lat != null && !past ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">+ Add to route</button>` : ''}<button class="btn small" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}">Edit</button><button class="btn small" data-act="farm-past" data-bid="${b.id}" data-fid="${f.id}">${past ? 'Make current' : 'Make not current'}</button></div></div>`;
+}
+function svAsk(f) { /* "is this Street View photo useful?" — only when there's a key, a pin and no photo yet */
+  if (!Maps.key() || f.svNo || (f.photos || []).length || (f.lat == null && !(f.turn && f.turn.lat != null))) return '';
+  const p = f.turn && f.turn.lat != null ? { lat: f.turn.lat, lng: f.turn.lng, radius: 300 } : { lat: f.lat, lng: f.lng, radius: 2000 };
+  return `<div class="svask"><div class="hint">📷 Google Street View near this ${f.turn && f.turn.lat != null ? 'turn-off' : 'farm'} — is it a useful photo?</div><img loading="lazy" src="${svUrl(p, 480, 270)}" alt="Street View" onerror="this.closest('.svask').remove()"><div class="actions" style="margin-top:4px"><button class="btn small greenbtn" data-act="sv-yes" data-fid="${f.id}" data-lat="${p.lat}" data-lng="${p.lng}" data-r="${p.radius}">✓ Keep photo</button><button class="btn small" data-act="sv-no" data-fid="${f.id}">Not useful</button></div></div>`;
 }
 function bizDetail(b) {
   const cs = IDX.bizContacts.get(b.id) || [];
@@ -786,6 +920,7 @@ function bizDetail(b) {
   if (bizCat(b) === 'inactive') html += inactiveBox(b.inactiveReason);
   if ((b.cats || []).includes('dna')) html += `<div class="dnabanner">⛔ DO NOT ANSWER — NO FUTURE SERVICE</div>${dnaReasonBox(b.dnaReason)}`;
   if (b.warnings) html += `<div class="card warn"><h3>⚠ General warnings</h3><div class="body">${h(b.warnings)}</div></div>`;
+  html += biosecBanner(b.biosec);
   if (b.sideNotes) html += `<div class="card side"><h3>📝 Side notes</h3><div class="body">${h(b.sideNotes)}</div></div>`;
   html += `<div class="card"><h3><span class="sp">Contact category</span><button class="btn small" data-act="cat-edit" data-bid="${b.id}">Change…</button></h3>${b.rating || (b.cats || []).length ? `<div class="tagrow">${[...(b.rating ? [b.rating] : []), ...(b.cats || [])].map(tagPill).join('')}</div>` : '<div class="hint">None set.</div>'}${cs.filter((c) => c.ownCats || ownRating(c)).length ? `<div class="hint" style="margin-top:6px">Own categories: ${h(cs.filter((c) => c.ownCats || ownRating(c)).map((c) => c.first).join(', '))}</div>` : ''}</div>`;
   if (!isClientBiz(b) || bizHasDetails(b) || (b.postal || []).length) html += `<div class="card"><h3><span class="sp">Phone and email</span><button class="btn small" data-act="edit-biz" data-id="${b.id}">Edit</button></h3>${phoneLinks((b.phones || []).map((p) => ({ ...p, label: p.label || 'Phone' })), false, 'call')}${(b.emails || []).map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div></div>`).join('')}${(b.postal || []).map((p) => `<div class="kv"><div class="k">Address</div><div class="v">${h(p)}</div></div>`).join('')}${bizHasDetails(b) || (b.postal || []).length ? '' : '<div class="hint">No phone or email on the business yet — tap Edit to add them.</div>'}</div>`;
@@ -797,7 +932,9 @@ function bizDetail(b) {
   if (isClientBiz(b)) html += `<div class="card"><h3>Property Identification Code (PIC)</h3>${b.pics.map((p) => `<div class="kv"><div class="k">${h(p.label || 'PIC')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
   if (isClientBiz(b)) html += `<div class="card"><h3>Patient IDs</h3>${b.patientIds.map((p) => `<div class="kv"><div class="k">${h(p.label || 'ID')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
   { const rh = bizRoutesHtml(b, false); if (rh) html += `<div class="card"><h3>Saved routes</h3>${rh}</div>`; }
-  html += `<div class="card"><h3>${locWord(b, true)}</h3>${b.farms.map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} yet.</div>`}</div>`;
+  html += `<div class="card"><h3><span class="sp">${locWord(b, true)}</span><button class="btn small" data-act="add-farm" data-bid="${b.id}">+ New</button></h3>${b.farms.map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} yet.</div>`}
+    <input id="farm-linksearch" data-bid="${b.id}" placeholder="+ Link an existing farm or yards (e.g. a lease block) — search name, address or business" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="farm-linkres"></div></div>`;
+  if (b.pastFarms.length) html += `<details class="card"><summary><h3 style="display:inline">Not current ${locWord(b, true).toLowerCase()} (${b.pastFarms.length})</h3></summary><div class="hint" style="margin:6px 0">Farms this business used to use (e.g. a block they sold or no longer lease).</div>${b.pastFarms.map((f) => farmCard(b, f, false, true)).join('')}</details>`;
   html += `<div class="card"><h3>General info</h3>${infoView(b)}</div>`;
   html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="business" data-id="${b.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="business" data-id="${b.id}">🤖 Ask Claude about ${h(b.name)}</button></div>`;
   return html + '</div>';
@@ -973,7 +1110,7 @@ function linkRow(bid, newName, past, role) {
   return `<div class="rep" style="flex-wrap:wrap" ${bid ? `data-bid="${bid}"` : `data-newbiz="${h(newName)}"`}><label style="display:flex;align-items:center;gap:4px;font-size:13.5px;white-space:nowrap"><input type="checkbox" class="lk-past" ${past ? 'checked' : ''}>Past</label><div style="flex:1;padding:9px 10px;background:#fff;border:1px solid var(--line);border-radius:9px">${b ? (b.rating ? rbadge(b.rating) : '') + h(b.name) : h(newName) + ' <span class="hint">(new)</span>'}</div><button class="x" type="button" data-act="rep-del">×</button><input class="lk-role" value="${h(role || '')}" placeholder="Role at this business (optional)" style="flex-basis:100%;margin-top:4px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:14.5px"></div>`;
 }
 function newBusiness(name) {
-  const b = { id: uid('b'), name, farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null };
+  const b = { id: uid('b'), name, farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null };
   touch(b); D.businesses.push(b); IDX.biz.set(b.id, b); return b;
 }
 function fileToDataUrl(file, max) {
@@ -982,7 +1119,7 @@ function fileToDataUrl(file, max) {
 const PID_LABELS = ['Cattle Herd ID', 'Sheep Flock ID'];
 function editBiz(b) {
   const isNew = !b;
-  b = b || { id: uid('b'), name: '', farms: [], pics: [], patientIds: [], info: D.settings.tplBiz != null ? D.settings.tplBiz : TPL_BIZ, warnings: '', flags: [], rating: null };
+  b = b || { id: uid('b'), name: '', farmLinks: [], pics: [], patientIds: [], info: D.settings.tplBiz != null ? D.settings.tplBiz : TPL_BIZ, warnings: '', flags: [], rating: null };
   const body = `<div class="f"><label>Business name</label><input id="e-bname" value="${h(b.name)}"></div>
   <div class="f"><label>Business type</label><select id="e-btype"><option value="client">Client business</option><option value="nonclient" ${isClientBiz(b) ? '' : 'selected'}>Non-client business (industry)</option></select><div class="hint">Normally set by the business's category (Settings → Categories). If you pick a different type here, the business keeps your choice.</div><div class="hint">Non-client businesses don't need a PIC, patient IDs, A+ to C category or farms — they have business locations instead.</div></div>
   <div class="f"><label>Business phone numbers</label>${repRows('bphone', b.phones || [], [{ k: 'value', ph: 'e.g. 08 9841 7857', w: 2 }, { k: 'label', ph: 'Label (e.g. Office, Mobile)', w: 2 }])}</div>
@@ -998,6 +1135,7 @@ function editBiz(b) {
   <div class="f" id="e-binwrap" style="${bizCat(b) === 'inactive' ? '' : 'display:none'}"><label style="color:var(--red-ink)">Inactive — reason (required, shown in a red box at the top)</label><textarea id="e-binreason" class="warn" style="min-height:60px" placeholder="e.g. client retired and sold farm">${h(b.inactiveReason || '')}</textarea></div>
   <div class="f" id="e-bdnawrap" style="${(b.cats || []).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">⛔ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-bdnareason" class="warn" style="min-height:60px">${h(b.dnaReason || '')}</textarea></div>
   <div class="f"><label style="color:#7a5a00">Side notes (yellow — shown on every linked contact)</label><textarea id="e-bside" class="sidenote">${h(b.sideNotes || '')}</textarea></div>
+  <div class="f"><label style="color:#8a3b00">🦠 Biosecurity (shown on this business, its contacts and its farms)</label><textarea id="e-bbio" class="biosec" placeholder="e.g. Ovine footrot · Has pigs — don't visit if you've been near pigs in the last week">${h(b.biosec || '')}</textarea></div>
   <div class="hint">Farms are added and edited from the business page.</div>
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-biz" data-id="${b.id}" style="color:var(--red)">Delete business</button></div>`}`;
   openSheet(isNew ? 'New business' : 'Edit business', body, async () => {
@@ -1017,7 +1155,7 @@ function editBiz(b) {
       if (!oldBc.includes('inactive') && b.cats.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); touch(c); }
       if (!oldBc.includes('dna') && b.cats.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); touch(c); }
     });
-    Object.assign(b, { name, rating: newRating, pics: readRep('pic').map((p) => ({ ...p, value: p.value.toUpperCase().replace(/\s+/g, '') })), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim(), sideNotes: $('#e-bside').value.trim(), dnaReason: $('#e-bdnareason').value.trim(), inactiveReason: $('#e-binreason').value.trim() });
+    Object.assign(b, { name, rating: newRating, pics: readRep('pic').map((p) => ({ ...p, value: p.value.toUpperCase().replace(/\s+/g, '') })), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim(), sideNotes: $('#e-bside').value.trim(), biosec: $('#e-bbio').value.trim(), dnaReason: $('#e-bdnareason').value.trim(), inactiveReason: $('#e-binreason').value.trim() });
     setBizType(b, pickedType); // keeps the type you chose even if the category says otherwise
     touch(b); if (isNew) D.businesses.push(b);
     S.sel = { kind: 'business', id: b.id }; if (isNew) S.tab = 'biz';
@@ -1051,42 +1189,81 @@ function parseGps(s) {
   if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) [lat, lng] = [lng, lat];
   return { lat, lng };
 }
+function extraPinRow(x) { x = x || { id: uid('p'), type: 'sheep', name: '', lat: null, lng: null, safety: {} }; const sf = x.safety || {};
+  return `<div class="card xpin" data-id="${h(x.id)}" style="padding:8px;margin:6px 0"><div style="display:flex;gap:6px;flex-wrap:wrap"><select class="xp-type" style="flex:1;min-width:150px">${pinTypes().map((t) => `<option value="${h(t.id)}" ${x.type === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select><input class="xp-name" value="${h(x.name || '')}" placeholder="Label (optional)" style="flex:1;min-width:140px"><button type="button" class="btn small" data-act="xpin-del">✕</button></div>
+    <input class="xp-gps" value="${x.lat != null ? h(x.lat + ', ' + x.lng) : ''}" placeholder="GPS pin (or paste a Google Maps link)" style="width:100%;margin-top:6px">
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><select class="xp-safe" style="flex:1;min-width:150px">${Object.entries(SAFETY).map(([k, v]) => `<option value="${k}" ${(sf.status || 'ok') === k ? 'selected' : ''}>Safety: ${v.l}</option>`).join('')}</select><input class="xp-safenote" value="${h(sf.note || '')}" placeholder="Safety note" style="flex:2;min-width:150px"></div></div>`;
+}
 function editFarm(b, f) {
   const isNew = !f;
-  f = f || { id: uid('f'), name: '', address: '', lat: null, lng: null, kmReturn: null, driveMin: null, kmStatus: 'missing', info: '', seeWarning: false, flags: [] };
-  const startGps = f.lat != null ? `${f.lat}, ${f.lng}` : '';
-  const body = `<div class="f"><label>${locWord(b)} label / name</label><input id="e-fname" value="${h(f.name)}" placeholder='e.g. "Jarrahvale" cattle yards'></div>
-  <div class="f"><label>GPS location</label><input id="e-fgps" value="${h(startGps)}" placeholder="-34.94943, 118.02134  (or paste a Google Maps link)"><div class="hint" id="e-fgpshint">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">Open pin in Google Maps</a>` : 'Drop a pin in Google Maps, copy the coordinates, paste here.'}</div><div class="actions" style="margin-top:6px"><button type="button" class="btn small" data-act="farm-pinsuggest">📍 Suggest a pin from the address</button></div><div id="pin-res" class="hint"></div><div id="pin-prev"></div></div>
-  <div class="f"><label>Physical address (not linked to maps)</label><input id="e-faddr" value="${h(f.address)}"></div>
+  f = f || newFarm({ owner: { bid: b.id } });
+  const startGps = f.lat != null ? `${f.lat}, ${f.lng}` : ''; const startTurn = f.turn && f.turn.lat != null ? `${f.turn.lat}, ${f.turn.lng}` : '';
+  const fac = f.fac || {}, sf = f.safety || {}, acc = f.access || {}, rc = f.reception || {};
+  const users = farmUsersOf(f.id); const owner = f.owner && f.owner.bid ? IDX.biz.get(f.owner.bid) : null;
+  const sel = (id, opts, v) => `<select id="${id}">${opts.map(([k, l]) => `<option value="${h(k)}" ${(v || '') === k ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>`;
+  const body = `<div class="grid2"><div class="f"><label>${locWord(b)} name</label><input id="e-fname" value="${h(f.name)}" placeholder='e.g. "Jarrahvale" cattle yards'></div>
+    <div class="f"><label>Type of pin</label><select id="e-ftype">${pinTypes().map((t) => `<option value="${h(t.id)}" ${f.pinType === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select></div></div>
+  ${users.length > 1 ? `<div class="hint" style="margin:-4px 0 8px">Shared farm — changes show for ${h(users.map((u) => u.b.name + (u.past ? ' (not current)' : '')).join(', '))}.</div>` : ''}
+  <div class="f"><label><span id="e-ftypeemo">${pinT(f.pinType).emoji}</span> Yards pin (GPS)</label><input id="e-fgps" value="${h(startGps)}" placeholder="-34.94943, 118.02134  (or paste a Google Maps link)"><div class="hint" id="e-fgpshint">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">Open pin in Google Maps</a>` : 'Drop a pin on the yards in Google Maps, copy the coordinates, paste here.'}</div><div class="actions" style="margin-top:6px"><button type="button" class="btn small" data-act="farm-pinsuggest">📍 Suggest a pin from the address</button></div><div id="pin-res" class="hint"></div><div id="pin-prev"></div></div>
+  <div class="f"><label>${TURN_EMOJI} Turn-off pin — where you leave the road</label><input id="e-fturn" value="${h(startTurn)}" placeholder="GPS of the farm gate / track off the road (optional)"><div class="hint" id="e-fturnhint">${startTurn ? `<a href="${gmapsPin(f.turn)}" target="_blank" rel="noopener">Open in Google Maps</a> · ` : ''}Navigation and the km go to the turn-off when there is one.</div></div>
+  <div class="f"><label>Physical address</label><input id="e-faddr" value="${h(f.address)}"></div>
   <div class="grid2"><div class="f"><label>Distance from homebase — km return</label><input id="e-fkm" type="number" step="0.1" value="${f.kmReturn ?? ''}"></div>
   <div class="f"><label>Drive time each way (minutes)</label><input id="e-fmin" type="number" step="1" value="${f.driveMin != null ? Math.round(f.driveMin) : ''}"></div></div>
   <div><button class="btn small" type="button" data-act="calc-dist">Calculate with Google Maps</button> <span class="hint" id="e-calchint"></span></div>
   <div id="e-verify"></div>
+  <details class="fsec" ${acc.notes || acc.wet ? 'open' : ''}><summary>🚪 Access</summary><div class="f"><label>Access notes</label><textarea id="e-facc" placeholder="e.g. Second track after the grid · gate code 1234 · keep left at the silos">${h(acc.notes || '')}</textarea></div><div class="f"><label>Wet weather</label>${sel('e-fwet', Object.entries(WET), acc.wet)}</div></details>
+  <details class="fsec" ${facSummary(fac) || (sf.status && sf.status !== 'ok') ? 'open' : ''}><summary>🛠 Yard facilities & safety</summary>
+    <div class="grid2">${FAC_FIELDS.map(([k, l, opts]) => `<div class="f"><label>${l}</label>${sel('e-fac-' + k, opts, fac[k])}</div>`).join('')}</div>
+    <div class="checks">${FAC_TICKS.map(([k, l]) => `<label><input type="checkbox" id="e-fac-${k}" ${fac[k] ? 'checked' : ''}>${l}</label>`).join('')}</div>
+    <div class="grid2" style="margin-top:8px"><div class="f"><label>Safety status</label>${sel('e-fsafe', Object.entries(SAFETY).map(([k, v]) => [k, v.l]), sf.status || 'ok')}</div><div class="f"><label>Safety note</label><input id="e-fsafenote" value="${h(sf.note || '')}" placeholder="e.g. Headbail doesn't hold — use a pole"></div></div>
+    <div class="hint">Caution shows amber and "No routine work" shows red on every business that uses this farm. The date and your name are added when you change it.</div></details>
+  <details class="fsec" ${(f.extra || []).length ? 'open' : ''}><summary>📍 More pins (sheep yards, dairy, office…)</summary><div id="e-xpins">${(f.extra || []).map(extraPinRow).join('')}</div><button type="button" class="btn small" data-act="xpin-add">+ Add a pin</button></details>
+  <details class="fsec" ${rc.status ? 'open' : ''}><summary>📶 Mobile reception</summary><div class="grid2"><div class="f"><label>Reception at the yards</label>${sel('e-frec', Object.entries(RECEPTION), rc.status)}</div><div class="f"><label>Note</label><input id="e-frecnote" value="${h(rc.note || '')}" placeholder="e.g. Telstra only on the hill · UHF ch 18"></div></div>
+    <div class="actions"><button type="button" class="btn small" data-act="rec-here">📶 I'm at the yards — check reception now</button><a class="btn small" href="https://www.telstra.com.au/coverage-networks/our-coverage" target="_blank" rel="noopener">Telstra coverage map</a></div><div id="e-rechint" class="hint">${rc.at ? `Last recorded ${new Date(rc.at).toLocaleDateString('en-AU')}${rc.by ? ' by ' + h(rc.by) : ''}.` : ''}</div></details>
+  <details class="fsec" ${(f.biosec || '').trim() ? 'open' : ''}><summary>🦠 Biosecurity</summary><div class="f"><textarea id="e-fbio" class="biosec" placeholder="e.g. Come clean — wash down boots and vehicle · Sign in at the office">${h(f.biosec || '')}</textarea><div class="hint">Business-wide biosecurity (e.g. footrot in the flock) goes on the business and shows here too.</div></div></details>
+  <details class="fsec"><summary>🏷 Owner & who uses it</summary><div class="f"><label>Who owns these yards</label><input id="e-fowner" list="e-fownerlist" value="${h(owner ? owner.name : (f.owner && f.owner.text) || '')}" placeholder="Business or person"><datalist id="e-fownerlist">${D.businesses.map((x) => `<option value="${h(x.name)}">`).join('')}</datalist><div class="hint">Change this if the yards are sold. Pick a business from the list, or type any name.</div></div>
+    <div class="hint">${users.length ? 'Used by: ' + h(users.map((u) => u.b.name + (u.past ? ' (not current)' : '')).join(', ')) : 'Not linked to a business yet.'} — link or unlink it from each business's page.</div></details>
+  <details class="fsec" ${(f.photos || []).length ? 'open' : ''}><summary>📷 Photos</summary><div id="e-fphotos">${farmPhotoEdit(f)}</div>
+    <div class="actions"><button type="button" class="btn small" data-act="sv-find">📷 Find a Street View photo</button><label class="btn small" style="cursor:pointer">＋ Add a photo<input type="file" id="e-fphotofile" accept="image/*" style="display:none"></label></div><div id="e-svprev"></div></details>
   <div class="f" style="margin-top:10px"><label>${locWord(b)} info</label><textarea id="e-finfo">${h(f.info)}</textarea></div>
   <div class="f"><label class="checks"><label><input type="checkbox" id="e-fwarn" ${f.seeWarning ? 'checked' : ''}> Add ${isClientBiz(b) ? 'farm' : 'location'} warnings</label></label>
   <div id="e-fwarnbox" style="margin-top:8px;${f.seeWarning ? '' : 'display:none'}"><label style="color:var(--red-ink)">${isClientBiz(b) ? 'Farm' : 'Location'} warnings (shown in red with this ${isClientBiz(b) ? 'farm' : 'location'})</label><textarea id="e-fwarntext" class="warn" placeholder="e.g. Crush has no proper vet gate — take care">${h(f.warning || '')}</textarea></div></div>
   ${f.importedLabel ? `<div class="hint">Original Google Contacts label: ${h(f.importedLabel)}</div>` : ''}
-  ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-farm" data-bid="${b.id}" data-fid="${f.id}" style="color:var(--red)">Delete farm</button></div>`}`;
+  ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-farm" data-bid="${b.id}" data-fid="${f.id}" style="color:var(--red)">${users.length > 1 ? 'Remove from ' + h(b.name) : 'Delete farm'}</button></div>`}`;
+  SHEET_FARM = { f, photos: JSON.parse(JSON.stringify(f.photos || [])) }; const orig = { warning: f.warning };
   openSheet(isNew ? 'New ' + locWord(b).toLowerCase() + ' — ' + b.name : 'Edit ' + locWord(b).toLowerCase(), body, () => {
-    const g = parseGps(val('e-fgps'));
-    if (val('e-fgps') && !g) { toast('GPS not recognised — use "lat, lng"'); return false; }
-    const gpsChanged = (g ? `${g.lat},${g.lng}` : '') !== (f.lat != null ? `${f.lat},${f.lng}` : '');
+    const g = parseGps(val('e-fgps')), tg = parseGps(val('e-fturn'));
+    if (val('e-fgps') && !g) { toast('Yards GPS not recognised — use "lat, lng"'); return false; }
+    if (val('e-fturn') && !tg) { toast('Turn-off GPS not recognised — use "lat, lng"'); return false; }
+    const xs = []; for (const row of document.querySelectorAll('#e-xpins .xpin')) { const gv = row.querySelector('.xp-gps').value.trim(); const xg = parseGps(gv); if (gv && !xg) { toast('A pin in "More pins" has GPS that isn\'t recognised'); return false; } const old = (f.extra || []).find((x) => x.id === row.dataset.id) || {}; const st = row.querySelector('.xp-safe').value, sn = row.querySelector('.xp-safenote').value.trim(); const osf = old.safety || {};
+      xs.push({ id: row.dataset.id, type: row.querySelector('.xp-type').value, name: row.querySelector('.xp-name').value.trim(), lat: xg ? xg.lat : null, lng: xg ? xg.lng : null, safety: st === 'ok' && !sn ? {} : { status: st, note: sn, date: st === osf.status && sn === osf.note ? osf.date : new Date().toLocaleDateString('en-AU'), by: st === osf.status && sn === osf.note ? osf.by : devInfo().nick } }); }
+    const gpsChanged = (g ? `${g.lat},${g.lng}` : '') !== (f.lat != null ? `${f.lat},${f.lng}` : '') || (tg ? `${tg.lat},${tg.lng}` : '') !== (f.turn && f.turn.lat != null ? `${f.turn.lat},${f.turn.lng}` : '');
     const needVerify = SHEET.verifyNeeded;
     if (needVerify && !($('#e-verified') && $('#e-verified').checked)) { toast('Distance requires verification before saving'); $('#e-verify').scrollIntoView({ block: 'center' }); return false; }
     const km = val('e-fkm'), mn = val('e-fmin');
-    Object.assign(f, { name: val('e-fname'), address: val('e-faddr'), info: $('#e-finfo').value.trim(), seeWarning: $('#e-fwarn').checked, warning: $('#e-fwarn').checked ? $('#e-fwarntext').value.trim() : '', kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn });
+    const nfac = {}; FAC_FIELDS.forEach(([k]) => { const v = $('#e-fac-' + k).value; if (v) nfac[k] = v; }); FAC_TICKS.forEach(([k]) => { if ($('#e-fac-' + k).checked) nfac[k] = true; });
+    const st = $('#e-fsafe').value, sn = val('e-fsafenote'); const nsf = st === 'ok' && !sn ? null : { status: st, note: sn, date: st === sf.status && sn === (sf.note || '') ? sf.date : new Date().toLocaleDateString('en-AU'), by: st === sf.status && sn === (sf.note || '') ? sf.by : devInfo().nick };
+    const recS = $('#e-frec').value, recN = val('e-frecnote'); const nrc = recS || recN ? { ...rc, status: recS, note: recN, ...(recS !== (rc.status || '') ? { at: Date.now(), by: devInfo().nick } : {}) } : null;
+    const ow = val('e-fowner'); const ob = D.businesses.find((x) => x.name.trim().toLowerCase() === ow.toLowerCase());
+    Object.assign(f, { name: val('e-fname'), pinType: $('#e-ftype').value, address: val('e-faddr'), info: $('#e-finfo').value.trim(), seeWarning: $('#e-fwarn').checked, warning: $('#e-fwarn').checked ? $('#e-fwarntext').value.trim() : '', kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn,
+      access: val('e-facc') || $('#e-fwet').value ? { notes: val('e-facc'), wet: $('#e-fwet').value } : null, fac: Object.keys(nfac).length ? nfac : null, safety: nsf, extra: xs, reception: nrc, biosec: $('#e-fbio').value.trim(), owner: ob ? { bid: ob.id } : ow ? { text: ow } : null, photos: SHEET_FARM.photos });
+    Object.keys(f).forEach((k) => { if (f[k] === null && ['access', 'fac', 'safety', 'reception', 'owner'].includes(k)) delete f[k]; if (['biosec', 'extra', 'photos'].includes(k) && (f[k] === '' || (Array.isArray(f[k]) && !f[k].length))) delete f[k]; });
+    if (!f.warning && f.warning !== undefined && !orig.warning) delete f.warning;
     if (g) { f.lat = g.lat; f.lng = g.lng; } else { f.lat = f.lng = null; }
+    if (tg) f.turn = { lat: tg.lat, lng: tg.lng }; else delete f.turn;
     if (gpsChanged) f.flags = (f.flags || []).filter((x) => x.type !== 'signfix' && x.type !== 'kmcheck');
     f.kmStatus = f.kmReturn == null ? 'missing' : needVerify || f.kmStatus === 'needs-verify' ? 'verified' : f.kmStatus;
     if ($('#e-verified') && $('#e-verified').checked) f.kmStatus = 'verified';
-    touch(b); if (isNew) b.farms.push(f);
+    if (isNew) { D.farms.push(f); linkFarm(b, f); }
+    touch(f); reindex();
     return true;
   });
   SHEET.verifyNeeded = false;
   $('#e-fwarn').addEventListener('change', (e) => { $('#e-fwarnbox').style.display = e.target.checked ? '' : 'none'; if (e.target.checked) $('#e-fwarntext').focus(); });
+  $('#e-ftype').addEventListener('change', (e) => { $('#e-ftypeemo').textContent = pinT(e.target.value).emoji; });
   const showVerify = () => {
     SHEET.verifyNeeded = true;
-    $('#e-verify').innerHTML = `<div class="verifybox"><b>Distance requires verification before saving.</b><div class="hint" style="color:var(--yellow-ink)">The GPS pin is new or has changed. Check the km and drive time above (use “Calculate with Google Maps” or check manually), then tick:</div><label style="display:flex;gap:8px;margin-top:6px;font-weight:600"><input type="checkbox" id="e-verified"> I have checked the distance and drive time</label></div>`;
+    $('#e-verify').innerHTML = `<div class="verifybox"><b>Distance requires verification before saving.</b><div class="hint" style="color:var(--yellow-ink)">A GPS pin is new or has changed. Check the km and drive time above (use “Calculate with Google Maps” or check manually), then tick:</div><label style="display:flex;gap:8px;margin-top:6px;font-weight:600"><input type="checkbox" id="e-verified"> I have checked the distance and drive time</label></div>`;
     $('#e-fkm').style.background = $('#e-fmin').style.background = 'var(--yellow-bg)';
   };
   $('#e-fgps').addEventListener('input', () => {
@@ -1094,16 +1271,33 @@ function editFarm(b, f) {
     hint.innerHTML = g ? `<a href="${gmapsPin(g)}" target="_blank" rel="noopener">Check pin in Google Maps</a> (${g.lat.toFixed(5)}, ${g.lng.toFixed(5)})` : val('e-fgps') ? '<span style="color:var(--red)">Not recognised yet</span>' : '';
     if (g && `${g.lat}, ${g.lng}` !== startGps && !SHEET.verifyNeeded) showVerify();
   });
+  $('#e-fturn').addEventListener('input', () => {
+    const g = parseGps(val('e-fturn')); const hint = $('#e-fturnhint');
+    hint.innerHTML = g ? `<a href="${gmapsPin(g)}" target="_blank" rel="noopener">Check turn-off in Google Maps</a> (${g.lat.toFixed(5)}, ${g.lng.toFixed(5)}) — the km is measured to here` : val('e-fturn') ? '<span style="color:var(--red)">Not recognised yet</span>' : 'Navigation and the km go to the turn-off when there is one.';
+    if (g && `${g.lat}, ${g.lng}` !== startTurn && !SHEET.verifyNeeded) showVerify();
+  });
+  $('#e-fphotofile').addEventListener('change', async (e) => { const file = e.target.files[0]; if (!file) return; const data = await fileToDataUrl(file, 900); SHEET_FARM.photos.push({ id: uid('ph'), kind: 'upload', data, at: Date.now(), by: devInfo().nick }); $('#e-fphotos').innerHTML = farmPhotoEdit({ photos: SHEET_FARM.photos }); e.target.value = ''; });
   if (f.kmStatus === 'needs-verify') showVerify();
   SHEET.calc = async () => {
-    const g = parseGps(val('e-fgps')); const hint = $('#e-calchint');
+    const g = parseGps(val('e-fturn')) || parseGps(val('e-fgps')); const hint = $('#e-calchint');
     if (!g) { hint.textContent = 'Add a GPS pin first.'; return; }
     hint.textContent = 'Calculating…';
-    try { const r = await Maps.distances([g]); const x = r[0]; if (!x) throw new Error('No route found'); $('#e-fkm').value = Math.ceil(x.km * 2 - 1e-9); $('#e-fmin').value = Math.round(x.min); hint.innerHTML = `Google Maps: ${(x.km * 2).toFixed(1)} km return (rounded up to ${Math.ceil(x.km * 2 - 1e-9)} km), ${fmtMin(x.min)} each way. Please check. <a href="${gmapsRoute(g)}" target="_blank" rel="noopener">🗺 View route</a>`; if (!SHEET.verifyNeeded) showVerify(); }
+    try { const r = await Maps.distances([g]); const x = r[0]; if (!x) throw new Error('No route found'); $('#e-fkm').value = Math.ceil(x.km * 2 - 1e-9); $('#e-fmin').value = Math.round(x.min); hint.innerHTML = `Google Maps${parseGps(val('e-fturn')) ? ' (to the turn-off)' : ''}: ${(x.km * 2).toFixed(1)} km return (rounded up to ${Math.ceil(x.km * 2 - 1e-9)} km), ${fmtMin(x.min)} each way. Please check. <a href="${gmapsRoute(g)}" target="_blank" rel="noopener">🗺 View route</a>`; if (!SHEET.verifyNeeded) showVerify(); }
     catch (e) { hint.textContent = e.message; }
   };
 }
-
+let SHEET_FARM = null;
+async function recHere() { /* uses the phone's location + a quick download to judge reception at the yards */
+  const hint = $('#e-rechint'); if (!hint) return; hint.textContent = 'Checking…';
+  const g = parseGps(val('e-fgps')) || parseGps(val('e-fturn'));
+  let far = '';
+  try { const pos = await new Promise((res, rej) => navigator.geolocation ? navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }) : rej(new Error('no gps'))); if (g) { const km = hav({ lat: pos.coords.latitude, lng: pos.coords.longitude }, g); if (km > 2) far = ` ⚠ You seem to be ${km.toFixed(1)} km from the yards pin — only save this if you're really at the yards.`; } } catch (e) { far = ' (Couldn\'t get your location — make sure you\'re at the yards.)'; }
+  let st = 'none', ms = null;
+  if (navigator.onLine) { const t0 = performance.now(); try { const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000); await fetch('version.json?r=' + Date.now(), { cache: 'no-store', signal: ctl.signal }); clearTimeout(tm); ms = performance.now() - t0; const et = (navigator.connection || {}).effectiveType || ''; st = ms < 1500 && !/2g/.test(et) ? 'good' : 'patchy'; } catch (e) { st = 'none'; } }
+  $('#e-frec').value = st; if (!val('e-frecnote')) $('#e-frecnote').value = '';
+  hint.innerHTML = `Result: <b>${RECEPTION[st]}</b>${ms != null ? ` (${Math.round(ms)} ms)` : ''}. Change it if it doesn't match what your phone shows, then Save.${far}`;
+}
+function farmPhotoEdit(f) { const ps = f.photos || []; if (!ps.length) return '<div class="hint">No photos yet.</div>'; return `<div class="fphotos">${ps.map((ph) => `<div class="fph"><img src="${photoSrc(ph, 320, 180) || ''}" alt="" onerror="this.style.opacity=.3"><button type="button" class="btn small" data-act="fphoto-del" data-id="${h(ph.id)}">✕</button><div class="hint">${ph.kind === 'sv' ? 'Street View' : 'Photo'}${ph.by ? ' · ' + h(ph.by) : ''}</div></div>`).join('')}</div>`; }
 /* ---------------- Google Maps (needs API key in Settings) ---------------- */
 const Maps = {
   key() { return D.settings.mapsKey || ''; },
@@ -1156,7 +1350,7 @@ function endpoint(e) {
   if (e.type === 'none') return null;
   return { ...D.settings.home, label: D.settings.home.label };
 }
-function farmLabel(f) { const b = IDX.farmBiz.get(f.id); return (b ? b.name : '') + (f.name ? ' — ' + f.name : ''); }
+function farmLabel(f) { const b = IDX.farmBiz && IDX.farmBiz.get(f.id); return (b ? b.name : (f.owner && f.owner.text) || '') + (f.name ? (b || (f.owner && f.owner.text) ? ' — ' : '') + f.name : b ? '' : f.address || 'Farm'); }
 const locStr = (p) => (p.lat != null ? `${p.lat},${p.lng}` : p.text);
 function routeUrl(start, end, stops) {
   const st = stops.slice();
@@ -1210,7 +1404,7 @@ function farmSearch(q, limit = 12) {
 }
 async function goRoute() {
   const R = S.route; const msg = $('#route-msg');
-  let stops = R.stops.map((s) => { const f = IDX.farms.get(s.fid); return { lat: f.lat, lng: f.lng, fid: f.id }; });
+  let stops = R.stops.map((s) => { const f = IDX.farms.get(s.fid); return { ...farmRoutePt(f), fid: f.id }; }); /* Google Maps takes you to each farm's turn-off when it has one */
   const start = endpoint(R.start); let end = R.endSame ? (R.start.type === 'none' ? null : endpoint(R.start)) : endpoint(R.end);
   if ((start && start.lat == null && !start.text) || (end && end.lat == null && !end.text)) { msg.textContent = 'Choose the start/finish location first.'; return; }
   const w = window.open('', '_blank');
@@ -1245,20 +1439,10 @@ function bulkOps(t, sel) {
   if (t === 'bizonly') ops.push({ op: 'bizonlyall', label: "✓ Yes — just the business, for all selected", green: true });
   if (t === 'noprimary') ops.push({ op: 'noprimreq', label: 'Primary contact not required' }, { op: 'nonclient', label: 'Make non-client (industry) businesses' });
   if (t === 'conflict') ops.push({ op: 'keepmine', label: "Keep this device's version for all" }, { op: 'keeptheirs', label: 'Keep the other version for all' });
-  if (t === 'nearpin') ops.push({ op: 'samefarm1', label: "Same yards used by both businesses (keep 1's details)" }, { op: 'dismiss', label: 'Different farms' });
+  if (t === 'nearpin') ops.push({ op: 'samefarm1', label: "Same yards — combine into one shared farm (keep 1's details)" }, { op: 'dismiss', label: 'Different farms' });
   if (t === 'dupe') ops.push({ op: 'dismiss', label: 'Not duplicates' });
   if (JOB_TYPES[t].manual) ops.push({ op: 'dismiss', label: JOB_TYPES[t].btn || 'Mark resolved - changes not required' });
   const seen = new Set(); return ops.filter((o) => (seen.has(o.op) ? false : seen.add(o.op)));
-}
-function shareFarm(keep, other) {
-  other.lat = keep.lat; other.lng = keep.lng;
-  if (keep.kmReturn != null) { other.kmReturn = keep.kmReturn; other.kmStatus = keep.kmStatus === 'needs-verify' ? 'needs-verify' : 'verified'; }
-  if (keep.driveMin != null) other.driveMin = keep.driveMin;
-  if (keep.gKm != null) { other.gKm = keep.gKm; other.gMin = keep.gMin; }
-  if (!other.address && keep.address) other.address = keep.address;
-  other.flags = (other.flags || []).filter((x) => x.type !== 'kmcheck');
-  other.sharedWith = keep.id; touch(IDX.farmBiz.get(other.id));
-  if (!keep.sharedWith) { keep.sharedWith = other.id; touch(IDX.farmBiz.get(keep.id)); }
 }
 // edit the categories of a business and everyone at it on one screen
 function editBizCats(bid) {
@@ -1328,12 +1512,12 @@ async function runBulk(t, op) {
   sel.forEach((j) => {
     if (op === 'dismiss') {
       D.dismissed[j.key] = Date.now(); D._dismissDirty = true;
-      if (t === 'signfix') { const f = IDX.farms.get(j.fid); if (f) { f.flags = (f.flags || []).filter((x) => x.type !== 'signfix'); touch(IDX.farmBiz.get(f.id)); } }
+      if (t === 'signfix') { const f = IDX.farms.get(j.fid); if (f) { f.flags = (f.flags || []).filter((x) => x.type !== 'signfix'); touch(f); } }
     } else if (op === 'usekm' && j.suggest) {
-      j.suggest.fids.forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = j.suggest.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(fid)); });
+      j.suggest.fids.forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = j.suggest.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farms.get(fid)); });
     } else if (op === 'samefarm1' && j.pair) {
       const keep = IDX.farms.get(j.pair.a), other = IDX.farms.get(j.pair.b);
-      if (keep && other && IDX.farmBiz.get(keep.id) !== IDX.farmBiz.get(other.id)) shareFarm(keep, other);
+      if (keep && other && D.farms.includes(keep) && D.farms.includes(other)) combineFarms(keep, other);
       D.dismissed[j.key] = Date.now(); D._dismissDirty = true;
     } else if ((op === 'keepmine' || op === 'keeptheirs') && j.data) { resolveConflict(j.data.key, op === 'keepmine' ? 'mine' : 'theirs');
     } else if (op === 'catapply' && j.cat) applyCat(j.cat.cid, j.cat.at);
@@ -1372,8 +1556,8 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       ${!j.suggest && j.needsLookup && D.settings.mapsKey ? `<button class="btn small" data-act="lookup-km" data-fids="${j.needsLookup.join(',')}">Get Google Maps suggestion</button>` : ''}
       ${j.pair ? (() => { const fa = IDX.farms.get(j.pair.a), fb = IDX.farms.get(j.pair.b); return `<a class="btn small greenbtn" href="https://www.google.com/maps/dir/?api=1&origin=${fa.lat},${fa.lng}&destination=${fb.lat},${fb.lng}&travelmode=walking" target="_blank" rel="noopener">🗺 View both pins on Google Maps</a><a class="btn small" href="${gmapsPin(fa)}" target="_blank" rel="noopener">View pin 1</a><a class="btn small" href="${gmapsPin(fb)}" target="_blank" rel="noopener">View pin 2</a>
         <button class="btn small" data-act="pin-diff" data-key="${h(j.key)}">Different farms</button>
-        <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fa.id}" data-other="${fb.id}">${j.pair.same ? "Same farm — merge, keep 1's details" : "Same yards used by both businesses — keep 1's details"}</button>
-        <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fb.id}" data-other="${fa.id}">${j.pair.same ? "Same farm — merge, keep 2's details" : "Same yards used by both businesses — keep 2's details"}</button>`; })() : ''}
+        <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fa.id}" data-other="${fb.id}">Same yards — combine, keep 1's details</button>
+        <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fb.id}" data-other="${fa.id}">Same yards — combine, keep 2's details</button>`; })() : ''}
       ${j.dupe ? (() => { const x = j.dupe, isC = x.kind === 'contact'; const A = isC ? D.contacts.find((c) => c.id === x.a) : IDX.biz.get(x.a), B = isC ? D.contacts.find((c) => c.id === x.b) : IDX.biz.get(x.b); const nm = (r) => h(isC ? fullName(r) : r.name);
         return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small greenbtn" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">⇄ Merge into 1 (${nm(A)})…</button><button class="btn small greenbtn" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">⇄ Merge into 2 (${nm(B)})…</button>`; })() : ''}
       ${j.bizonly ? `<button class="btn small greenbtn" data-act="bizonly-convert" data-cid="${j.bizonly.cid}" data-bid="${j.bizonly.bid}">✓ Yes — it's just the business (move details onto it)</button><button class="btn small" data-act="edit-contact" data-id="${j.bizonly.cid}">Edit contact</button><button class="btn small" data-act="edit-biz" data-id="${j.bizonly.bid}">Edit business</button>` : ''}
@@ -1415,16 +1599,16 @@ function renderJobs() {
 }
 async function checkAllDistances() {
   const msg = $('#check-msg');
-  const farms = []; D.businesses.forEach((b) => b.farms.forEach((f) => { if (f.lat != null) farms.push(f); }));
+  const farms = D.farms.filter((f) => f.lat != null && farmUsersOf(f.id).some((u) => !u.past));
   msg.textContent = `Checking ${farms.length} farms…`;
   try {
-    const res = await Maps.distances(farms.map((f) => ({ lat: f.lat, lng: f.lng })));
+    const res = await Maps.distances(farms.map(farmRoutePt));
     let n = 0;
     farms.forEach((f, i) => {
       const r = res[i]; if (!r) return;
       const exact = r.km * 2, g = Math.ceil(exact - 1e-9); f.gKm = g; f.gMin = Math.round(r.min); f.gAt = Date.now();
       f.driveMin = f.driveMin ?? Math.round(r.min);
-      f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id));
+      f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(f);
       if (f.kmReturn != null && Math.abs(f.kmReturn - exact) > routeSet().kmTol) { f.flags.push({ type: 'kmcheck', google: g, note: `Recorded ${f.kmReturn} km return — Google Maps says ${exact.toFixed(1)} km return (${fmtMin(r.min)} each way)` }); n++; }
     });
     Object.keys(D.dismissed || {}).forEach((k) => { if (k.startsWith('kmcheck:')) { D.dismissed[k] = 0; D._dismissDirty = true; } });
@@ -1437,7 +1621,7 @@ async function checkAllDistances() {
 /* ---------------- Ask Claude (copy & paste through the person's own Claude account) ---------------- */
 function aiRecords(req, scope) {
   const cOut = (c) => ({ id: c.id, name: fullName(c), first: c.first, middle: c.middle, last: c.last, role: c.role, category: catOf(c) || null, categorySetOnContact: !followsBiz(c), tags: c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)), businesses: curLinks(c).map((l) => l.bid), pastBusinesses: c.links.filter((l) => l.past).map((l) => l.bid), mobiles: c.mobiles, landlines: c.landlines, emails: c.emails, postal: c.postal, info: c.info, warnings: c.warnings, sideNotes: c.sideNotes, ...(c.ice ? { ice: c.ice } : {}), ...(() => { const { dr, ptags } = photoCandidates(c); const opts = [...new Set([...dr, ...ptags])]; if (opts.length < 2) return {}; const pc = effChoice(c); return { photo: pc === 'auto' || pc === 'custom' ? pc : pc.startsWith('split:') ? pc.slice(6).split(',') : [pc], photoOptions: opts, ...(needsPhotoChoice(c) ? { photoNeedsChoosing: true } : {}) }; })() });
-  const bOut = (b) => ({ id: b.id, name: b.name, type: isClientBiz(b) ? 'client' : 'nonclient', category: bizCat(b) || null, primaryContact: b.primaryContact || null, contacts: (IDX.bizContacts.get(b.id) || []).map((c) => c.id), pastContacts: (IDX.bizPast.get(b.id) || []).map((c) => c.id), phones: b.phones || [], emails: b.emails || [], pics: b.pics, patientIds: b.patientIds, farms: b.farms.map((f) => ({ id: f.id, name: f.name, address: f.address, kmReturn: f.kmReturn, warning: f.warning || '' })), info: b.info, warnings: b.warnings, sideNotes: b.sideNotes });
+  const bOut = (b) => ({ id: b.id, name: b.name, type: isClientBiz(b) ? 'client' : 'nonclient', category: bizCat(b) || null, primaryContact: b.primaryContact || null, contacts: (IDX.bizContacts.get(b.id) || []).map((c) => c.id), pastContacts: (IDX.bizPast.get(b.id) || []).map((c) => c.id), phones: b.phones || [], emails: b.emails || [], pics: b.pics, patientIds: b.patientIds, farms: b.farms.map((f) => ({ id: f.id, name: f.name, pinType: pinT(f.pinType).name, address: f.address, kmReturn: f.kmReturn, warning: f.warning || '', ...(f.safety && f.safety.status ? { safety: f.safety } : {}), ...(f.access ? { access: f.access } : {}), ...(f.reception ? { reception: f.reception.status } : {}), ...(f.biosec ? { biosecurity: f.biosec } : {}), ...(farmUsersOf(f.id).length > 1 ? { alsoUsedBy: farmUsersOf(f.id).filter((u) => u.b !== b).map((u) => u.b.name) } : {}) })), notCurrentFarms: b.pastFarms.map((f) => f.name || f.address), biosecurity: b.biosec || '', info: b.info, warnings: b.warnings, sideNotes: b.sideNotes });
   if (scope === 'all') return { contacts: D.contacts.map((c) => [c.id, fullName(c), catOf(c) || '', c.links.map((l) => l.bid).join(' '), (c.mobiles[0] || c.landlines[0] || {}).value || '', c.tags.filter((t) => !isCatTag(t) && !RATING_SET.has(t)).join(' ')]), contactColumns: ['id', 'name', 'category', 'businessIds', 'phone', 'tags'], businesses: D.businesses.map((b) => [b.id, b.name, isClientBiz(b) ? 'client' : 'nonclient', bizCat(b) || '', b.pics.map((p) => p.value).join(' '), b.farms.map((f) => (f.name || '') + (f.kmReturn != null ? ' ' + f.kmReturn + 'km' : '')).join('; ')]), businessColumns: ['id', 'name', 'type', 'category', 'PICs', 'farms'], note: 'Short form. Ask me to send full details of specific records if you need their notes.' };
   const t = ' ' + req.toLowerCase().replace(/[^a-z0-9&' -]/g, ' ').replace(/\s+/g, ' ') + ' ';
   const hit = (name) => { const n = (name || '').toLowerCase().trim(); return n.length >= 3 && t.includes(' ' + n + ' '); };
@@ -1471,7 +1655,7 @@ RULES
 JSON FORMAT
 {"summary":"one line describing the changes","changes":[
  {"op":"update_contact","id":"c…","fields":{"first":"","middle":"","last":"","role":"","info":"","warnings":"","sideNotes":"","mobiles":[],"landlines":[],"emails":[],"postal":[],"inactiveReason":"","dnaReason":""}},
- {"op":"update_business","id":"b…","fields":{"name":"","type":"client","info":"","warnings":"","sideNotes":"","phones":[],"emails":[],"postal":[],"inactiveReason":"","dnaReason":""}},
+ {"op":"update_business","id":"b…","fields":{"name":"","type":"client","info":"","warnings":"","sideNotes":"","biosec":"","phones":[],"emails":[],"postal":[],"inactiveReason":"","dnaReason":""}},
  {"op":"set_category","kind":"contact","id":"c…","category":"a"},
  {"op":"set_category","kind":"business","id":"b…","category":"industry"},
  {"op":"add_tag","id":"c…","tag":"pa"}, {"op":"remove_tag","id":"c…","tag":"pi"},
@@ -1498,10 +1682,10 @@ function aiApply(text) { // → {done:[lines], errors:[lines]}; changes are made
   const listF = ['mobiles', 'landlines', 'emails', 'phones'];
   const clean = (k, v) => (listF.includes(k) ? (Array.isArray(v) ? v.filter((x) => x && x.value).map((x) => ({ label: String(x.label || ''), value: String(x.value) })) : []) : k === 'postal' ? (Array.isArray(v) ? v.map(String) : [String(v)]) : String(v ?? ''));
   const CF = ['first', 'middle', 'last', 'role', 'info', 'warnings', 'sideNotes', 'mobiles', 'landlines', 'emails', 'postal', 'inactiveReason', 'dnaReason'];
-  const BF = ['name', 'info', 'warnings', 'sideNotes', 'phones', 'emails', 'postal', 'inactiveReason', 'dnaReason'];
+  const BF = ['name', 'info', 'warnings', 'sideNotes', 'biosec', 'phones', 'emails', 'postal', 'inactiveReason', 'dnaReason'];
   for (const ch of js.changes || []) { try {
     const op = ch.op;
-    if (op === 'new_business') { const nb = { id: uid('b'), name: String((ch.fields || {}).name || 'New business'), type: (ch.fields || {}).type === 'nonclient' ? 'nonclient' : 'client', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; BF.forEach((k) => { if (ch.fields && k in ch.fields) nb[k] = clean(k, ch.fields[k]); }); D.businesses.push(nb); reindex(); if (ch.category && okCat(ch.category) && ch.category !== 'same_as_business') setBizCat(nb, ch.category); touch(nb); if (ch.ref) refs[ch.ref] = nb.id; done.push('New business: ' + nb.name); continue; }
+    if (op === 'new_business') { const nb = { id: uid('b'), name: String((ch.fields || {}).name || 'New business'), type: (ch.fields || {}).type === 'nonclient' ? 'nonclient' : 'client', farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; BF.forEach((k) => { if (ch.fields && k in ch.fields) nb[k] = clean(k, ch.fields[k]); }); D.businesses.push(nb); reindex(); if (ch.category && okCat(ch.category) && ch.category !== 'same_as_business') setBizCat(nb, ch.category); touch(nb); if (ch.ref) refs[ch.ref] = nb.id; done.push('New business: ' + nb.name); continue; }
     if (op === 'new_contact') { const f = ch.fields || {}; const c = { id: uid('c'), first: '', middle: '', last: '', role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [], createdAt: Date.now() }; CF.forEach((k) => { if (k in f) c[k] = clean(k, f[k]); }); (ch.businesses || []).forEach((bid) => { const b = B(bid); if (b) c.links.push({ bid: b.id }); }); D.contacts.push(c); reindex(); if (ch.category && okCat(ch.category)) { if (ch.category === 'same_as_business') c.ownCats = false; else setOne(c, ch.category); } touch(c); if (ch.ref) refs[ch.ref] = c.id; done.push('New contact: ' + fullName(c)); continue; }
     if (op === 'update_contact') { const c = C(ch.id); if (!c) throw new Error('contact ' + ch.id + ' not found'); Object.entries(ch.fields || {}).forEach(([k, v]) => { if (CF.includes(k)) { c[k] = clean(k, v); if (k === 'info') delete c.infoHtml; } }); touch(c); done.push('Updated ' + fullName(c) + ': ' + Object.keys(ch.fields || {}).join(', ')); continue; }
     if (op === 'update_business') { const b = B(ch.id); if (!b) throw new Error('business ' + ch.id + ' not found'); Object.entries(ch.fields || {}).forEach(([k, v]) => { if (BF.includes(k)) { b[k] = clean(k, v); if (k === 'info') delete b.infoHtml; } if (k === 'type' && (v === 'client' || v === 'nonclient')) setBizType(b, v); }); touch(b); done.push('Updated ' + b.name + ': ' + Object.keys(ch.fields || {}).join(', ')); continue; }
@@ -1592,7 +1776,10 @@ function renderSettings() {
   <div class="card"><h3>Menu names</h3><div class="hint" style="margin-bottom:6px">Rename the menu headings. Leave a box empty to use the standard name. Applies to every device.</div>
     ${Object.keys(TAB_DEFAULTS).map((k) => `<div class="f"><label>${h(TAB_DEFAULTS[k])}</label><input data-label="${k}" value="${h((st.labels || {})[k] || '')}" placeholder="${h(TAB_DEFAULTS[k])}"></div>`).join('')}</div>
   <div class="card"><h3>Homebase</h3><div class="f"><label>Address</label><input id="s-homeaddr" value="${h(st.home.address)}"></div><div class="f"><label>GPS</label><input id="s-homegps" value="${st.home.lat}, ${st.home.lng}"></div><button class="btn small" data-act="save-home">Save homebase</button></div>
-  <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, and plan the most efficient route.</div></div>
+  <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, plan the most efficient route, find pins from addresses and show Street View photos. In Google Cloud, turn on <b>Routes API</b>, <b>Geocoding API</b> and <b>Street View Static API</b> for this key.</div></div>
+  <div class="card"><h3><span class="sp">Pin types</span><button class="btn small" data-act="pintype-add">+ New pin type</button></h3><div class="hint" style="margin-bottom:6px">The symbols used for farm pins (yards, dairy, office…). Applies on every device.</div>
+    ${pinTypes().map((t) => { const n = D.farms.filter((f) => f.pinType === t.id || (f.extra || []).some((x) => x.type === t.id)).length; return `<div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${t.emoji}</span><div class="v">${h(t.name)} <span class="hint">· ${n} pin${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="pintype-edit" data-id="${h(t.id)}">Edit</button>${n ? '' : `<button class="btn small" data-act="pintype-del" data-id="${h(t.id)}">Delete</button>`}</div>`; }).join('')}
+    <div class="kv"><span style="font-size:22px;width:34px">${TURN_EMOJI}</span><div class="v">Turn-off from the road <span class="hint">· built in</span></div></div></div>
   ${syncSettingsCard()}
   <div class="card"><h3>App version</h3><div class="kv"><div class="k">Version</div><div class="v">${APP_VERSION}</div></div>${S.latest ? `<div class="kv"><div class="k">Latest</div><div class="v">${h(S.latest)}${S.latest !== APP_VERSION.split(' ')[0] ? ' — <b style="color:var(--red)">tap ⟳ to update</b>' : ' ✓ up to date'}</div></div>` : ''}<div class="actions"><button class="btn small" data-act="app-refresh">⟳ Close and reopen on the latest version</button></div></div>
   ${renderChangeLog()}
@@ -1654,7 +1841,7 @@ async function gfetch(url, opt = {}, interactive = false) {
    Each record has _rev (bumped on every upload). On sync: download if the file changed, merge record by record,
    then upload. If the same record was changed on two devices since the last sync, it is a CONFLICT: the other
    device's version is kept for now and this device's version goes to the Jobs list to be resolved. */
-const KINDS = ['contacts', 'businesses', 'tags', 'routes'];
+const KINDS = ['contacts', 'businesses', 'tags', 'routes', 'farms']; const DATA_FORMAT = 2;
 const strip = (r) => { const o = { ...r }; delete o._dirty; return o; };
 const adopt = (l, s) => { Object.keys(l).forEach((k) => delete l[k]); Object.assign(l, s); return l; }; // overwrite a record in place (keeps references held by open screens)
 const Sync = {
@@ -1678,8 +1865,9 @@ const Sync = {
   async meta(id) { const r = await gfetch(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,version,modifiedTime,trashed`); if (r.status === 404) return null; if (!r.ok) throw new Error('Drive error ' + r.status); return r.json(); },
   async download(id) { const r = await gfetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`); if (!r.ok) throw new Error('Drive download error ' + r.status); return r.json(); },
   serial() {
-    const out = { format: 1, savedAt: new Date().toISOString(), savedBy: DEVICE, settings: strip(D.settings), deleted: (D.deleted || []).map(({ id, kind, at }) => ({ id, kind, at })), dismissed: D.dismissed || {}, devices: D.devices || {}, importedAt: D.importedAt, trash: (D.trash || []).filter((t) => Date.now() - t.at < 90 * 864e5), changelog: (D.changelog || []).slice(0, 400) };
-    KINDS.forEach((k) => (out[k] = D[k].map(strip)));
+    const out = { format: DATA_FORMAT, savedAt: new Date().toISOString(), savedBy: DEVICE, settings: strip(D.settings), deleted: (D.deleted || []).map(({ id, kind, at }) => ({ id, kind, at })), dismissed: D.dismissed || {}, devices: D.devices || {}, importedAt: D.importedAt, trash: (D.trash || []).filter((t) => Date.now() - t.at < 90 * 864e5), changelog: (D.changelog || []).slice(0, 400) };
+    KINDS.forEach((k) => (out[k] = (D[k] || []).map(strip)));
+    out.businesses = out.businesses.map((b) => ({ ...b, farms: [] })); /* empty list keeps older app versions from crashing until they update */
     return JSON.stringify(out);
   },
   async upload(id) {
@@ -1709,12 +1897,15 @@ const Sync = {
     D.sync.fileId = js.id; D.sync.version = js.version; D.sync.last = Date.now();
   },
   merge(srv) {
+    if ((srv.format || 1) > DATA_FORMAT) throw new Error('A newer version of the app saved the data — tap ⟳ to update this device');
+    (srv.businesses || []).forEach((s) => { if (Array.isArray(s.farms) && !s.farms.length && Array.isArray(s.farmLinks)) delete s.farms; });
+    D.farms = D.farms || [];
     const delSrv = new Map((srv.deleted || []).map((x) => [x.id, x]));
     const delLocal = new Set((D.deleted || []).map((x) => x.id));
     const conflicts = D.conflicts || (D.conflicts = []);
     let changes = 0;
     KINDS.forEach((k) => {
-      const local = new Map(D[k].map((r) => [r.id, r]));
+      const local = new Map((D[k] || []).map((r) => [r.id, r]));
       const out = [];
       (srv[k] || []).forEach((s) => {
         if (delLocal.has(s.id)) return; // deleted here; our tombstone goes up with the upload
@@ -1725,11 +1916,11 @@ const Sync = {
         if (JSON.stringify({ ...strip(l), _rev: 0, _u: 0, _dev: 0 }) === JSON.stringify({ ...s, _rev: 0, _u: 0, _dev: 0 })) { out.push(adopt(l, s)); return; } // same edit both sides
         // changed on both devices → keep theirs, park ours for the user to choose
         for (let q = conflicts.length - 1; q >= 0; q--) if (conflicts[q].key === k + ':' + s.id) conflicts.splice(q, 1);
-        conflicts.push({ key: k + ':' + s.id, kind: k, id: s.id, who: k === 'contacts' ? fullName(s) : s.name, mine: strip(l), mineAt: l._u, theirsAt: s._u, theirsDev: s._dev });
+        conflicts.push({ key: k + ':' + s.id, kind: k, id: s.id, who: k === 'contacts' ? fullName(s) : k === 'farms' ? farmLabel(s) : s.name, mine: strip(l), mineAt: l._u, theirsAt: s._u, theirsDev: s._dev });
         out.push(adopt(l, s)); changes++;
       });
       local.forEach((l) => {
-        if (delSrv.has(l.id)) { if (l._dirty) conflicts.push({ key: k + ':' + l.id, kind: k, id: l.id, who: k === 'contacts' ? fullName(l) : l.name, mine: strip(l), mineAt: l._u, deletedElsewhere: true }); changes++; return; }
+        if (delSrv.has(l.id)) { if (l._dirty) conflicts.push({ key: k + ':' + l.id, kind: k, id: l.id, who: k === 'contacts' ? fullName(l) : k === 'farms' ? farmLabel(l) : l.name, mine: strip(l), mineAt: l._u, deletedElsewhere: true }); changes++; return; }
         if (!l._dirty && l._rev) l._dirty = true; // missing from server without a tombstone: put it back
         out.push(l);
       });
@@ -1854,7 +2045,7 @@ function conflictSheet(cf) {
 function contactToBiz(c, kind) { // "This entry is a business": use the same-named linked business, or create one
   let b = bizOf(c).find((x) => sameAsBizName(c, x));
   const cat = catOf(c) || (kind === 'industry' ? 'industry' : '');
-  if (!b) { b = { id: uid('b'), name: fullName(c), farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; D.businesses.push(b); reindex(); if (cat) setBizCat(b, cat); }
+  if (!b) { b = { id: uid('b'), name: fullName(c), farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; D.businesses.push(b); reindex(); if (cat) setBizCat(b, cat); }
   else if (!bizCat(b) && cat) setBizCat(b, cat);
   setBizType(b, kind === 'client' ? 'client' : 'nonclient');
   if (c.dnaReason && !b.dnaReason) b.dnaReason = c.dnaReason; if (c.inactiveReason && !b.inactiveReason) b.inactiveReason = c.inactiveReason;
@@ -1893,7 +2084,7 @@ function oddBizSheet(b, mode) { /* mode: 'role' = the whole name is a role; 'mul
     rows.forEach((r) => { if (r.what === 'rename') { b.name = r.text; touch(b); targets.push(b); }
       else if (r.what === 'existing' || r.what === 'find') { const x = IDX.biz.get(r.ex); if (x) targets.push(x); }
       else if (r.what === 'existing-past' || r.what === 'find-past') { const x = IDX.biz.get(r.ex); if (x) pastTargets.push(x); }
-      else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); targets.push(nb); } });
+      else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); targets.push(nb); } });
     const roles = rows.filter((r) => r.what === 'role').map((r) => r.text).join(', ');
     reindex();
     ticked.forEach((c) => { const prev = catOf(c); const before = c.links.length; targets.forEach((t) => { const l = c.links.find((x) => x.bid === t.id); if (!l) c.links.push(roles && t !== b ? { bid: t.id, role: roles } : { bid: t.id }); else if (l.past) delete l.past; }); pastTargets.forEach((t) => { if (!c.links.some((x) => x.bid === t.id)) c.links.push({ bid: t.id, past: true }); }); if (!ren.length) c.links = c.links.filter((l) => l.bid !== b.id); if (roles && !targets.length && !pastTargets.length) { if (!(c.role || '').toLowerCase().includes(roles.toLowerCase())) c.role = c.role ? c.role + ', ' + roles : roles; } else if (roles && !c.role) c.role = roles; reindex(); if (prev) setOne(c, prev); touch(c); });
@@ -2290,13 +2481,15 @@ function trashBiz(b) {
   D.contacts.forEach((c) => { if (c.links.some((l) => l.bid === b.id)) { c.links = c.links.filter((l) => l.bid !== b.id); touch(c); } });
   D.deleted.push({ id: b.id, kind: 'businesses', at: Date.now() }); Sync.soon();
 }
-function trashFarm(b, f) { toTrash('farm', f, { bid: b.id, bname: b.name }); b.farms = b.farms.filter((x) => x.id !== f.id); S.route.stops = S.route.stops.filter((s) => s.fid !== f.id); touch(b); }
+function trashFarm(b, f) { /* removes the farm from this business; the farm itself only goes to the trash when no other business uses it */
+  unlinkFarm(b, f.id); reindex(); if (farmUsersOf(f.id).length) return false;
+  toTrash('farm', f, { bid: b.id, bname: b.name }); logDeleted('farms', f, D.trash[D.trash.length - 1].tid); dropFarmRecord(f); S.route.stops = S.route.stops.filter((st) => st.fid !== f.id); return true; }
 function restoreTrash(tid) {
   const t = (D.trash || []).find((x) => x.tid === tid); if (!t || t.removed) return;
   // restored records get a new id so the old deletion can't remove them again on another device
   if (t.kind === 'contact') { const c = { ...t.rec, id: uid('c') }; c.links = c.links.filter((l) => IDX.biz.has(l.bid)); touch(c); D.contacts.push(c); S.sel = { kind: 'contact', id: c.id }; S.tab = 'contacts'; }
   if (t.kind === 'business') { const b = { ...t.rec, id: uid('b') }; touch(b); D.businesses.push(b); (t.linked || []).forEach((cid) => { const c = D.contacts.find((x) => x.id === cid); if (c && !c.links.some((l) => l.bid === b.id)) { c.links.push({ bid: b.id }); touch(c); } }); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
-  if (t.kind === 'farm') { const b = IDX.biz.get(t.bid); if (!b) { toast('Its business has been deleted — restore the business first'); return; } b.farms.push({ ...t.rec }); touch(b); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
+  if (t.kind === 'farm') { const b = IDX.biz.get(t.bid); if (!b) { toast('Its business has been deleted — restore the business first'); return; } const f = { ...t.rec, id: uid('f') }; delete f.sharedWith; D.farms.push(f); touch(f); linkFarm(b, f); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
   Object.assign(t, { removed: true, rec: null }); D._trashDirty = true; S.skipConfirm = true; changed(); toast('Restored');
 }
 function trashLabel(t) { const r = t.rec || {}; return t.kind === 'contact' ? fullName(r) : t.kind === 'business' ? r.name : (t.bname || '') + ' — ' + (r.name || r.address || 'farm'); }
@@ -2455,12 +2648,12 @@ function mergeContacts(keep, other) {
 }
 function mergeBiz(keep, other) {
   const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
-  keep.farms = [...keep.farms, ...other.farms]; keep.pics = [...keep.pics, ...other.pics.filter((p) => !keep.pics.some((q) => q.value === p.value))];
+  other.farmLinks.forEach((l) => { const k = keep.farmLinks.find((x) => x.fid === l.fid); if (k) { if (!l.past) delete k.past; } else keep.farmLinks.push({ ...l }); }); keep.pics = [...keep.pics, ...other.pics.filter((p) => !keep.pics.some((q) => q.value === p.value))];
   keep.patientIds = [...keep.patientIds, ...other.patientIds.filter((p) => !keep.patientIds.some((q) => q.value === p.value && q.label === p.label))];
   keep.info = join(keep.info, other.info); keep.warnings = join(keep.warnings, other.warnings); keep.rating = keep.rating || other.rating; keep.primaryContact = keep.primaryContact || other.primaryContact;
   if (keep.infoHtml || other.infoHtml) keep.infoHtml = [keep.infoHtml || h(keep.info || ''), other.infoHtml || ''].filter(Boolean).join('<br>');
   D.contacts.forEach((c) => { if (c.links.some((l) => l.bid === other.id)) { c.links = c.links.filter((l) => l.bid !== other.id); if (!c.links.some((l) => l.bid === keep.id)) c.links.push({ bid: keep.id }); touch(c); } });
-  touch(keep); other.farms = []; trashBiz(other);
+  touch(keep); other.farmLinks = []; trashBiz(other);
 }
 
 /* ---------------- formatted general info ---------------- */
@@ -2537,9 +2730,9 @@ function updHi() { const n = devInfo().nick; const el = document.getElementById(
 // key-order-independent JSON so {value,label} and {label,value} count as the same
 const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, kk) => ((o[kk] = x[kk]), o), {}) : x));
 const plain = (r) => { const o = {}; Object.keys(r).forEach((k) => { if (!k.startsWith('_')) o[k] = r[k]; }); return o; };
-const recKind = (r) => (r === D.settings ? 'settings' : D.contacts.includes(r) ? 'contacts' : D.businesses.includes(r) ? 'businesses' : D.tags.includes(r) ? 'tags' : (D.routes || []).includes(r) ? 'routes' : null);
+const recKind = (r) => (r === D.settings ? 'settings' : D.contacts.includes(r) ? 'contacts' : D.businesses.includes(r) ? 'businesses' : D.tags.includes(r) ? 'tags' : (D.routes || []).includes(r) ? 'routes' : (D.farms || []).includes(r) ? 'farms' : null);
 const recKeyOf = (kind, r) => (kind === 'settings' ? 'settings' : kind + ':' + r.id);
-const recName = (kind, r) => (kind === 'contacts' ? fullName(r) : kind === 'settings' ? 'Settings' : r.name || '');
+const recName = (kind, r) => (kind === 'contacts' ? fullName(r) : kind === 'settings' ? 'Settings' : kind === 'farms' ? farmLabel(r) : r.name || '');
 let DISMISS_SNAP = '{}';
 function revertTouched() { // put back everything changed since the last save (used when a change is cancelled)
   // deletions made as part of the cancelled change come back out of the trash too
@@ -2577,7 +2770,7 @@ function previewHtml(items) {
 }
 let CATSNAP = new Map(); const snapCats = () => { CATSNAP = new Map(D.contacts.map((c) => [c.id, catOf(c)])); };
 function baseline() { snapCats(); DISMISS_SNAP = JSON.stringify(D.dismissed || {}); BASE.clear(); KINDS.forEach((k) => D[k].forEach((r) => BASE.set(k + ':' + r.id, stable(plain(r))))); BASE.set('settings', stable(plain(D.settings))); TOUCHED.clear(); PENDING_DEL = []; }
-const FIELD_NAMES = { ice: 'ICE contacts', phones: 'phone', gid: 'Google link', first: 'first name', last: 'surname', middle: 'middle name', role: 'role', links: 'businesses', tags: 'tags', mobiles: 'mobile', landlines: 'landline', emails: 'email', postal: 'postal address', info: 'general info', warnings: 'general warnings', starred: 'starred', photoChoice: 'photo', photoData: 'photo', sideNotes: 'side notes', dnaReason: 'Do not answer reason', inactiveReason: 'inactive reason', flags: 'job flags', name: 'name', rating: 'A+ to C category', pics: 'PIC', patientIds: 'patient IDs', farms: 'farms / locations', primaryContact: 'primary contact', primaryRequired: 'primary contact required', type: 'business type', group: 'tag type', photo: 'photo', home: 'homebase', mapsKey: 'Google Maps key', photoPriority: 'photo priority', createdAt: 'created' };
+const FIELD_NAMES = { farmLinks: 'farms', turn: 'turn-off pin', fac: 'yard facilities', safety: 'safety status', access: 'access', reception: 'mobile reception', owner: 'owner', photos: 'photos', extra: 'more pins', pinType: 'pin type', biosec: 'biosecurity', svNo: 'Street View not useful', aka: 'also known as', ice: 'ICE contacts', phones: 'phone', gid: 'Google link', first: 'first name', last: 'surname', middle: 'middle name', role: 'role', links: 'businesses', tags: 'tags', mobiles: 'mobile', landlines: 'landline', emails: 'email', postal: 'postal address', info: 'general info', warnings: 'general warnings', starred: 'starred', photoChoice: 'photo', photoData: 'photo', sideNotes: 'side notes', dnaReason: 'Do not answer reason', inactiveReason: 'inactive reason', flags: 'job flags', name: 'name', rating: 'A+ to C category', pics: 'PIC', patientIds: 'patient IDs', farms: 'farms / locations', primaryContact: 'primary contact', primaryRequired: 'primary contact required', type: 'business type', group: 'tag type', photo: 'photo', home: 'homebase', mapsKey: 'Google Maps key', photoPriority: 'photo priority', createdAt: 'created' };
 function diffTouched(commit) {
   const items = [];
   TOUCHED.forEach((r) => {
@@ -2616,6 +2809,16 @@ function fmtField(f, v) {
   if (f === 'links') return v.map((l) => IDX.biz.get(l.bid)?.name || '(deleted business)').join(', ') || '—';
   if (['mobiles', 'landlines', 'emails', 'pics', 'patientIds', 'phones'].includes(f)) return v.map((x) => x.value + (x.label ? ' (' + x.label + ')' : '')).join(', ') || '—';
   if (f === 'farms') return v.length + ' — ' + v.map((x) => (x.name || x.address || 'farm') + (x.kmReturn != null ? ' ' + x.kmReturn + 'km' : '') + (x.seeWarning ? ' ⚠' : '')).join('; ');
+  if (f === 'farmLinks') return v.map((l) => { const fm = IDX.farms.get(l.fid); return (fm ? fm.name || fm.address || 'farm' : '(deleted farm)') + (l.past ? ' (not current)' : ''); }).join('; ') || '—';
+  if (f === 'turn' || (f === 'location' && v && v.lat != null)) return v && v.lat != null ? `${(+v.lat).toFixed(5)}, ${(+v.lng).toFixed(5)}` : '—';
+  if (f === 'fac') return facSummary(v) || '—';
+  if (f === 'safety') return v && v.status ? SAFETY[v.status].l + (v.note ? ' — ' + v.note : '') : 'OK';
+  if (f === 'access') return v ? [v.notes, v.wet ? WET[v.wet] : ''].filter(Boolean).join(' · ') : '—';
+  if (f === 'reception') return v && v.status ? RECEPTION[v.status] + (v.note ? ' — ' + v.note : '') : '—';
+  if (f === 'owner') return v ? (v.bid ? IDX.biz.get(v.bid)?.name || '—' : v.text || '—') : '—';
+  if (f === 'photos') return v.length + ' photo' + (v.length === 1 ? '' : 's');
+  if (f === 'extra') return v.map((x) => pinT(x.type).emoji + ' ' + (x.name || pinT(x.type).name)).join(', ') || '—';
+  if (f === 'pinType') return pinT(v).emoji + ' ' + pinT(v).name;
   if (f === 'rating') return tagName(v);
   if (f === 'primaryContact') { const c = D.contacts.find((x) => x.id === v); return c ? fullName(c) : '—'; }
   if (f === 'photoData') return 'custom photo';
@@ -2655,7 +2858,7 @@ async function undoEntry(id) {
   e.items.forEach((it) => {
     const r = find(it);
     if (it.deleted) { const t = (D.trash || []).find((x) => x.tid === it.tid && !x.removed); if (t) restoreTrash(t.tid); return; }
-    if (it.created) { if (!r) return; if (it.kind === 'contacts') trashContact(r); else if (it.kind === 'businesses') trashBiz(r); else if (it.kind === 'tags') { D.tags = D.tags.filter((t) => t !== r); D.deleted.push({ id: r.id, kind: 'tags', at: Date.now() }); } return; }
+    if (it.created) { if (!r) return; if (it.kind === 'contacts') trashContact(r); else if (it.kind === 'businesses') trashBiz(r); else if (it.kind === 'tags') { D.tags = D.tags.filter((t) => t !== r); D.deleted.push({ id: r.id, kind: 'tags', at: Date.now() }); } else if (it.kind === 'farms') { D.businesses.forEach((b) => { if (b.farmLinks.some((l) => l.fid === r.id)) unlinkFarm(b, r.id); }); dropFarmRecord(r); } return; }
     if (!r) return;
     Object.keys(it.before).forEach((f) => { if (it.before[f] === null) delete r[f]; else r[f] = JSON.parse(JSON.stringify(it.before[f])); });
     touch(r);
@@ -2797,7 +3000,7 @@ function migrate() {
   if (!D.settings.warnBack1) { // put warnings back into general info (*WARNING* section) to be re-applied from the Jobs list
     D.contacts.forEach((c) => { if ((c.warnings || '').trim()) { c.warningsWas = c.warnings; addToWarnSection(c, c.warnings); c.warnings = ''; touch(c); } });
     D.businesses.forEach((b) => { let t = false; if ((b.warnings || '').trim()) { b.warningsWas = b.warnings; addToWarnSection(b, b.warnings); b.warnings = ''; t = true; }
-      b.farms.forEach((f) => { if (f.seeWarning) { f.warningWas = f.warning || '(flagged, no text)'; addToWarnSection(f, (f.warning || '').trim() || 'This farm was flagged "see warning" — check the farm info'); f.warning = ''; f.seeWarning = false; t = true; } }); if (t) touch(b); });
+      b.farms.forEach((f) => { if (f.seeWarning) { f.warningWas = f.warning || '(flagged, no text)'; addToWarnSection(f, (f.warning || '').trim() || 'This farm was flagged "see warning" — check the farm info'); f.warning = ''; f.seeWarning = false; t = true; touch(f); } }); if (t) touch(b); });
     D.settings.warnBack1 = true; touch(D.settings); ch = true;
   }
   if (!D.settings.picFix1) { // drop "(found in notes)"; split "WFAY2899 (previously WBMC0061)" into PIC + note
@@ -2805,6 +3008,13 @@ function migrate() {
     D.settings.picFix1 = true; touch(D.settings); ch = true;
   }
   D.contacts.forEach((c) => { if (c.photoChoice && c.photoChoice !== 'auto' && effChoice(c) === 'auto') { c.photoChoice = 'auto'; touch(c); ch = true; } }); /* drop photo choices for categories the contact no longer has */
+  if (!D.settings.farmShare1) { [...D.farms].forEach((f) => { if (!f.sharedWith || !D.farms.includes(f)) return; const o = IDX.farms.get(f.sharedWith); delete f.sharedWith; touch(f); if (o && o !== f && D.farms.includes(o)) combineFarms(f, o); }); D.settings.farmShare1 = true; touch(D.settings); ch = true; reindex(); }
+  if (!D.settings.biosec1 && D.businesses.length) { const add = (b, txt) => { if (!b) return; if ((b.biosec || '').toLowerCase().includes(txt.toLowerCase().slice(0, 12))) return; b.biosec = [b.biosec, txt].filter((x) => (x || '').trim()).join('\n'); touch(b); };
+    D.businesses.filter((b) => /^pyle bros\b/i.test(b.name.trim())).forEach((b) => add(b, 'Ovine footrot.'));
+    const pigs = 'Has pigs — don\'t visit if you\'ve been near pigs in the last week.';
+    D.contacts.filter((c) => /^sean hunter$/i.test(fullName(c).trim()) || /^flavel$/i.test((c.last || '').trim()) || /\bflavel\b/i.test(fullName(c))).forEach((c) => bizOf(c).forEach((b) => add(b, pigs)));
+    D.businesses.filter((b) => /\bflavel/i.test(b.name)).forEach((b) => add(b, pigs));
+    D.settings.biosec1 = true; touch(D.settings); ch = true; }
   if (!D.settings.typeLock1) { D.businesses.forEach((b) => { const cat = bizCat(b); if (b.type === 'nonclient' && cat && catClass('b', cat) !== 'n' && !b.typeLocked) { b.typeLocked = true; touch(b); } }); D.settings.typeLock1 = true; touch(D.settings); ch = true; }
   if (!D.settings.iceV1) { // link the existing "X's ICE (relationship: Y)" contacts to the staff member
     const tg = D.tags.find((t) => t.id === 'ice'); if (tg) { if (tg.name !== 'ICE contact') { tg.name = 'ICE contact'; touch(tg); } } else { D.tags.push({ id: 'ice', name: 'ICE contact', group: 'additional', photo: null }); touch(D.tags[D.tags.length - 1]); }
@@ -2828,7 +3038,7 @@ document.addEventListener('click', async (e) => {
   if (el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.type !== 'checkbox')) return;
   if (el.tagName === 'A' && a !== 'clear') return;
   switch (a) {
-    case 'tab': S.backTo = null; S.tab = d.v; S.sel = null; if (d.v === 'contacts') S.q = ''; if (d.v === 'biz') S.bq = ''; /* every menu starts afresh */ document.body.classList.remove('show-detail'); renderAll(); $('#list').scrollTop = 0; break;
+    case 'tab': if (d.v !== 'map' && FMAP) { FMAP.remove(); FMAP = null; FMAP_LAYER = null; } S.backTo = null; S.tab = d.v; S.sel = null; if (d.v === 'contacts') S.q = ''; if (d.v === 'biz') S.bq = ''; /* every menu starts afresh */ document.body.classList.remove('show-detail'); renderAll(); $('#list').scrollTop = 0; break;
     case 'open': {
       if (d.kind === 'business' && S.tab === 'contacts') S.tab = 'biz';
       if (d.kind === 'contact' && S.tab === 'biz') S.tab = 'contacts';
@@ -2845,6 +3055,23 @@ document.addEventListener('click', async (e) => {
     case 'new-biz': editBiz(null); break;
     case 'edit-biz': editBiz(IDX.biz.get(d.id)); break;
     case 'add-farm': editFarm(IDX.biz.get(d.bid), null); break;
+    case 'map-open': S.backTo = null; S.tab = 'biz'; S.sel = { kind: 'business', id: d.id }; renderAll(); document.body.classList.add('show-detail'); break;
+    case 'map-near': { const f = IDX.farms.get(d.fid); if (!f || !FMAP) break; const p0 = f.lat != null ? f : f.turn; FMAP.setView([p0.lat, p0.lng], 12); break; }
+    case 'map-me': { if (!navigator.geolocation) { toast("This device can't share its location"); break; } toast('Finding you…'); navigator.geolocation.getCurrentPosition((pos) => { if (!FMAP) return; const ll = [pos.coords.latitude, pos.coords.longitude]; FMAP.setView(ll, 12); if (FMAP._me) FMAP._me.remove(); FMAP._me = L.circleMarker(ll, { radius: 8, color: '#1a73e8', fillColor: '#1a73e8', fillOpacity: 0.8 }).addTo(FMAP).bindPopup('You are here'); }, () => toast("Couldn't get your location"), { enableHighAccuracy: true, timeout: 10000 }); break; }
+    case 'xpin-add': $('#e-xpins').insertAdjacentHTML('beforeend', extraPinRow()); break;
+    case 'xpin-del': el.closest('.xpin').remove(); break;
+    case 'fphoto-del': if (SHEET_FARM) { SHEET_FARM.photos = SHEET_FARM.photos.filter((x) => x.id !== d.id); $('#e-fphotos').innerHTML = farmPhotoEdit({ photos: SHEET_FARM.photos }); } break;
+    case 'sv-find': { if (!Maps.key()) { $('#e-svprev').innerHTML = '<div class="hint">Street View photos need the Google Maps key in Settings (with "Street View Static API" turned on).</div>'; break; }
+      const tg = parseGps(val('e-fturn')), g = parseGps(val('e-fgps')); const p0 = tg ? { lat: tg.lat, lng: tg.lng, radius: 300 } : g ? { lat: g.lat, lng: g.lng, radius: 2000 } : null;
+      if (!p0) { $('#e-svprev').innerHTML = '<div class="hint">Add the turn-off or yards pin first.</div>'; break; }
+      S.svCand = p0; $('#e-svprev').innerHTML = `<div class="card" style="padding:8px;margin-top:8px"><div class="hint">Nearest Street View to the ${tg ? 'turn-off' : 'yards'} — is it useful?</div><img src="${svUrl(p0, 640, 360)}" style="width:100%;border-radius:8px" alt="Street View" onerror="this.parentNode.innerHTML='<div class=hint>No Street View found near here (or the key doesn\'t have Street View Static API turned on).</div>'"><div class="actions" style="margin-top:6px"><button type="button" class="btn small greenbtn" data-act="sv-keep">✓ Keep this photo</button><button type="button" class="btn small" data-act="sv-turn">↻ Look the other way</button></div></div>`; break; }
+    case 'sv-turn': { const c = S.svCand; if (!c) break; c.heading = ((c.heading == null ? 0 : c.heading) + 120) % 360; const img = $('#e-svprev img'); if (img) img.src = svUrl(c, 640, 360); break; }
+    case 'sv-keep': { const c = S.svCand; if (!c || !SHEET_FARM) break; SHEET_FARM.photos.push({ id: uid('ph'), kind: 'sv', lat: c.lat, lng: c.lng, radius: c.radius, ...(c.heading != null ? { heading: c.heading } : {}), at: Date.now(), by: devInfo().nick }); $('#e-fphotos').innerHTML = farmPhotoEdit({ photos: SHEET_FARM.photos }); $('#e-svprev').innerHTML = '<div class="hint">✓ Added — tap Save to keep it.</div>'; break; }
+    case 'sv-yes': { const f = IDX.farms.get(d.fid); if (!f) break; f.photos = [...(f.photos || []), { id: uid('ph'), kind: 'sv', lat: +d.lat, lng: +d.lng, radius: +d.r, at: Date.now(), by: devInfo().nick }]; touch(f); NEXT_LOG_LABEL = 'Street View photo added for ' + farmLabel(f); S.skipConfirm = true; if (await changed()) toast('📷 Photo kept'); break; }
+    case 'sv-no': { const f = IDX.farms.get(d.fid); if (!f) break; f.svNo = true; touch(f); S.skipConfirm = true; NEXT_LOG_LABEL = 'Street View photo not useful for ' + farmLabel(f); await changed(); break; }
+    case 'rec-here': recHere(); break;
+    case 'farm-past': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const l = b.farmLinks.find((x) => x.fid === f.id); if (!l) break; const toPast = !l.past; linkFarm(b, f, toPast); NEXT_LOG_LABEL = `${farmLabel(f)} ${toPast ? 'no longer current' : 'current again'} for ${b.name}`; if (await changed()) toast(toPast ? 'Moved to "Not current"' : 'Current again'); break; }
+    case 'farm-link-pick': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const r = await askBox('Link farm', `<p>Link <b>${h(farmLabel(f))}</b> to <b>${h(b.name)}</b>?</p><p class="hint">It becomes a shared farm — any change to it shows for every business that uses it.</p>`, 'Link as current', false, 'Cancel', 'Link as not current'); if (!r) break; linkFarm(b, f, r === 'alt'); NEXT_LOG_LABEL = `Linked ${farmLabel(f)} to ${b.name}${r === 'alt' ? ' (not current)' : ''}`; S.skipConfirm = true; if (await changed()) toast('Farm linked'); break; }
     case 'edit-farm': editFarm(IDX.biz.get(d.bid), IDX.farms.get(d.fid)); break;
     case 'calc-dist': SHEET && SHEET.calc && SHEET.calc(); break;
     case 'sheet-cancel': leaveSheet(); break;
@@ -2860,7 +3087,7 @@ document.addEventListener('click', async (e) => {
       if (a === 'warn-remove') { if (!(await ask(`Remove the *WARNING* section (and the text under it) from ${f ? 'the farm info of ' + (f.name || 'this farm') : 'the general info of ' + j.who}?\n\n${j.warnTxt}`, 'Yes — remove it', true))) break; if (f) { removeWarnSection(f); touch(rec); } else { removeWarnSection(rec); touch(rec); } NEXT_LOG_LABEL = `Removed *WARNING* section from ${j.who}`; S.skipConfirm = true; if (await changed()) toast('Removed from general info'); break; }
       if (d.to === 'general') { if ((tgt.warnings || '').includes(j.warnTxt)) { toast('Already in the general warning'); break; } tgt.warnings = join(tgt.warnings, j.warnTxt); touch(tgt); }
       if (d.to === 'side') { if ((tgt.sideNotes || '').includes(j.warnTxt)) { toast('Already in the side note'); break; } tgt.sideNotes = join(tgt.sideNotes, j.warnTxt); touch(tgt); }
-      if (d.to === 'farm') { const ff = IDX.farms.get(d.fid); const fb = ff && IDX.farmBiz.get(ff.id); if (!ff) break; if ((ff.warning || '').includes(j.warnTxt)) { toast('Already in that farm warning'); break; } ff.seeWarning = true; ff.warning = join(ff.warning, j.warnTxt); touch(fb); }
+      if (d.to === 'farm') { const ff = IDX.farms.get(d.fid); const fb = ff && IDX.farmBiz.get(ff.id); if (!ff) break; if ((ff.warning || '').includes(j.warnTxt)) { toast('Already in that farm warning'); break; } ff.seeWarning = true; ff.warning = join(ff.warning, j.warnTxt); touch(ff); }
       NEXT_LOG_LABEL = `Applied warning for ${j.who} as ${d.to === 'general' ? 'general warning' : d.to === 'side' ? 'side note' : 'farm warning'}`;
       if (await changed()) toast('✓ Applied — you can now remove it from general info if you like'); break; }
     case 'prim-set': { const b = IDX.biz.get(d.bid), c = D.contacts.find((x) => x.id === d.cid); if (!b || !c) break; b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
@@ -2882,7 +3109,8 @@ document.addEventListener('click', async (e) => {
     case 'link-newbiz': $('#e-links').insertAdjacentHTML('beforeend', linkRow(null, d.name)); $('#e-bizsearch').value = ''; $('#e-bizres').innerHTML = ''; break;
     case 'del-contact': if (await ask(`Move ${fullName(D.contacts.find((c) => c.id === d.id))} to the trash?\n\nYou can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { trashContact(D.contacts.find((c) => c.id === d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
     case 'del-biz': if (await ask(`Move ${IDX.biz.get(d.id).name} and its farms to the trash?\n\nIts contacts stay. You can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { trashBiz(IDX.biz.get(d.id)); S.sel = null; closeSheet(); changed(); toast('Moved to trash'); } break;
-    case 'del-farm': if (await ask(`Move ${IDX.farms.get(d.fid)?.name || 'this farm'} (${IDX.biz.get(d.bid).name}) to the trash?\n\nYou can restore it from Settings → Trash.`, 'Yes — move to trash', true)) { const b = IDX.biz.get(d.bid); trashFarm(b, IDX.farms.get(d.fid)); closeSheet(); changed(); toast('Moved to trash'); } break;
+    case 'del-farm': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const others = farmUsersOf(f.id).filter((u) => u.b !== b);
+      if (await ask(others.length ? `Remove ${f.name || 'this farm'} from ${b.name}?\n\nIt stays linked to ${others.map((u) => u.b.name).join(', ')}.` : `Move ${f.name || 'this farm'} (${b.name}) to the trash?\n\nYou can restore it from Settings → Trash.`, others.length ? 'Yes — remove' : 'Yes — move to trash', true)) { const gone = trashFarm(b, f); closeSheet(); changed(); toast(gone ? 'Moved to trash' : 'Removed from ' + b.name); } break; }
     case 'route-add': routeAddedBox([d.fid]); break;
     case 'route-save': saveRoute(false); break;
     case 'route-saveas': saveRoute(true); break;
@@ -2903,25 +3131,15 @@ document.addEventListener('click', async (e) => {
       if (d.fid) editFarm(IDX.biz.get(d.id), IDX.farms.get(d.fid)); else if (d.kind === 'contact') editContact(D.contacts.find((x) => x.id === d.id));
       break;
     }
-    case 'job-dismiss': { D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); const [type, fid] = d.key.split(':'); if (type === 'signfix') { const f = IDX.farms.get(fid); if (f) { f.flags = f.flags.filter((x) => x.type !== 'signfix'); touch(IDX.farmBiz.get(fid)); } } changed(); break; }
-    case 'use-km': { d.fids.split(',').forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = +d.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(fid)); }); if (await changed()) toast('Distance updated'); break; }
-    case 'lookup-km': { const fs = d.fids.split(',').map((x) => IDX.farms.get(x)).filter((f) => f && f.lat != null); el.disabled = true; el.textContent = 'Looking up…'; try { const r = await Maps.distances(fs.map((f) => ({ lat: f.lat, lng: f.lng }))); fs.forEach((f, i) => { if (r[i]) { f.gKm = Math.ceil(r[i].km * 2 - 1e-9); f.gMin = Math.round(r[i].min); f.gAt = Date.now(); touch(IDX.farmBiz.get(f.id)); } }); changed(); } catch (err) { toast(err.message); el.disabled = false; el.textContent = 'Get Google Maps suggestion'; } break; }
+    case 'job-dismiss': { D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); const [type, fid] = d.key.split(':'); if (type === 'signfix') { const f = IDX.farms.get(fid); if (f) { f.flags = f.flags.filter((x) => x.type !== 'signfix'); touch(IDX.farms.get(fid)); } } changed(); break; }
+    case 'use-km': { d.fids.split(',').forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = +d.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farms.get(fid)); }); if (await changed()) toast('Distance updated'); break; }
+    case 'lookup-km': { const fs = d.fids.split(',').map((x) => IDX.farms.get(x)).filter((f) => f && f.lat != null); el.disabled = true; el.textContent = 'Looking up…'; try { const r = await Maps.distances(fs.map(farmRoutePt)); fs.forEach((f, i) => { if (r[i]) { f.gKm = Math.ceil(r[i].km * 2 - 1e-9); f.gMin = Math.round(r[i].min); f.gAt = Date.now(); touch(f); } }); changed(); } catch (err) { toast(err.message); el.disabled = false; el.textContent = 'Get Google Maps suggestion'; } break; }
     case 'pin-diff': D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); changed(); break;
     case 'pin-same': {
-      const keep = IDX.farms.get(d.keep), other = IDX.farms.get(d.other); const bk = IDX.farmBiz.get(keep.id), bo = IDX.farmBiz.get(other.id);
-      if (bk === bo) { // same business: merge the two entries into one
-        if (!(await ask(`Merge "${other.name || 'farm'}" into "${keep.name || 'farm'}" (${bk.name})?\n\nNames, info and warnings are combined and the extra entry goes to the trash.`, 'Yes — merge'))) break;
-        const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
-        keep.info = join(keep.info, other.info); keep.warning = join(keep.warning, other.warning); keep.seeWarning = keep.seeWarning || other.seeWarning;
-        if (!keep.address) keep.address = other.address; if (!keep.name) keep.name = other.name;
-        if (keep.kmReturn == null) keep.kmReturn = other.kmReturn; if (keep.driveMin == null) keep.driveMin = other.driveMin;
-        toTrash('farm', other, { bid: bk.id, bname: bk.name }); bk.farms = bk.farms.filter((f) => f.id !== other.id); S.route.stops = S.route.stops.filter((s) => s.fid !== other.id); touch(bk); toast('Farms merged');
-      } else { // different businesses (e.g. a leased or share-farmed block): both keep their entry, with the same pin, km and drive time
-        shareFarm(keep, other);
-        D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true;
-        toast(`Same yards used by ${bk.name} and ${bo.name} — pin, km and drive time copied.`);
-      }
-      changed(); break; }
+      const keep = IDX.farms.get(d.keep), other = IDX.farms.get(d.other); if (!keep || !other) break;
+      const us = [...new Set([...farmUsersOf(keep.id), ...farmUsersOf(other.id)].map((u) => u.b.name))];
+      if (!(await ask(`Combine "${farmLabel(other)}" into "${farmLabel(keep)}"?\n\nIt becomes one shared farm used by ${us.join(' and ')}. Names, info and warnings are combined, and any change to it shows for every business that uses it.`, 'Yes — combine'))) break;
+      combineFarms(keep, other); NEXT_LOG_LABEL = 'Combined two farms into one shared farm'; S.skipConfirm = true; if (await changed()) toast('Combined — now one shared farm'); break; }
     case 'prio': { const o = photoOrder(); const i = o.indexOf(d.id), j = i + +d.dir; if (i < 0 || j < 0 || j >= o.length) break; [o[i], o[j]] = [o[j], o[i]]; D.settings.photoPriority = o; touch(D.settings); photoCache.clear(); S.skipConfirm = true; changed(); break; }
     case 'ai-chat-save': { const v = $('#ai-chaturl').value.trim(); if (v && !/^https:\/\/claude\.ai\//.test(v)) { toast('That needs to be a claude.ai link (starting https://claude.ai/)'); break; } if (v) D.settings.aiChatUrl = v; else delete D.settings.aiChatUrl; touch(D.settings); changed(); toast(v ? 'Ask Claude will open that chat' : 'Ask Claude will open a new chat'); break; }
     case 'prio-reset': delete D.settings.photoPriority; touch(D.settings); photoCache.clear(); changed(); break;
@@ -2938,7 +3156,7 @@ document.addEventListener('click', async (e) => {
     case 'pin-use': { const p = S.pinCand, el = $('#e-fgps'); if (!p || !el) break; el.value = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`; el.dispatchEvent(new Event('input', { bubbles: true })); $('#pin-prev').innerHTML = ''; $('#pin-res').innerHTML = '✓ Pin added to GPS location — check the km below, then Save.'; break; }
     case 'pin-pick': if (S.pinRes && S.pinRes[+d.i]) pinPreview(S.pinRes[+d.i]); break;
     case 'pin-confirm': { const f = IDX.farms.get(S.pinFid), p = S.pinCand, b = f && IDX.farmBiz.get(f.id); if (!f || !p || !b) break; closeSheet();
-      f.lat = +p.lat.toFixed(6); f.lng = +p.lng.toFixed(6); if (f.kmReturn != null) f.kmStatus = 'needs-verify'; touch(b);
+      f.lat = +p.lat.toFixed(6); f.lng = +p.lng.toFixed(6); if (f.kmReturn != null) f.kmStatus = 'needs-verify'; touch(f);
       NEXT_LOG_LABEL = `GPS pin added for ${b.name}${f.name ? ' (' + f.name + ')' : ''} from address search`; if (await changed()) toast('✓ Pin created' + (f.kmReturn != null ? ' — check the km on the Jobs list' : '')); break; }
     case 'prim-find': { const b = IDX.biz.get(d.bid); if (b) primFindSheet(b); break; }
     case 'pf-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (!c || !b) break; closeSheet();
@@ -2989,7 +3207,7 @@ document.addEventListener('click', async (e) => {
     case 'block-no': setBlocked(d.cid, false); Sync.soon(); if (await changed()) toast('Marked: Number blocked (needs confirming)'); break;
     case 'keep-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c && keepPhoto(c)) { NEXT_LOG_LABEL = 'Photo left as is'; photoCache.clear(); if (await changed()) toast('Photo left as is'); } break; }
     case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); if (await changed()) toast('Photo set'); } break; }
-    case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id)); changed(); break; }
+    case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(f); changed(); break; }
     case 'check-dist': checkAllDistances(); break;
     case 'new-tag': editTag(null); break;
     case 'edit-tag': editTag(IDX.tags.get(d.id)); break;
@@ -3017,6 +3235,12 @@ document.addEventListener('click', async (e) => {
     case 'catclass-reset': D.settings.catClass = { p: {}, b: {} }; touch(D.settings); NEXT_LOG_LABEL = 'Categories reset to default client / non-client'; S.skipConfirm = true; JOBS_CACHE = null; await changed(); toast('Reset to default'); break;
     case 'hideinact': S.hideIn[d.v] = el.checked; try { localStorage.setItem('bvt-hideinact2', JSON.stringify(S.hideIn)); } catch (e2) { } d.v === 'b' ? renderBizList() : renderContactList(); break;
     case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); if (await changed()) toast('Homebase saved'); break; }
+    case 'pintype-add': case 'pintype-edit': { const cur = a === 'pintype-edit' ? pinT(d.id) : { id: '', name: '', emoji: '📍' };
+      const r = await askBox(a === 'pintype-add' ? 'New pin type' : 'Edit pin type', `<div class="f"><span class="lbl">Name</span><input data-ask="name" value="${h(cur.name)}" placeholder="e.g. Calf shed" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"></div><div class="f"><span class="lbl">Symbol</span><input data-ask="emoji" id="pt-emoji" value="${h(cur.emoji)}" style="width:80px;font-size:22px;padding:6px;text-align:center;border:1px solid var(--line);border-radius:9px"><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${PIN_EMOJIS.map((e) => `<button type="button" class="btn small" style="font-size:20px;padding:3px 7px" onclick="document.getElementById('pt-emoji').value='${e}'">${e}</button>`).join('')}</div><div class="hint">Tap a symbol, or type any emoji.</div></div>`, 'Save', false, 'Cancel');
+      if (!r) break; const nm = (ASK_FORM.name || '').trim(), em = (ASK_FORM.emoji || '').trim() || '📍'; if (!nm) { toast('Give the pin type a name'); break; }
+      const list = pinTypes().map((t) => ({ ...t })); if (a === 'pintype-add') list.push({ id: nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36).slice(-3), name: nm, emoji: em }); else { const t = list.find((x) => x.id === d.id); if (t) { t.name = nm; t.emoji = em; } }
+      D.settings.pinTypes = list; touch(D.settings); NEXT_LOG_LABEL = (a === 'pintype-add' ? 'New pin type: ' : 'Pin type changed: ') + em + ' ' + nm; S.skipConfirm = true; await changed(); break; }
+    case 'pintype-del': { const t = pinT(d.id); if (!(await ask(`Delete the pin type "${t.name}"?`, 'Yes — delete', true))) break; D.settings.pinTypes = pinTypes().filter((x) => x.id !== d.id); touch(D.settings); await changed(); break; }
     case 'save-key': D.settings.mapsKey = val('s-mapskey'); touch(D.settings); if (await changed()) toast('Key saved'); break;
     case 'export': { const blob = new Blob([JSON.stringify(D)], { type: 'application/json' }); const u = URL.createObjectURL(blob); const l = document.createElement('a'); l.href = u; l.download = `bovitech-contacts-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(l); l.click(); l.remove(); break; }
   }
@@ -3121,6 +3345,10 @@ document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderContactList, 120); }
   else if (t.id === 'pf-search') { const b = IDX.biz.get(t.dataset.bid); if (b) $('#pf-res').innerHTML = primFindRes(b, t.value); }
+  else if (t.id === 'farm-linksearch') { const pq = parseQuery(t.value); const b = IDX.biz.get(t.dataset.bid); const box = $('#farm-linkres'); if (!b) return;
+    const hay = (f) => [f.name, f.address, f.aka, ...farmUsersOf(f.id).map((u) => u.b.name), (f.owner && (f.owner.text || IDX.biz.get(f.owner.bid)?.name)) || ''].join(' ').toLowerCase();
+    const res = pq.inc.length ? D.farms.filter((f) => !b.farmLinks.some((l) => l.fid === f.id) && matchQ(hay(f), pq)).slice(0, 12) : [];
+    box.innerHTML = t.value.trim() ? `<div class="results">${res.map((f) => `<div data-act="farm-link-pick" data-bid="${b.id}" data-fid="${f.id}">${pinT(f.pinType).emoji} <b>${h(f.name || f.address || 'Farm')}</b> <span class="hint">${h(farmUsersOf(f.id).map((u) => u.b.name).join(', ') || 'not linked')}${f.address ? ' · ' + h(f.address) : ''}</span></div>`).join('') || '<div class="hint">No matching farms.</div>'}</div>` : ''; }
   else if (t.id === 'mg-search') { const isC = t.dataset.kind === 'contact'; const pq = parseQuery(t.value); const box = $('#mg-res');
     const res = !pq.inc.length ? [] : isC ? D.contacts.filter((c) => c.id !== t.dataset.id && matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...c.landlines.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 12) : D.businesses.filter((b) => b.id !== t.dataset.id && matchQ(bizHay(b), pq)).slice(0, 12);
     box.innerHTML = t.value.trim() ? `<div class="results">${res.map((r) => `<div data-act="mg-pick" data-kind="${t.dataset.kind}" data-a="${t.dataset.id}" data-b="${r.id}"><b>${h(isC ? fullName(r) : r.name)}</b> <span class="hint">${h(isC ? (bizOf(r).map((b) => b.name).join(', ') || (r.mobiles[0] || r.landlines[0] || {}).value || '') : ((IDX.bizContacts.get(r.id) || []).map((c) => c.first).join(', ') + ' · ' + r.farms.length + ' farms'))}</span></div>`).join('') || '<div class="hint">No matches.</div>'}</div>` : ''; }
@@ -3142,7 +3370,7 @@ document.addEventListener('change', async (e) => {
   if (t.dataset.act === 'bsort') { S.bsort = t.value; renderBizList(); }
   if (t.dataset.act === 'import' && t.files[0]) {
     try { const js = JSON.parse(await t.files[0].text()); if (!js.contacts || !js.businesses) throw new Error('Not a backup file'); if (!(await ask('Replace all data on this device with this file?', 'Yes — replace'))) return;
-      const keepSync = D.sync; D = js; D.sync = keepSync || {}; D.deleted = D.deleted || []; D.conflicts = []; D.dismissed = D.dismissed || {}; D.firstRun = false; D.importedAt = D.importedAt || new Date().toLocaleDateString('en-AU'); D.routes = D.routes || [];
+      const keepSync = D.sync; D = js; D.sync = keepSync || {}; D.deleted = D.deleted || []; D.conflicts = []; D.dismissed = D.dismissed || {}; D.firstRun = false; D.importedAt = D.importedAt || new Date().toLocaleDateString('en-AU'); D.routes = D.routes || []; D.farms = D.farms || [];
       [...D.contacts, ...D.businesses, ...D.tags, ...D.routes, D.settings].forEach((r) => (r._dirty = true));
       reindex(); migrate(); baseline(); changed(); toast('Data loaded'); Sync.soon(); } catch (err) { toast('Could not restore: ' + err.message); }
   }
@@ -3164,7 +3392,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (CONF
 (async function init() {
   D = await Store.get('data');
   if (!D) { D = await loadSeed(); D.dismissed = D.dismissed || {}; await Store.set('data', D); }
-  D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || []; D.trash = D.trash || []; D.routes = D.routes || [];
+  D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || []; D.trash = D.trash || []; D.routes = D.routes || []; D.farms = D.farms || [];
   reindex(); baseline(); migrate(); logChanges('Automatic update'); save();
   if (PREF.tab) S.tab = PREF.tab; if (PREF.sort) S.sort = PREF.sort; if (PREF.bsort) S.bsort = PREF.bsort; if (PREF.ptype) S.ptype = PREF.ptype; if (PREF.btype) S.btype = PREF.btype;
   applyUi(); reindex(); net(); renderAll();
