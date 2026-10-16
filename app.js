@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '8.1 (17 Oct 2026)';
+const APP_VERSION = '8.2 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -560,7 +560,7 @@ function askBox(title, html, okLabel = 'Yes — go ahead', danger = false, noLab
   return new Promise((res) => {
     const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'askbox'; bg.style.zIndex = 80;
     bg.innerHTML = `<div class="sheet" style="max-width:620px"><div class="sheet-h"><button class="btn" data-act="ask-no">‹ Back</button><h2>${h(title)}</h2></div><div class="form">${html}
-      <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button>${altLabel ? `<button class="btn primary" data-act="ask-alt" style="font-size:17px;padding:11px 16px">${h(altLabel)}</button>` : ''}<button class="btn" data-act="ask-no">${h(noLabel)}</button></div></div></div>`;
+      <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button>${altLabel ? `<button class="btn primary" data-act="ask-alt" style="font-size:17px;padding:11px 16px">${h(altLabel)}</button>` : ''}<button class="btn" data-act="ask-no">${h(noLabel)}</button></div>${jobCtxBtn()}</div></div>`;
     document.body.appendChild(bg); CONFIRM = { res }; try { history.pushState({ ask: 1 }, ''); } catch (e) { } updateBackBtn();
   });
 }
@@ -805,8 +805,12 @@ function bizDetail(b) {
 
 /* ---------------- edit sheets ---------------- */
 let SHEET = null; // {type, rec, ...}
+/* pop-ups opened from a job get an "Ask Claude about this job" button */
+let JOB_CTX = null;
+document.addEventListener('click', (e) => { const jb = e.target.closest('.job'); if (!jb) return; const k = jb.querySelector('[data-act=job-ai]'); if (k && !e.target.closest('[data-act=job-ai]')) JOB_CTX = { key: k.dataset.key, at: Date.now() }; }, true);
+function jobCtxBtn() { if (!JOB_CTX || Date.now() - JOB_CTX.at > 4000 || !jobs().some((x) => x.key === JOB_CTX.key)) return ''; JOB_CTX.at = Date.now(); return `<div class="actions" style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px"><button type="button" class="btn" data-act="pop-job-ai" data-key="${h(JOB_CTX.key)}">🤖 Ask Claude about this job</button></div>`; }
 function openSheet(title, body, onSave, extraBtns = '') {
-  closeSheet();
+  closeSheet(); body += jobCtxBtn();
   const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'sheet';
   bg.innerHTML = `<div class="sheet"><div class="sheet-h"><button class="btn" data-act="sheet-cancel">‹ Back</button><h2>${h(title)}</h2>${extraBtns}<button class="btn primary" data-act="sheet-save" id="sheet-save">Save</button></div><div class="form">${body}</div></div>`;
   document.body.appendChild(bg); SHEET = { onSave }; try { history.pushState({ sheet: 1 }, ''); } catch (e) { } updateBackBtn();
@@ -2953,6 +2957,8 @@ document.addEventListener('click', async (e) => {
     case 'rec-ai': { const isC = d.kind === 'contact'; const r = isC ? D.contacts.find((x) => x.id === d.id) : IDX.biz.get(d.id); if (!r) break;
       S.aiExtra = isC ? { cids: [r.id], bids: [] } : { cids: [], bids: [r.id] }; S.aiScope = 'mentioned'; S.aiReq = `About ${isC ? fullName(r) : r.name}: `; S.aiReply = ''; S.aiResult = '';
       S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const t = $('#ai-req'); if (t) { t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 60); toast('Type what you want, then tap "Copy for Claude"'); break; }
+    case 'pop-job-ai': { if (CONFIRM) closeAsk(false); await new Promise((r) => setTimeout(r, 30)); if (SHEET) closeSheet(); }
+    // falls through
     case 'job-ai': { const j = jobs().find((x) => x.key === d.k || x.key === d.key); if (!j) break; const cids = new Set(), bids = new Set();
       if (j.kind === 'contact') cids.add(j.id); else bids.add(j.id); [j.linkSug, j.linkRev, j.bizonly].forEach((x) => { if (x) { if (x.cid) cids.add(x.cid); if (x.bid) bids.add(x.bid); } }); if (j.oddbiz) bids.add(j.oddbiz); if (j.catdiff) bids.add(j.catdiff.bid); if (j.primSuggest) cids.add(j.primSuggest);
       S.aiExtra = { cids: [...cids], bids: [...bids] }; S.aiScope = 'mentioned'; S.aiReq = `Help me sort out this item from the app's Jobs list.\nJob: ${JOB_TYPES[j.type]?.t || j.type}\n${j.who}: ${j.note}${j.warnTxt ? '\n' + j.warnTxt : ''}\nTell me what you'd suggest and why, and include the changes if you're fairly sure.`; S.aiReply = ''; S.aiResult = '';
@@ -3029,11 +3035,15 @@ async function routeAddedBox(fids) {
   renderTabs();
   if (await askBox(ok.length ? 'Added to route' : 'Route not changed', html, `View route (${S.route.stops.length} stop${S.route.stops.length === 1 ? '' : 's'})`, false, 'OK — keep going')) goTab('route');
 }
-async function askDeviceName() { // compulsory: who is using this device
-  if (devInfo().nick || window.SEED) { updHi(); return; }
-  await detectDevice();
-  for (;;) { const v = await askBox('Who is using this device?', `<p>Before you start, what should the app call you? It says hi when it opens, and your name shows in the change log so everyone can see who made each change.</p><div class="f"><span class="lbl">Your nickname</span><textarea rows="1" style="width:100%;height:46px;min-height:46px;resize:none;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px" placeholder="e.g. Amelia"></textarea></div><div class="hint">Device: ${h(AUTO_DEV || 'not detected')} — you can rename it and add this phone's number in Settings → This device.</div>`, 'Save', false, 'Save');
-    if (typeof v === 'string' && v.trim()) { LSset('bvt-nick', v.trim()); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Hi ' + v.trim() + '!'); updHi(); renderAll(); return; }
+async function askDeviceName() { // compulsory on a new device; asked once more on each device when it first opens v8.2
+  if (window.SEED) return; const recheck = !LSget('bvt-devask82'); if (devInfo().nick && !recheck) { updHi(); return; }
+  await detectDevice(); const di = devInfo(); const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
+  for (;;) { await askBox(di.nick ? 'Check this device\'s details' : 'Who is using this device?', `<p>${di.nick ? 'The app now greets you by name and keeps a name and number for each device. Check these are right for this one.' : 'Before you start, what should the app call you? It says hi when it opens, and your name shows in the change log so everyone can see who made each change.'}</p>
+      <div class="f"><span class="lbl">Your nickname</span><input data-ask="nick" value="${h(di.nick)}" placeholder="e.g. Amelia" ${inp}></div>
+      <div class="f"><span class="lbl">Device name</span><input data-ask="dev" value="${h(di.dev)}" placeholder="e.g. Amelia's Samsung or Office PC" ${inp}><div class="hint">Picked up from the device where it allows — change it to anything you like.</div></div>
+      <div class="f"><span class="lbl">This phone's number <span class="hint">(optional)</span></span><input data-ask="phone" value="${h(di.phone)}" inputmode="tel" placeholder="04xx xxx xxx" ${inp}><div class="hint">Phones don't let apps read their own number, so type it in if you'd like.</div></div>`, 'Save', false, di.nick ? 'Keep as is' : 'Save');
+    const nick = (ASK_FORM.nick || '').trim() || di.nick;
+    if (nick) { LSset('bvt-nick', nick); const dev = (ASK_FORM.dev || '').trim(); LSset('bvt-devmodel', !dev || dev === AUTO_DEV ? '' : dev); if (ASK_FORM.phone != null) LSset('bvt-devphone', ASK_FORM.phone.trim()); LSset('bvt-devname', deviceName()); LSset('bvt-devask82', '1'); D._devDirty = true; Sync.soon(); toast('Hi ' + nick + '!'); updHi(); renderAll(); return; }
     toast('Please enter a nickname'); await new Promise((r) => setTimeout(r, 300)); }
 }
 /* ---------------- nightly backups to Google Drive (kept 30 days) ---------------- */
