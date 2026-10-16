@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.5 (16 Oct 2026)';
+const APP_VERSION = '7.6 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -164,8 +164,14 @@ function photoCandidates(c) {
   const ptags = effTags(c).filter((t) => !RATING_SET.has(t) && tagPhotoSrc(t));
   return { dr, ptags };
 }
+function effChoice(c) { /* a chosen photo only counts while the contact still has that category/tag (e.g. chose "A client", business is now B → back to automatic) */
+  const pc = c.photoChoice || 'auto'; if (pc === 'auto' || pc === 'custom') return pc === 'custom' && !c.photoData ? 'auto' : pc;
+  const { dr, ptags } = photoCandidates(c); const ok = new Set([...dr, ...ptags]);
+  if (pc.startsWith('split:')) { const t = pc.slice(6).split(','); return t.length && t.every((x) => ok.has(x)) ? pc : 'auto'; }
+  return ok.has(pc) ? pc : 'auto';
+}
 function needsPhotoChoice(c) {
-  if (c.photoChoice && c.photoChoice !== 'auto') return false;
+  if (effChoice(c) !== 'auto') return false;
   const { dr, ptags } = photoCandidates(c);
   if (dr.length > 1) return ptags.length > 0;
   return dr.length + ptags.length > 1;
@@ -173,7 +179,7 @@ function needsPhotoChoice(c) {
 function ratingLabel(c, r) { return contactRatings(c).filter((x) => x.rating === r).map((x) => (x.biz ? x.biz.name : RATING_SHORT[r] + ' client')).join(' / '); }
 function photoSpec(c) {
   const warn = hasWarning(c);
-  const pc = c.photoChoice || 'auto';
+  const pc = effChoice(c);
   if (pc === 'custom' && c.photoData) return { custom: c.photoData, warn };
   const { dr, ptags } = photoCandidates(c);
   let parts = [];
@@ -861,7 +867,7 @@ function editContact(c) {
   const photoOpts = [['auto', 'Use default photo automatically assigned to the category' + (needsPhotoChoice(c) ? ' (needs choosing)' : '')], ...[...new Set([...dr, ...effTags(c).filter((t) => tagPhotoSrc(t))])].map((t) => [t, tagName(t)])];
   const cands = [...new Set([...dr, ...ptags])];
   if (cands.length >= 2) photoOpts.push(['split:' + cands.slice(0, 2).join(','), 'Split: ' + cands.slice(0, 2).map(tagName).join(' + ')]);
-  if (c.photoChoice && c.photoChoice.startsWith('split:') && !photoOpts.some((o) => o[0] === c.photoChoice)) photoOpts.push([c.photoChoice, 'Split (current)']);
+  const curPc = effChoice(c); if (curPc.startsWith('split:') && !photoOpts.some((o) => o[0] === curPc)) photoOpts.push([curPc, 'Split (current)']);
   photoOpts.push(['custom', 'Upload my own photo']);
   const body = `${isNew ? '' : `<div class="f"><span class="lbl">This entry is a…</span><div class="seg"><button type="button" class="on" data-act="kind-pick" data-v="person">Person</button><button type="button" data-act="kind-pick" data-v="client">Client business</button><button type="button" data-act="kind-pick" data-v="industry">Industry business</button></div><input type="hidden" id="e-kind" value="person"><div id="e-kindhint" class="hint" style="display:none;margin-top:6px;color:var(--red-ink)"></div></div>`}
   <div class="grid2"><div class="f"><label>First name</label><input id="e-first" value="${h(c.first)}"></div><div class="f"><label>Surname</label><input id="e-last" value="${h(c.last)}"></div></div>
@@ -889,7 +895,7 @@ function editContact(c) {
   <div class="f" id="e-inwrap" style="${catOf(c) === 'inactive' ? '' : 'display:none'}"><label style="color:var(--red-ink)">Inactive — reason (required, shown in a red box at the top)</label><textarea id="e-inreason" class="warn" style="min-height:60px" placeholder="e.g. inactivated as no longer using our routine services, or client retired and sold farm">${h(c.inactiveReason || '')}</textarea></div>
   <div class="f" id="e-dnawrap" style="${effTags(c).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">⛔ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-dnareason" class="warn" placeholder="e.g. bad debtor, not the client for us, don't feel safe" style="min-height:60px">${h(c.dnaReason || '')}</textarea></div>
   <div class="f"><label style="color:#7a5a00">Side notes (a general caution but not an urgent warning, e.g. don't mention X as they don't talk)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
-  <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${(c.photoChoice || 'auto') === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
+  <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${curPc === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
     <input type="file" id="e-photofile" accept="image/*" style="margin-top:6px;${c.photoChoice === 'custom' ? '' : 'display:none'}"><div class="hint">Photos come from the tags automatically. If a contact has two businesses with different ratings, the photo is split and labelled with each business.</div></div>
   <div class="f"><label><input type="checkbox" id="e-star" ${c.starred ? 'checked' : ''}> Starred (show at top of list)</label></div>
   ${isNew ? '' : `<div class="f"><button class="btn" data-act="del-contact" data-id="${c.id}" style="color:var(--red)">Delete contact</button></div>`}`;
@@ -2695,6 +2701,7 @@ function migrate() {
     D.businesses.forEach((b) => { let t = false; b.pics.forEach((p) => { if (/found in notes/i.test(p.label || '')) { p.label = ''; t = true; } const v = (p.value || '').trim(); const m = v.match(/^(W[A-Z]{3}\d{4})\b\s*[(,-]?\s*(.*?)\)?\s*$/i); if (m && v !== m[1].toUpperCase()) { p.value = m[1].toUpperCase(); if (m[2] && !p.label) p.label = m[2]; t = true; } }); if (t) touch(b); });
     D.settings.picFix1 = true; touch(D.settings); ch = true;
   }
+  D.contacts.forEach((c) => { if (c.photoChoice && c.photoChoice !== 'auto' && effChoice(c) === 'auto') { c.photoChoice = 'auto'; touch(c); ch = true; } }); /* drop photo choices for categories the contact no longer has */
   if (!D.settings.typeLock1) { D.businesses.forEach((b) => { const cat = bizCat(b); if (b.type === 'nonclient' && cat && catClass('b', cat) !== 'n' && !b.typeLocked) { b.typeLocked = true; touch(b); } }); D.settings.typeLock1 = true; touch(D.settings); ch = true; }
   if (!D.settings.iceV1) { // link the existing "X's ICE (relationship: Y)" contacts to the staff member
     const tg = D.tags.find((t) => t.id === 'ice'); if (tg) { if (tg.name !== 'ICE contact') { tg.name = 'ICE contact'; touch(tg); } } else { D.tags.push({ id: 'ice', name: 'ICE contact', group: 'additional', photo: null }); touch(D.tags[D.tags.length - 1]); }
