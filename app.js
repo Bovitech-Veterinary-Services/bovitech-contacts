@@ -1146,7 +1146,7 @@ function endpointPicker(which) {
 }
 function renderRoute() {
   const R = S.route;
-  let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('route'))}</h2>
+  let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="flex:1">${h(lab('route'))}</span><button class="btn small" data-act="area-ai" data-v="route">🤖 Ask Claude about this route</button></h2>
   <div class="card"><h3>Stops (${R.stops.length}/${MAX_STOPS})</h3>
   ${R.stops.map((s, i) => { const f = IDX.farms.get(s.fid); return `<div class="stop"><span class="num">${i + 1}</span><div class="t"><div style="font-weight:600">${h(farmLabel(f))}</div><div class="hint">${h(f.address || '')} ${f.kmReturn != null ? '· ' + fmtKm(f) : ''}</div></div><button class="btn small" data-act="rs-up" data-i="${i}" ${i ? '' : 'disabled'}>↑</button><button class="btn small" data-act="rs-down" data-i="${i}" ${i < R.stops.length - 1 ? '' : 'disabled'}>↓</button><button class="btn small" data-act="rs-del" data-i="${i}">×</button></div>`; }).join('') || '<div class="hint">Add farms below, or use “+ Route” on any farm.</div>'}
   ${R.stops.length < MAX_STOPS ? `<input id="rs-search" placeholder="Search clients, businesses, farms or PICs to add a stop" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-top:6px"><div id="rs-res"></div>` : '<div class="hint">Google Maps allows up to 9 stops.</div>'}
@@ -2050,6 +2050,7 @@ function renderAdvanced() {
   const kind = A.kind || 'people';
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('search'))}</h2>
   <div class="card"><h3>Search for</h3><div class="seg">${[['people', '👤 People'], ['client', '🐄 Client businesses'], ['nonclient', '🏢 Non-client businesses']].map(([v, l]) => `<button class="${kind === v ? 'on' : ''}" data-act="adv-kind" data-v="${v}">${l}</button>`).join('')}</div></div>
+  <div class="actions" style="margin:-4px 0 10px"><button class="btn" data-act="area-ai" data-v="search">🤖 Ask Claude about these results</button></div>
   <div class="hint" style="margin:-4px 0 10px">Fill in as many or as few boxes as you like — results must match everything you fill in. Tick results to bulk edit them. Tip: put a phrase in "quotes" to keep words together.</div>
   <div class="card"><h3>Words</h3>
     <div class="f"><label>All of these words</label><input data-adv="all" value="${h(A.all)}" placeholder="e.g. kalgan cattle"></div>
@@ -2717,6 +2718,12 @@ document.addEventListener('click', async (e) => {
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
       let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) match = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev));
       c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); S.skipConfirm = true; NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
+    case 'area-ai': { let cids = [], bids = [], req = '';
+      if (d.v === 'search') { if ((S.adv.kind || 'people') === 'people') { const r = advResults(); const sel = S.advSel && S.advSel.size ? r.filter((c) => S.advSel.has(c.id)) : r; cids = sel.slice(0, 80).map((c) => c.id); req = `About ${S.advSel && S.advSel.size ? 'the ' + sel.length + ' people I selected' : 'my search results (' + r.length + ' people' + (r.length > 80 ? ', first 80 included' : '') + ')'}: `; }
+        else { const r = advBizResults(); const sel = S.advBSel && S.advBSel.size ? r.filter((b) => S.advBSel.has(b.id)) : r; bids = sel.slice(0, 60).map((b) => b.id); req = `About ${S.advBSel && S.advBSel.size ? 'the ' + sel.length + ' businesses I selected' : 'my search results (' + r.length + ' businesses' + (r.length > 60 ? ', first 60 included' : '') + ')'}: `; } }
+      else { const stops = S.route.stops.map((x) => IDX.farms.get(x.fid)).filter(Boolean); bids = [...new Set(stops.map((f) => IDX.farmBiz.get(f.id)?.id).filter(Boolean))]; req = stops.length ? `About my planned route (${routeSummary({ ...routeSnapshot() })}): ` : 'About planning a route: '; }
+      S.aiExtra = { cids, bids }; S.aiScope = 'mentioned'; S.aiReq = req; S.aiReply = ''; S.aiResult = '';
+      S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const t = $('#ai-req'); if (t) { t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 60); toast('Type what you want, then tap "Copy for Claude"'); break; }
     case 'rec-ai': { const isC = d.kind === 'contact'; const r = isC ? D.contacts.find((x) => x.id === d.id) : IDX.biz.get(d.id); if (!r) break;
       S.aiExtra = isC ? { cids: [r.id], bids: [] } : { cids: [], bids: [r.id] }; S.aiScope = 'mentioned'; S.aiReq = `About ${isC ? fullName(r) : r.name}: `; S.aiReply = ''; S.aiResult = '';
       S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const t = $('#ai-req'); if (t) { t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 60); toast('Type what you want, then tap "Copy for Claude"'); break; }
