@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.7 (16 Oct 2026)';
+const APP_VERSION = '7.8 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -170,6 +170,7 @@ function effChoice(c) { /* a chosen photo only counts while the contact still ha
   if (pc.startsWith('split:')) { const t = pc.slice(6).split(','); return t.length && t.every((x) => ok.has(x)) ? pc : 'auto'; }
   return ok.has(pc) ? pc : 'auto';
 }
+function keepPhoto(c) { /* "leave as is": lock in the photo shown now so the job stops asking */ const sp = photoSpec(c); const t = (sp.parts || []).map((x) => x.tag); if (!t.length) return false; c.photoChoice = t.length === 1 ? t[0] : 'split:' + t.join(','); touch(c); return true; }
 function needsPhotoChoice(c) {
   if (effChoice(c) !== 'auto') return false;
   const { dr, ptags } = photoCandidates(c);
@@ -1225,6 +1226,7 @@ function bulkOps(t, sel) {
   const ops = [];
   if (sel.some((j) => j.suggest)) ops.push({ op: 'usekm', label: '✓ Use suggested km for all', green: true });
   if (sel.some((j) => j.photoSuggest)) ops.push({ op: 'usephoto', label: '✓ Use suggested photo for all', green: true });
+  if (sel.some((j) => j.type === 'photo')) ops.push({ op: 'keepphoto', label: 'Leave photo as is for all' });
   if (t === 'catprop') ops.push({ op: 'catapply', label: '✓ Yes — change them too', green: true });
   if (t === 'blockcheck') ops.push({ op: 'blockyes', label: '✓ Yes — numbers blocked', green: true }, { op: 'blockno', label: 'Not yet' });
   if (t === 'nocat') ops.push({ op: 'setcat', label: 'Set this category for all selected', green: true });
@@ -1330,6 +1332,7 @@ async function runBulk(t, op) {
     } else if (op === 'catapply' && j.cat) applyCat(j.cat.cid, j.cat.at);
     else if (op === 'blockyes' && j.block) setBlocked(j.block, true);
     else if (op === 'blockno' && j.block) setBlocked(j.block, false);
+    else if (op === 'keepphoto' && j.type === 'photo') { const c = D.contacts.find((x) => x.id === j.id); if (c) keepPhoto(c); }
     else if (op === 'usephoto' && j.photoSuggest) { const c = D.contacts.find((x) => x.id === j.id); if (c) { c.photoChoice = j.photoSuggest; touch(c); } }
     else if (op === 'setcat' && jbCat) { const c = D.contacts.find((x) => x.id === j.id); if (c) setOne(c, jbCat); }
     else if (op === 'sheepreg') { const c = D.contacts.find((x) => x.id === j.id); if (c) { setCats(c, [...effCats(c).filter((x) => x !== 'sheepocc' && x !== 'sheep'), 'sheepreg']); c.flags = (c.flags || []).filter((x) => x.type !== 'sheepconfirm'); } }
@@ -1382,7 +1385,7 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       ${j.pick ? j.pick.alts.map((v) => `<button class="btn small" data-act="catpick-use" data-kind="${j.pick.kind}" data-id="${j.pick.id}" data-tag="${v}">↩ Keep previous category: ${h(tagName(v))}</button>`).join('') : ''}
       ${j.cat ? `<button class="btn small greenbtn" data-act="cat-apply" data-cid="${j.cat.cid}" data-at="${j.cat.at}">✓ Yes — change them too</button>` : ''}
       ${j.block ? `<button class="btn small greenbtn" data-act="block-yes" data-cid="${j.block}">✓ Yes — number blocked</button>${(D.contacts.find((x) => x.id === j.block) || { tags: [] }).tags.includes('blockedn') ? '' : `<button class="btn small" data-act="block-no" data-cid="${j.block}">Not yet</button>`}` : ''}
-      ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}
+      ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}${t === 'photo' ? `<button class="btn small" data-act="keep-photo" data-id="${j.id}" title="Keep the photo it shows now">Leave as is</button>` : ''}
       <button class="btn small" data-act="job-ai" data-key="${h(j.key)}" title="Ask Claude how to sort this out">🤖 Ask Claude</button>${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${j.okLabel ? '✓ ' + h(j.okLabel) : JOB_TYPES[t].btn || 'Mark resolved - changes not required'}</button>` : ''}</div></div></div>`;
 }
 function renderJobs() {
@@ -2876,6 +2879,7 @@ document.addEventListener('click', async (e) => {
     case 'cat-apply': { const n = applyCat(d.cid, d.at); NEXT_LOG_LABEL = `Category change copied to ${n} other contact${n === 1 ? '' : 's'}`; Sync.soon(); if (await changed()) toast('Updated ' + n + ' contact' + (n === 1 ? '' : 's')); break; }
     case 'block-yes': setBlocked(d.cid, true); Sync.soon(); if (await changed()) toast('Marked: Number blocked (confirmed)'); break;
     case 'block-no': setBlocked(d.cid, false); Sync.soon(); if (await changed()) toast('Marked: Number blocked (needs confirming)'); break;
+    case 'keep-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c && keepPhoto(c)) { NEXT_LOG_LABEL = 'Photo left as is'; photoCache.clear(); if (await changed()) toast('Photo left as is'); } break; }
     case 'use-photo': { const c = D.contacts.find((x) => x.id === d.id); if (c) { c.photoChoice = d.tag; touch(c); if (await changed()) toast('Photo set'); } break; }
     case 'accept-google': { const f = IDX.farms.get(d.fid); const fl = f.flags.find((x) => x.type === 'kmcheck'); f.kmReturn = fl.google; f.kmStatus = 'verified'; f.flags = f.flags.filter((x) => x.type !== 'kmcheck'); touch(IDX.farmBiz.get(f.id)); changed(); break; }
     case 'check-dist': checkAllDistances(); break;
