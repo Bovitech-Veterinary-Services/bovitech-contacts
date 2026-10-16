@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.2 (16 Oct 2026)';
+const APP_VERSION = '7.3 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -751,7 +751,7 @@ function contactDetail(c) {
     html += bizRoutesHtml(b);
     html += '</div>';
   });
-  html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="rec-ai" data-kind="contact" data-id="${c.id}">🤖 Ask Claude about ${h(c.first || fullName(c))}</button></div>`;
+  html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="contact" data-id="${c.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="contact" data-id="${c.id}">🤖 Ask Claude about ${h(c.first || fullName(c))}</button></div>`;
   return html + '</div>';
 }
 function tagPill(t) { const src = tagPhotoSrc(t); return `<span class="tag ${src ? '' : 'noimg'}">${src ? `<img src="${src}" alt="">` : ''}${h(tagName(t))}</span>`; }
@@ -780,7 +780,7 @@ function bizDetail(b) {
   html += `<div class="card"><h3><span class="sp">Contact category</span><button class="btn small" data-act="cat-edit" data-bid="${b.id}">Change…</button></h3>${b.rating || (b.cats || []).length ? `<div class="tagrow">${[...(b.rating ? [b.rating] : []), ...(b.cats || [])].map(tagPill).join('')}</div>` : '<div class="hint">None set.</div>'}${cs.filter((c) => c.ownCats || ownRating(c)).length ? `<div class="hint" style="margin-top:6px">Own categories: ${h(cs.filter((c) => c.ownCats || ownRating(c)).map((c) => c.first).join(', '))}</div>` : ''}</div>`;
   if (!isClientBiz(b) || bizHasDetails(b) || (b.postal || []).length) html += `<div class="card"><h3><span class="sp">Phone and email</span><button class="btn small" data-act="edit-biz" data-id="${b.id}">Edit</button></h3>${phoneLinks((b.phones || []).map((p) => ({ ...p, label: p.label || 'Phone' })), false, 'call')}${(b.emails || []).map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div></div>`).join('')}${(b.postal || []).map((p) => `<div class="kv"><div class="k">Address</div><div class="v">${h(p)}</div></div>`).join('')}${bizHasDetails(b) || (b.postal || []).length ? '' : '<div class="hint">No phone or email on the business yet — tap Edit to add them.</div>'}</div>`;
   const pastCs = IDX.bizPast.get(b.id) || [];
-  html += `<div class="card"><h3>Current ${isClientBiz(b) ? 'contacts / employees' : 'contacts'} (${cs.length})</h3>${cs.map((c) => `<div style="display:flex;align-items:center"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${isClientBiz(b) && primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(c.role || '')} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div><button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="1" title="They no longer work here">Past</button><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}" title="Unlink from this business">Unlink</button></div>`).join('') || '<div class="hint">No current contacts.</div>'}
+  html += `<div class="card"><h3>Current ${isClientBiz(b) ? 'contacts / employees' : 'contacts'} (${cs.length})</h3>${cs.map((c) => `<div style="display:flex;align-items:center"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${isClientBiz(b) && primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(c.role || '')} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div><button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="1" title="They no longer work here">Make past</button><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}" title="Unlink from this business">Unlink</button></div>`).join('') || '<div class="hint">No current contacts.</div>'}
   <input id="biz-linksearch" data-bid="${b.id}" placeholder="+ Link a contact — search by name or phone" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="biz-linkres"></div>
   <div class="hint" style="margin-top:4px">${isClientBiz(b) && b.primaryRequired === false ? 'Primary contact not required.' : ''}</div></div>`;
   html += `<div class="card"><h3>Past ${isClientBiz(b) ? 'contacts / employees' : 'contacts'} (${pastCs.length})</h3><div class="hint" style="margin-bottom:4px">Their category isn't set by this business.</div>${pastCs.map((c) => `<div style="display:flex;align-items:center;opacity:.8"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}</div><div class="hint">${h(catOf(c) ? tagName(catOf(c)) : '')}${bizOf(c).length ? ' · now at ' + h(bizOf(c).map((x) => x.name).join(', ')) : ''}</div></div></div><button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="0">Make current</button><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}">Unlink</button></div>`).join('')}<input id="biz-linksearch-past" data-bid="${b.id}" placeholder="+ Add a past contact — search by name or phone" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="biz-linkres-past"></div></div>`;
@@ -789,7 +789,7 @@ function bizDetail(b) {
   { const rh = bizRoutesHtml(b, false); if (rh) html += `<div class="card"><h3>Saved routes</h3>${rh}</div>`; }
   html += `<div class="card"><h3>${locWord(b, true)}</h3>${b.farms.map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} yet.</div>`}</div>`;
   html += `<div class="card"><h3>General info</h3>${infoView(b)}</div>`;
-  html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="rec-ai" data-kind="business" data-id="${b.id}">🤖 Ask Claude about ${h(b.name)}</button></div>`;
+  html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="business" data-id="${b.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="business" data-id="${b.id}">🤖 Ask Claude about ${h(b.name)}</button></div>`;
   return html + '</div>';
 }
 
@@ -2271,6 +2271,61 @@ function dupeJobs(add) {
   const em = []; D.contacts.forEach((c) => c.emails.forEach((e) => em.push({ c, k: e.value.trim().toLowerCase() })));
   group(em, (x) => x.k || null, (a, b) => { if (a.c !== b.c) pair('contact', a.c, b.c, 'same email address'); });
 }
+/* ---------------- Merge with… (pick the other record, settle any conflicts, then merge) ---------------- */
+function mergeStart(kind, id) {
+  const isC = kind === 'contact'; const a = isC ? D.contacts.find((x) => x.id === id) : IDX.biz.get(id); if (!a) return;
+  openSheet(`Merge ${isC ? fullName(a) : a.name} with…`, `<div class="hint" style="margin-bottom:6px">Search for the ${isC ? 'person' : 'business'} to merge into <b>${h(isC ? fullName(a) : a.name)}</b>. Their numbers, emails, ${isC ? 'businesses' : 'farms, PICs, contacts'} and notes are combined; if anything clashes you'll be asked which to keep. The other record goes to the trash (it can be restored).</div>
+    <input id="mg-search" data-kind="${kind}" data-id="${id}" placeholder="Search by name${isC ? ' or phone' : ''}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><div id="mg-res"></div>`, () => true);
+  $('#sheet-save').style.display = 'none'; setTimeout(() => $('#mg-search') && $('#mg-search').focus(), 50);
+}
+function mergeConflicts(kind, a, b) { // → [{key, label, a, b, text}] fields where both have different values
+  const out = []; const add = (key, label, va, vb, text) => { const x = (va ?? '').toString().trim(), y = (vb ?? '').toString().trim(); if (x && y && x !== y) out.push({ key, label, a: va, b: vb, text }); };
+  if (kind === 'contact') {
+    add('first', 'First name', a.first, b.first); add('middle', 'Middle / nickname', a.middle, b.middle); add('last', 'Surname', a.last, b.last); add('role', 'Role', a.role, b.role);
+    add('category', 'Category', catOf(a) ? tagName(catOf(a)) : '', catOf(b) ? tagName(catOf(b)) : ''); const pr = (c) => (c.tags.includes('pa') ? 'Primary (active)' : c.tags.includes('pi') ? 'Primary (inactive)' : ''); add('primary', 'Primary tag', pr(a), pr(b));
+    add('inactiveReason', 'Inactive reason', a.inactiveReason, b.inactiveReason, true); add('dnaReason', 'Do not answer reason', a.dnaReason, b.dnaReason, true);
+    add('warnings', 'General warnings', a.warnings, b.warnings, true); add('sideNotes', 'Side notes', a.sideNotes, b.sideNotes, true); add('info', 'General info', a.info, b.info, true);
+  } else {
+    add('name', 'Business name', a.name, b.name); add('type', 'Client / non-client', isClientBiz(a) ? 'Client' : 'Non-client', isClientBiz(b) ? 'Client' : 'Non-client'); add('category', 'Category', bizCat(a) ? tagName(bizCat(a)) : '', bizCat(b) ? tagName(bizCat(b)) : '');
+    const pc = (x) => (x.primaryContact && D.contacts.find((c) => c.id === x.primaryContact) ? fullName(D.contacts.find((c) => c.id === x.primaryContact)) : ''); add('primaryContact', 'Primary contact', pc(a), pc(b));
+    add('inactiveReason', 'Inactive reason', a.inactiveReason, b.inactiveReason, true); add('dnaReason', 'Do not answer reason', a.dnaReason, b.dnaReason, true);
+    add('warnings', 'General warnings', a.warnings, b.warnings, true); add('sideNotes', 'Side notes', a.sideNotes, b.sideNotes, true); add('info', 'General info', a.info, b.info, true);
+  }
+  return out;
+}
+function mergeSheet(kind, aId, bId) {
+  const isC = kind === 'contact'; const get = (id) => (isC ? D.contacts.find((x) => x.id === id) : IDX.biz.get(id)); const a = get(aId), b = get(bId); if (!a || !b) return;
+  const nm = (r) => (isC ? fullName(r) : r.name); const cf = mergeConflicts(kind, a, b);
+  const opt = (c, v, label, checked) => `<label style="display:flex;gap:6px;align-items:flex-start;margin:3px 0"><input type="radio" name="mg-${c.key}" value="${v}" ${checked ? 'checked' : ''}><span style="white-space:pre-wrap">${label}</span></label>`;
+  const short = (t) => h(String(t).length > 300 ? String(t).slice(0, 300) + '…' : String(t));
+  const body = `<p>Merging <b>${h(nm(b))}</b> into <b>${h(nm(a))}</b>. Phone numbers, emails, addresses, ${isC ? 'linked businesses and tags' : 'farms, PICs, patient IDs and contacts'} are combined automatically.</p>
+    ${cf.length ? `<div class="lbl" style="font-size:15px;margin-top:8px">These are different — choose what to keep:</div>${cf.map((c) => `<div class="card" style="padding:10px;margin:6px 0"><div style="font-weight:700;margin-bottom:4px">${h(c.label)}</div>${opt(c, 'a', `<b>${h(nm(a))}:</b> ${short(c.a)}`, !c.text)}${opt(c, 'b', `<b>${h(nm(b))}:</b> ${short(c.b)}`, false)}${c.text ? opt(c, 'both', 'Keep both (one after the other)', true) : ''}</div>`).join('')}` : '<div class="hint">No clashes — everything can be combined.</div>'}
+    <div class="hint" style="margin-top:8px">${h(nm(b))} will be moved to the trash (restore it from Settings → Trash if needed).</div>`;
+  openSheet(`Merge ${isC ? 'contacts' : 'businesses'}`, body, () => {
+    const pick = {}; cf.forEach((c) => { pick[c.key] = (document.querySelector(`#sheet input[name="mg-${c.key}"]:checked`) || {}).value || 'a'; });
+    const chosenCat = (pick.category === 'b') ? (isC ? catOf(b) : bizCat(b)) : (isC ? catOf(a) : bizCat(a)) || (isC ? catOf(b) : bizCat(b));
+    const keepText = {}; cf.filter((c) => c.text).forEach((c) => { keepText[c.key] = pick[c.key] === 'a' ? a[c.key] : pick[c.key] === 'b' ? b[c.key] : [a[c.key], b[c.key]].filter(Boolean).join('\n\n'); });
+    const scal = {}; cf.filter((c) => !c.text && !['category', 'primary', 'type', 'primaryContact'].includes(c.key)).forEach((c) => { scal[c.key] = pick[c.key] === 'b' ? b[c.key] : a[c.key]; });
+    if (isC) {
+      const prim = pick.primary === 'b' ? (b.tags.includes('pa') ? 'pa' : 'pi') : pick.primary === 'a' ? (a.tags.includes('pa') ? 'pa' : 'pi') : null;
+      mergeContacts(a, b); // a past link only on the other record stays past
+      Object.assign(a, scal); Object.entries(keepText).forEach(([k, v]) => { a[k] = v; if (k === 'info') delete a.infoHtml; });
+      if (prim) { a.tags = a.tags.filter((t) => t !== 'pa' && t !== 'pi'); a.tags.push(prim); } else if (a.tags.includes('pa') && a.tags.includes('pi')) a.tags = a.tags.filter((t) => t !== 'pi');
+      reindex(); if (chosenCat) setOne(a, chosenCat); touch(a);
+    } else {
+      const typeB = isClientBiz(b), typeA = isClientBiz(a); const primB = b.primaryContact;
+      a.phones = [...(a.phones || []), ...(b.phones || []).filter((p) => !(a.phones || []).some((q) => lastDigits(q.value) === lastDigits(p.value)))]; a.emails = [...(a.emails || []), ...(b.emails || []).filter((p) => !(a.emails || []).some((q) => q.value.toLowerCase() === p.value.toLowerCase()))]; a.postal = [...new Set([...(a.postal || []), ...(b.postal || [])])];
+      a.sideNotes = a.sideNotes || b.sideNotes; a.inactiveReason = a.inactiveReason || b.inactiveReason; a.dnaReason = a.dnaReason || b.dnaReason;
+      const pastB = new Set(D.contacts.filter((c) => c.links.some((l) => l.bid === b.id && l.past)).map((c) => c.id)); const hadA = new Set(D.contacts.filter((c) => c.links.some((l) => l.bid === a.id)).map((c) => c.id));
+      mergeBiz(a, b); D.contacts.forEach((c) => { if (pastB.has(c.id) && !hadA.has(c.id)) { c.links = c.links.map((l) => (l.bid === a.id ? { bid: a.id, past: true } : l)); touch(c); } }); // past employees of the other business stay past
+      Object.assign(a, scal); Object.entries(keepText).forEach(([k, v]) => { a[k] = v; if (k === 'info') delete a.infoHtml; });
+      if (pick.primaryContact === 'b') a.primaryContact = primB; reindex(); if (chosenCat) setBizCat(a, chosenCat);
+      if (pick.type) setBizType(a, (pick.type === 'b' ? typeB : typeA) ? 'client' : 'nonclient'); touch(a);
+    }
+    NEXT_LOG_LABEL = `Merged ${nm(b)} into ${nm(a)}`; S.sel = { kind, id: a.id }; return true;
+  }, '');
+  $('#sheet-save').textContent = 'Merge';
+}
 function mergeContacts(keep, other) {
   const uni = (a, b, key) => { const out = [...a]; b.forEach((x) => { if (!out.some((y) => key(y) === key(x))) out.push(x); }); return out; };
   const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
@@ -2279,6 +2334,10 @@ function mergeContacts(keep, other) {
   keep.tags = [...new Set([...keep.tags, ...other.tags])]; keep.links = uni(keep.links, other.links, (l) => l.bid);
   keep.info = join(keep.info, other.info); if (keep.infoHtml || other.infoHtml) keep.infoHtml = [keep.infoHtml || h(keep.info || ''), other.infoHtml || ''].filter(Boolean).join('<br>');
   keep.warnings = join(keep.warnings, other.warnings); keep.role = keep.role || other.role; keep.starred = keep.starred || other.starred; keep.gid = keep.gid || other.gid;
+  keep.sideNotes = keep.sideNotes || other.sideNotes; keep.inactiveReason = keep.inactiveReason || other.inactiveReason; keep.dnaReason = keep.dnaReason || other.dnaReason;
+  if ((!keep.photoChoice || keep.photoChoice === 'auto') && other.photoChoice && other.photoChoice !== 'auto') { keep.photoChoice = other.photoChoice; if (other.photoData) keep.photoData = other.photoData; }
+  if (other.ice && other.ice.length) { keep.ice = keep.ice || []; other.ice.forEach((i) => { if (i.cid !== keep.id && !keep.ice.some((x) => x.cid === i.cid)) keep.ice.push(i); }); }
+  D.contacts.forEach((c) => { if (c !== other && (c.ice || []).some((i) => i.cid === other.id)) { c.ice = c.ice.map((i) => (i.cid === other.id ? { ...i, cid: keep.id } : i)).filter((i, k, arr) => i.cid !== c.id && arr.findIndex((y) => y.cid === i.cid) === k); touch(c); } });
   D.businesses.forEach((b) => { if (b.primaryContact === other.id) { b.primaryContact = keep.id; touch(b); } });
   touch(keep); trashContact(other);
 }
@@ -2753,6 +2812,8 @@ document.addEventListener('click', async (e) => {
       else { const stops = S.route.stops.map((x) => IDX.farms.get(x.fid)).filter(Boolean); bids = [...new Set(stops.map((f) => IDX.farmBiz.get(f.id)?.id).filter(Boolean))]; req = stops.length ? `About my planned route (${routeSummary({ ...routeSnapshot() })}): ` : 'About planning a route: '; }
       S.aiExtra = { cids, bids }; S.aiScope = 'mentioned'; S.aiReq = req; S.aiReply = ''; S.aiResult = '';
       S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const t = $('#ai-req'); if (t) { t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 60); toast('Type what you want, then tap "Copy for Claude"'); break; }
+    case 'merge-start': mergeStart(d.kind, d.id); break;
+    case 'mg-pick': closeSheet(); setTimeout(() => mergeSheet(d.kind, d.a, d.b), 30); break;
     case 'rec-ai': { const isC = d.kind === 'contact'; const r = isC ? D.contacts.find((x) => x.id === d.id) : IDX.biz.get(d.id); if (!r) break;
       S.aiExtra = isC ? { cids: [r.id], bids: [] } : { cids: [], bids: [r.id] }; S.aiScope = 'mentioned'; S.aiReq = `About ${isC ? fullName(r) : r.name}: `; S.aiReply = ''; S.aiResult = '';
       S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const t = $('#ai-req'); if (t) { t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 60); toast('Type what you want, then tap "Copy for Claude"'); break; }
@@ -2905,6 +2966,9 @@ function savedRoutesCard() {
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderContactList, 120); }
+  else if (t.id === 'mg-search') { const isC = t.dataset.kind === 'contact'; const pq = parseQuery(t.value); const box = $('#mg-res');
+    const res = !pq.inc.length ? [] : isC ? D.contacts.filter((c) => c.id !== t.dataset.id && matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...c.landlines.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 12) : D.businesses.filter((b) => b.id !== t.dataset.id && matchQ(bizHay(b), pq)).slice(0, 12);
+    box.innerHTML = t.value.trim() ? `<div class="results">${res.map((r) => `<div data-act="mg-pick" data-kind="${t.dataset.kind}" data-a="${t.dataset.id}" data-b="${r.id}"><b>${h(isC ? fullName(r) : r.name)}</b> <span class="hint">${h(isC ? (bizOf(r).map((b) => b.name).join(', ') || (r.mobiles[0] || r.landlines[0] || {}).value || '') : ((IDX.bizContacts.get(r.id) || []).map((c) => c.first).join(', ') + ' · ' + r.farms.length + ' farms'))}</span></div>`).join('') || '<div class="hint">No matches.</div>'}</div>` : ''; }
   else if (t.id === 'biz-linksearch' || t.id === 'biz-linksearch-past') {
     const past = t.id === 'biz-linksearch-past'; const pq = parseQuery(t.value); const bid = t.dataset.bid; const box = $(past ? '#biz-linkres-past' : '#biz-linkres');
     const res = pq.inc.length ? D.contacts.filter((c) => !c.links.some((l) => l.bid === bid) && matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 10) : [];
