@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '8.0 (16 Oct 2026)';
+const APP_VERSION = '8.1 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1369,7 +1369,7 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
         <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fa.id}" data-other="${fb.id}">${j.pair.same ? "Same farm — merge, keep 1's details" : "Same yards used by both businesses — keep 1's details"}</button>
         <button class="btn small" data-act="pin-same" data-key="${h(j.key)}" data-keep="${fb.id}" data-other="${fa.id}">${j.pair.same ? "Same farm — merge, keep 2's details" : "Same yards used by both businesses — keep 2's details"}</button>`; })() : ''}
       ${j.dupe ? (() => { const x = j.dupe, isC = x.kind === 'contact'; const A = isC ? D.contacts.find((c) => c.id === x.a) : IDX.biz.get(x.a), B = isC ? D.contacts.find((c) => c.id === x.b) : IDX.biz.get(x.b); const nm = (r) => h(isC ? fullName(r) : r.name);
-        return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">Merge into 1 (${nm(A)})</button><button class="btn small" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">Merge into 2 (${nm(B)})</button>`; })() : ''}
+        return `<button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.a}">Open 1</button><button class="btn small" data-act="open" data-kind="${x.kind}" data-id="${x.b}">Open 2</button><button class="btn small" data-act="dupe-not" data-key="${h(j.key)}">Not duplicates</button><button class="btn small greenbtn" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.a}" data-other="${x.b}">⇄ Merge into 1 (${nm(A)})…</button><button class="btn small greenbtn" data-act="dupe-merge" data-kind="${x.kind}" data-keep="${x.b}" data-other="${x.a}">⇄ Merge into 2 (${nm(B)})…</button>`; })() : ''}
       ${j.bizonly ? `<button class="btn small greenbtn" data-act="bizonly-convert" data-cid="${j.bizonly.cid}" data-bid="${j.bizonly.bid}">✓ Yes — it's just the business (move details onto it)</button><button class="btn small" data-act="edit-contact" data-id="${j.bizonly.cid}">Edit contact</button><button class="btn small" data-act="edit-biz" data-id="${j.bizonly.bid}">Edit business</button>` : ''}
       ${j.type === 'biznodetails' ? `<button class="btn small primary" data-act="edit-biz" data-id="${j.id}">Add phone / email</button>` : ''}
       ${j.warnTxt ? (() => { const w = j.warnSrc; const farms = w.fid ? [IDX.farms.get(w.fid)].filter(Boolean) : (w.kind === 'contact' ? bizOf(D.contacts.find((x) => x.id === w.id) || { links: [] }) : [IDX.biz.get(w.bid)].filter(Boolean)).flatMap((b) => b.farms); const A = (to, extra, lbl) => `<button class="btn small" data-act="warn-apply" data-to="${to}" data-k="${h(j.key)}" ${extra}>${lbl}</button>`;
@@ -1378,7 +1378,7 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       ${j.linkRev ? `<button class="btn small" data-act="link-past" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" data-v="1">Past employee</button><button class="btn small" data-act="linkrev-undo" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" style="color:var(--red)">Undo — remove the link</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkRev.cid}">View contact</button>` : ''}
       ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as current employee</button><button class="btn small greenbtn" data-act="link-pick-past" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as past employee</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkSug.cid}">View contact</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">View business</button>` : ''}
       ${j.oddbiz ? `<button class="btn small primary" data-act="oddbiz-fix" data-bid="${j.oddbiz}">Sort out this name…</button><button class="btn small" data-act="edit-biz" data-id="${j.oddbiz}">Rename by hand</button>` : ''}
-      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}${t === 'noprimary' ? `<button class="btn small" data-act="prim-find" data-bid="${j.id}">🔍 Find a contact…</button><button class="btn small" data-act="np-industry" data-bid="${j.id}">Not a client — industry business</button><button class="btn small" data-act="np-role" data-bid="${j.id}">Not a business — it's a role</button><button class="btn small" data-act="np-multi" data-bid="${j.id}">It's several businesses</button>` : ''}
+      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}${t === 'nogps' ? `<button class="btn small greenbtn" data-act="pin-find" data-fid="${j.fid}">🔍 Find the address on the map</button>` : ''}${t === 'noprimary' ? `<button class="btn small" data-act="prim-find" data-bid="${j.id}">🔍 Find a contact…</button><button class="btn small" data-act="np-industry" data-bid="${j.id}">Not a client — industry business</button><button class="btn small" data-act="np-role" data-bid="${j.id}">Not a business — it's a role</button><button class="btn small" data-act="np-multi" data-bid="${j.id}">It's several businesses</button>` : ''}
       ${j.type === 'primnolink' ? `<button class="btn small primary" data-act="edit-contact" data-id="${j.id}">Edit contact</button>` : ''}
       ${j.nocat ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.nocat}">Choose categories for the business…</button>` : ''}
       ${j.catdiff ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.catdiff.bid}">Choose categories…</button>` : ''}
@@ -1549,8 +1549,11 @@ function renderSettings() {
   <div class="card"><h3>Photo priority</h3><div class="hint" style="margin-bottom:6px">When a contact has more than one tag with a photo and nobody has chosen one, the tag highest on this list is shown. Use the arrows to reorder. Changes apply on every device.</div>
   ${photoOrder().map((id, i, arr) => `<div class="kv" style="align-items:center"><span style="width:22px;color:var(--ink3);font-weight:600">${i + 1}</span><img src="${tagPhotoSrc(id)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover"><div class="v">${h(tagName(id))}</div><button class="btn small" data-act="prio" data-id="${id}" data-dir="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="prio" data-id="${id}" data-dir="1" ${i < arr.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button></div>`).join('')}
   ${D.settings.photoPriority ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="prio-reset">Reset to default order</button></div>' : ''}</div>
-  <div class="card"><h3>This device</h3><div class="f"><label>Your name and device (shown in the change log)</label><div class="search"><input id="s-devname" value="${h((() => { try { return localStorage.getItem('bvt-devname') || ''; } catch (e) { return ''; } })())}" placeholder="e.g. Amelia – office PC"><button class="btn small" data-act="devname-save">Save</button></div></div>
-    <div class="lbl" style="margin-top:8px">Devices using the app</div>${Object.entries(D.devices || {}).sort((a, b) => (b[1].last || 0) - (a[1].last || 0)).map(([k, v]) => `<div class="kv"><div class="k">${h(v.name || 'Device')}${k === DEVICE ? ' <span class="hint">(this one)</span>' : ''}</div><div class="v">last synced ${v.last ? new Date(v.last).toLocaleString('en-AU') : '—'} · v${h(v.ver || '?')}</div></div>`).join('') || '<div class="hint">Devices appear here after they sync.</div>'}</div>
+  <div class="card"><h3>This device</h3>${(() => { const di = devInfo(); return `<div class="grid2 stack"><div class="f"><label>Your nickname</label><input id="s-nick" value="${h(di.nick)}" placeholder="e.g. Amelia"><div class="hint">Shown as "Hi ${h(di.nick || '…')}" when the app opens.</div></div>
+    <div class="f"><label>Device name</label><div class="search"><input id="s-devmodel" value="${h(di.dev)}" placeholder="e.g. Amelia's Samsung or Office PC"><button class="btn small" data-act="dev-detect" title="Pick up the device model again">Detect</button></div><div class="hint">Picked up from the device where it allows (Android shares the model, e.g. "Samsung SM-S918B", not the name you gave the phone) — change it to anything you like.</div></div>
+    <div class="f"><label>This phone's number <span class="hint">(optional)</span></label><input id="s-devphone" value="${h(di.phone)}" inputmode="tel" placeholder="04xx xxx xxx"><div class="hint">Phones don't let apps read their own number, so type it in if you want it shown in the device list.</div></div></div>
+    <div class="actions"><button class="btn primary small" data-act="devname-save">Save</button><span class="hint">Shown in the change log as "${h(deviceName())}"</span></div>`; })()}
+    <div class="lbl" style="margin-top:8px">Devices using the app</div>${Object.entries(D.devices || {}).sort((a, b) => (b[1].last || 0) - (a[1].last || 0)).map(([k, v]) => `<div class="kv"><div class="k">${h(v.name || 'Device')}${k === DEVICE ? ' <span class="hint">(this one)</span>' : ''}</div><div class="v">${v.phone ? h(v.phone) + ' · ' : ''}last synced ${v.last ? new Date(v.last).toLocaleString('en-AU') : '—'} · v${h(v.ver || '?')}</div></div>`).join('') || '<div class="hint">Devices appear here after they sync.</div>'}</div>
   <div class="card"><h3>Display <span class="hint">(this device)</span></h3><div class="grid2">
     <div class="f"><label>Appearance</label><select data-pref="theme">${[['auto', 'Match the phone / computer'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<option value="${v}" ${(PREF.theme || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="f"><label>Text size</label><select data-pref="size">${[['normal', 'Normal'], ['large', 'Large'], ['xl', 'Extra large']].map(([v, l]) => `<option value="${v}" ${(PREF.size || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></div>
@@ -1677,7 +1680,7 @@ const Sync = {
     // bump revisions of everything we are sending that changed here
     KINDS.forEach((k) => D[k].forEach((r) => { if (r._dirty) r._rev = (r._rev || 0) + 1; }));
     if (D.settings._dirty) D.settings._rev = (D.settings._rev || 0) + 1;
-    D.devices = D.devices || {}; D.devices[DEVICE] = { name: deviceName(), last: Date.now(), ver: APP_VERSION.split(' ')[0] }; delete D._devDirty;
+    D.devices = D.devices || {}; D.devices[DEVICE] = { name: deviceName(), nick: devInfo().nick || null, model: devInfo().dev || null, phone: devInfo().phone || null, last: Date.now(), ver: APP_VERSION.split(' ')[0] }; delete D._devDirty;
     const delSent = (D.deleted || []).filter((x) => !x.synced);
     const body = this.serial();
     // mark as sent now: anything changed while the upload is in progress gets marked again and goes up next time
@@ -2306,7 +2309,7 @@ function dupeJobs(add) {
   const seen = new Set();
   const pair = (kind, A, B, why) => {
     const key = 'dupe:' + [A.id, B.id].sort().join('|'); if (seen.has(key)) return; seen.add(key);
-    const nm = kind === 'contact' ? fullName : (x) => x.name;
+    const nm = kind === 'contact' ? (x) => fullName(x) + (bizOf(x).length ? ' (' + bizOf(x).map((y) => y.name).join(', ') + ')' : '') : (x) => x.name;
     add({ type: 'dupe', key, kind, id: A.id, who: nm(A) + '  ↔  ' + nm(B), note: 'Possible duplicate — ' + why, dupe: { kind, a: A.id, b: B.id } });
   };
   const group = (arr, keyFn, cb) => { const m = new Map(); arr.forEach((x) => { const k = keyFn(x); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); m.forEach((g) => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) cb(g[i], g[j]); }); };
@@ -2314,10 +2317,55 @@ function dupeJobs(add) {
   group(D.contacts, (c) => (c.first && c.last ? normName(c) : null), (a, b) => pair('contact', a, b, 'same name'));
   const mob = []; D.contacts.forEach((c) => c.mobiles.forEach((p) => mob.push({ c, k: lastDigits(p.value) })));
   group(mob, (x) => (x.k.length === 9 ? x.k : null), (a, b) => { if (a.c !== b.c) pair('contact', a.c, b.c, 'same mobile number'); });
+  const pics = []; D.businesses.forEach((b) => b.pics.forEach((p) => pics.push({ b, k: (p.value || '').toUpperCase().replace(/\s/g, '') })));
+  group(pics, (x) => (PIC_RX.test(x.k) ? x.k : null), (a, b) => { if (a.b !== b.b) pair('business', a.b, b.b, 'same PIC (' + a.k + ')'); });
   const em = []; D.contacts.forEach((c) => c.emails.forEach((e) => em.push({ c, k: e.value.trim().toLowerCase() })));
   group(em, (x) => x.k || null, (a, b) => { if (a.c !== b.c) pair('contact', a.c, b.c, 'same email address'); });
 }
 /* ---------------- Merge with… (pick the other record, settle any conflicts, then merge) ---------------- */
+/* ---------------- farm with an address but no pin: look the address up and confirm a pin ---------------- */
+function pinFindSheet(f) {
+  const b = IDX.farmBiz.get(f.id); if (!f || !b) return; S.pinFid = f.id;
+  const q = (f.address || f.name || '').trim();
+  openSheet('Find pin — ' + (f.name || b.name), `<div class="hint" style="margin-bottom:8px">${h(b.name)}${f.name ? ' · ' + h(f.name) : ''}</div>
+    <div class="f"><label>Address to search</label><div class="search"><input id="pf-addr" value="${h(q)}" placeholder="Farm address"><button class="btn small primary" data-act="pin-search">Search</button></div></div>
+    <div id="pin-res" class="hint">${Maps.key() ? 'Tap Search to look this address up with Google.' : 'No Google Maps key in Settings, so the app can\'t search for you — use the button below.'}</div>
+    <div class="actions" style="margin-top:6px"><a class="btn small" id="pin-gmaps" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q + (/\bWA\b|Western Australia/i.test(q) ? '' : ', WA'))}" target="_blank" rel="noopener">🗺 Search in Google Maps</a></div>
+    <div class="f" style="margin-top:8px"><label>…or paste a pin or Google Maps link</label><input id="pin-paste" placeholder="-34.95, 117.88 or a maps.google link"><div class="hint">In Google Maps, press and hold the yards to drop a pin, then copy the numbers (or Share → Copy link) and paste them here.</div></div>
+    <div id="pin-prev"></div>`, () => true);
+  $('#sheet-save').style.display = 'none'; if (Maps.key() && q) setTimeout(pinSearch, 50);
+}
+async function geocode(q) { /* → [{name, address, lat, lng, prec}] using whichever Google API the key allows */
+  const errs = []; const home = D.settings.home || {};
+  try { const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&region=au&components=country:AU&key=${encodeURIComponent(Maps.key())}`); const js = await r.json();
+    if (js.status === 'OK') return js.results.slice(0, 5).map((x) => ({ name: x.formatted_address, address: x.formatted_address, lat: x.geometry.location.lat, lng: x.geometry.location.lng, prec: { ROOFTOP: 'exact address', RANGE_INTERPOLATED: 'estimated along the road', GEOMETRIC_CENTER: 'middle of a road or area', APPROXIMATE: 'approximate — town or area only' }[x.geometry.location_type] + (x.partial_match ? ', partial match' : '') }));
+    if (js.status === 'ZERO_RESULTS') errs.push('nothing found'); else errs.push('Geocoding API: ' + (js.error_message || js.status)); } catch (e) { errs.push('Geocoding API: ' + e.message); }
+  try { const body = { textQuery: q, regionCode: 'AU' }; if (home.lat != null) body.locationBias = { circle: { center: { latitude: home.lat, longitude: home.lng }, radius: 50000 } };
+    const r = await fetch('https://places.googleapis.com/v1/places:searchText', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': Maps.key(), 'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location' }, body: JSON.stringify(body) }); const js = await r.json();
+    if (r.ok) { if ((js.places || []).length) return js.places.slice(0, 5).map((x) => ({ name: (x.displayName || {}).text || x.formattedAddress, address: x.formattedAddress, lat: x.location.latitude, lng: x.location.longitude, prec: 'Google place' })); errs.push('nothing found'); } else errs.push('Places API: ' + ((js.error || {}).message || r.status)); } catch (e) { errs.push('Places API: ' + e.message); }
+  const e = new Error(errs.every((x) => x === 'nothing found') ? 'Google couldn\'t find that address.' : errs.filter((x) => x !== 'nothing found').join(' · ')); e.notFound = errs.includes('nothing found'); throw e;
+}
+async function pinSearch() {
+  const q = ($('#pf-addr') || {}).value || ''; const box = $('#pin-res'); if (!box) return; if (!q.trim()) { box.textContent = 'Type an address first.'; return; }
+  const gm = $('#pin-gmaps'); if (gm) gm.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q + (/\bWA\b|Western Australia/i.test(q) ? '' : ', WA'))}`;
+  if (!Maps.key()) { box.innerHTML = 'No Google Maps key in Settings — use <b>Search in Google Maps</b> and paste the pin below.'; return; }
+  if (!navigator.onLine) { box.textContent = 'You are offline — searching needs internet.'; return; }
+  box.textContent = 'Searching…';
+  try { const res = await geocode(q + (/\bWA\b|Western Australia/i.test(q) ? '' : ', WA')); S.pinRes = res;
+    box.innerHTML = `<div class="lbl">Google found — tap one to check it on the map</div><div class="results">${res.map((r, i) => `<div data-act="pin-pick" data-i="${i}"><b>${h(r.name)}</b>${r.address !== r.name ? ` <span class="hint">${h(r.address)}</span>` : ''}<div class="hint">${h(r.prec || '')}</div></div>`).join('')}</div>`;
+    if (res.length === 1) pinPreview(res[0]);
+  } catch (e) { box.innerHTML = `${h(e.message)}${e.notFound ? '' : '<br>To let the app search, turn on <b>Geocoding API</b> (or Places API (New)) for your key in Google Cloud. Until then, use Search in Google Maps below.'}`; }
+}
+function pinPreview(p) {
+  const el = $('#pin-prev'); if (!el) return; S.pinCand = p; const home = D.settings.home || {};
+  const km = home.lat != null ? hav(home, p) : null;
+  el.innerHTML = `<div class="card" style="padding:10px;margin-top:10px"><div class="lbl">Is this the right spot?</div><div class="hint" style="margin:4px 0 6px">${p.name ? h(p.name) + ' · ' : ''}${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.prec ? ' · ' + h(p.prec) : ''}${km != null ? ` · ${km.toFixed(0)} km from homebase in a straight line` : ''}</div>
+    ${/approximate|middle of/.test(p.prec || '') ? '<div class="hint" style="color:var(--yellow-ink);margin-bottom:6px">⚠ Rural addresses often only find the road or town — check the pin is on the farm or yards before confirming. You can move it in Google Maps and paste the new pin above.</div>' : ''}
+    <iframe title="Map preview" src="https://maps.google.com/maps?q=${p.lat},${p.lng}&z=16&t=h&output=embed" style="width:100%;height:280px;border:0;border-radius:9px" loading="lazy"></iframe>
+    <div class="actions" style="margin-top:8px"><button class="btn primary" data-act="pin-confirm">✓ Create pin here</button><a class="btn small" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Open in Google Maps</a></div></div>`;
+}
+document.addEventListener('input', (e) => { if (e.target.id !== 'pin-paste') return; const g = parseGps(e.target.value); if (g && Math.abs(g.lat) <= 90 && Math.abs(g.lng) <= 180) pinPreview({ name: 'Pasted pin', lat: g.lat, lng: g.lng, prec: '' }); else if (e.target.value.trim()) $('#pin-prev').innerHTML = '<div class="hint" style="color:var(--red)">Not recognised yet — paste numbers like -34.95, 117.88 or a Google Maps link.</div>'; });
+document.addEventListener('keydown', (e) => { if (e.target.id === 'pf-addr' && e.key === 'Enter') { e.preventDefault(); pinSearch(); } });
 function primFindSheet(b) { /* search any contact to make primary; links them to the business if needed */
   openSheet('Primary contact for ' + b.name, `<div class="hint" style="margin-bottom:8px">Search for the person to make the primary contact. If they aren't linked to ${h(b.name)} yet, they'll be linked as a current contact.</div>
     <input id="pf-search" data-bid="${b.id}" placeholder="Search by name, phone or business" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><div id="pf-res">${primFindRes(b, '')}</div>`, () => true);
@@ -2467,7 +2515,19 @@ document.addEventListener('click', (e) => {
 /* ---------------- change log with undo (synced) ---------------- */
 const LOG_SKIP = new Set(['gid', 'gKm', 'gMin', 'gAt', 'infoHtml', 'ownCats', 'sharedWith']); // computed/duplicate fields not shown in the log
 const BASE = new Map(); const TOUCHED = new Set(); let PENDING_DEL = [];
-const deviceName = () => { try { return localStorage.getItem('bvt-devname') || 'Device ' + DEVICE.slice(-4); } catch (e) { return 'Device'; } };
+const LSget = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+const LSset = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) { } };
+let AUTO_DEV = (() => { const u = navigator.userAgent || ''; const m = u.match(/Android[^;]*;\s*([^;)]+?)(?:\s+Build|\))/); if (/Android/.test(u)) return m && m[1] && m[1] !== 'K' ? (/^SM-/.test(m[1].trim()) ? 'Samsung ' : '') + m[1].trim() + ' (Android)' : 'Android phone'; if (/iPhone/.test(u)) return 'iPhone'; if (/iPad/.test(u)) return 'iPad'; if (/Windows/.test(u)) return 'Windows PC'; if (/Mac/.test(u)) return 'Mac'; return ''; })();
+async function detectDevice() { /* Android shares the model (e.g. SM-S918B / Pixel 8), never the name you gave the phone or its number */
+  try { const ua = navigator.userAgentData; if (!ua || !ua.getHighEntropyValues) return AUTO_DEV; const v = await ua.getHighEntropyValues(['model', 'platformVersion']);
+    const plat = ua.platform || ''; if (v.model) AUTO_DEV = `${/^SM-/.test(v.model) ? 'Samsung ' : ''}${v.model} (${plat || 'Android'})`; else if (!AUTO_DEV || AUTO_DEV === 'Android phone') AUTO_DEV = plat === 'Windows' ? 'Windows PC' : plat === 'macOS' ? 'Mac' : plat === 'Android' ? 'Android phone' : plat || AUTO_DEV; } catch (e) { }
+  return AUTO_DEV;
+}
+function devInfo() { let nick = LSget('bvt-nick'), dev = LSget('bvt-devmodel'); const old = LSget('bvt-devname');
+  if (!nick && old) { const m = old.split(/\s+[–-]\s+/); nick = m[0].replace(/'s (phone|pc|laptop|computer|tablet)$/i, ''); if (!dev && m.length > 1) dev = m.slice(1).join(' – '); }
+  return { nick, dev: dev || AUTO_DEV, phone: LSget('bvt-devphone') }; }
+const deviceName = () => { const i = devInfo(); return [i.nick, i.dev].filter(Boolean).join(' – ') || 'Device ' + DEVICE.slice(-4); };
+function updHi() { const n = devInfo().nick; const el = document.getElementById('hi'); if (el) el.textContent = n ? 'Hi ' + n : ''; }
 // key-order-independent JSON so {value,label} and {label,value} count as the same
 const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, kk) => ((o[kk] = x[kk]), o), {}) : x));
 const plain = (r) => { const o = {}; Object.keys(r).forEach((k) => { if (!k.startsWith('_')) o[k] = r[k]; }); return o; };
@@ -2602,7 +2662,8 @@ document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'log-undo') { ev.preventDefault(); undoEntry(el.dataset.id); }
   if (el.dataset.act === 'log-more') { S.logShow += 50; renderAll(); }
-  if (el.dataset.act === 'devname-save') { const v = $('#s-devname').value.trim(); if (!v) { toast('Enter a name'); return; } try { localStorage.setItem('bvt-devname', v); } catch (e) { } D._devDirty = true; Sync.soon(); toast('Name saved'); renderAll(); }
+  if (el.dataset.act === 'devname-save') { const v = $('#s-nick').value.trim(); if (!v) { toast('Enter a nickname'); return; } LSset('bvt-nick', v); LSset('bvt-devmodel', $('#s-devmodel').value.trim() === AUTO_DEV ? '' : $('#s-devmodel').value.trim()); LSset('bvt-devphone', $('#s-devphone').value.trim()); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Saved — hi ' + v); updHi(); renderAll(); }
+  if (el.dataset.act === 'dev-detect') { detectDevice().then((d) => { $('#s-devmodel').value = d || ''; if (!d) toast("This device doesn't share its model — type a name"); }); }
 });
 
 /* ---------------- refresh: close and reopen the app on the newest version ---------------- */
@@ -2862,11 +2923,15 @@ document.addEventListener('click', async (e) => {
     case 'trash-restore': { const t = (D.trash || []).find((x) => x.tid === d.tid); if (t && await ask(`Restore ${trashLabel(t)} from the trash?`, 'Yes — restore')) restoreTrash(d.tid); break; }
     case 'trash-empty': if (await ask('Permanently delete everything in the trash?\n\nThis cannot be undone.', 'Yes — delete permanently', true)) { D.trash.forEach((t) => { if (!t.removed) Object.assign(t, { removed: true, rec: null }); }); D._trashDirty = true; changed(); } break;
     case 'dupe-not': D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); changed(); break;
-    case 'dupe-merge': {
+    case 'dupe-merge': { /* opens the merge screen, where any differences (names, info…) are settled before merging */
       const isC = d.kind === 'contact'; const keep = isC ? D.contacts.find((x) => x.id === d.keep) : IDX.biz.get(d.keep); const other = isC ? D.contacts.find((x) => x.id === d.other) : IDX.biz.get(d.other);
-      if (!keep || !other) break;
-      if (!(await ask(`Merge "${isC ? fullName(other) : other.name}" into "${isC ? fullName(keep) : keep.name}"?\n\nEverything is combined into one; the extra one goes to the trash.`, 'Yes — merge'))) break;
-      isC ? mergeContacts(keep, other) : mergeBiz(keep, other); if (await changed()) toast('Merged'); break; }
+      if (!keep || !other) break; mergeSheet(d.kind, keep.id, other.id); break; }
+    case 'pin-find': { const f = IDX.farms.get(d.fid); if (f) pinFindSheet(f); break; }
+    case 'pin-search': pinSearch(); break;
+    case 'pin-pick': if (S.pinRes && S.pinRes[+d.i]) pinPreview(S.pinRes[+d.i]); break;
+    case 'pin-confirm': { const f = IDX.farms.get(S.pinFid), p = S.pinCand, b = f && IDX.farmBiz.get(f.id); if (!f || !p || !b) break; closeSheet();
+      f.lat = +p.lat.toFixed(6); f.lng = +p.lng.toFixed(6); if (f.kmReturn != null) f.kmStatus = 'needs-verify'; touch(b);
+      NEXT_LOG_LABEL = `GPS pin added for ${b.name}${f.name ? ' (' + f.name + ')' : ''} from address search`; if (await changed()) toast('✓ Pin created' + (f.kmReturn != null ? ' — check the km on the Jobs list' : '')); break; }
     case 'prim-find': { const b = IDX.biz.get(d.bid); if (b) primFindSheet(b); break; }
     case 'pf-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (!c || !b) break; closeSheet();
       const l = c.links.find((x) => x.bid === b.id); let extra = '';
@@ -2965,10 +3030,11 @@ async function routeAddedBox(fids) {
   if (await askBox(ok.length ? 'Added to route' : 'Route not changed', html, `View route (${S.route.stops.length} stop${S.route.stops.length === 1 ? '' : 's'})`, false, 'OK — keep going')) goTab('route');
 }
 async function askDeviceName() { // compulsory: who is using this device
-  let hasName = false; try { hasName = !!localStorage.getItem('bvt-devname'); } catch (e) { hasName = true; } if (hasName || window.SEED) return;
-  for (;;) { const v = await askBox('Who is using this device?', `<p>Before you start, give this device a name so everyone can see who made each change (shown in the change log and in Settings → Devices).</p><div class="f"><span class="lbl">Your name and device</span><textarea rows="1" style="width:100%;height:46px;min-height:46px;resize:none;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px" placeholder="e.g. Amelia – office PC, or Jess's phone"></textarea></div>`, 'Save', false, 'Save');
-    if (typeof v === 'string' && v.trim()) { try { localStorage.setItem('bvt-devname', v.trim()); } catch (e) { } D._devDirty = true; Sync.soon(); toast('Thanks, ' + v.trim()); renderAll(); return; }
-    toast('Please enter a name for this device'); await new Promise((r) => setTimeout(r, 300)); }
+  if (devInfo().nick || window.SEED) { updHi(); return; }
+  await detectDevice();
+  for (;;) { const v = await askBox('Who is using this device?', `<p>Before you start, what should the app call you? It says hi when it opens, and your name shows in the change log so everyone can see who made each change.</p><div class="f"><span class="lbl">Your nickname</span><textarea rows="1" style="width:100%;height:46px;min-height:46px;resize:none;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px" placeholder="e.g. Amelia"></textarea></div><div class="hint">Device: ${h(AUTO_DEV || 'not detected')} — you can rename it and add this phone's number in Settings → This device.</div>`, 'Save', false, 'Save');
+    if (typeof v === 'string' && v.trim()) { LSset('bvt-nick', v.trim()); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Hi ' + v.trim() + '!'); updHi(); renderAll(); return; }
+    toast('Please enter a nickname'); await new Promise((r) => setTimeout(r, 300)); }
 }
 /* ---------------- nightly backups to Google Drive (kept 30 days) ---------------- */
 const Backup = {
@@ -3086,6 +3152,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (CONF
   reindex(); baseline(); migrate(); logChanges('Automatic update'); save();
   if (PREF.tab) S.tab = PREF.tab; if (PREF.sort) S.sort = PREF.sort; if (PREF.bsort) S.bsort = PREF.bsort; if (PREF.ptype) S.ptype = PREF.ptype; if (PREF.btype) S.btype = PREF.btype;
   applyUi(); reindex(); net(); renderAll();
+  updHi(); detectDevice(); if (window.hideSplash) window.hideSplash();
   Sync.start(); Backup.schedule(); setTimeout(askDeviceName, 600);
   checkLatest();
   { const b = document.querySelector('header [data-act=app-refresh]'); if (b) b.innerHTML = `⟳ v${APP_VERSION.split(' ')[0]}`; }
