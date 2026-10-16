@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.1 (16 Oct 2026)';
+const APP_VERSION = '7.2 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -547,17 +547,17 @@ async function changed() {
 }
 /* ---------------- confirm pop-up (replaces the browser's confirm box; phone Back = cancel) ---------------- */
 let CONFIRM = null;
-function askBox(title, html, okLabel = 'Yes — go ahead', danger = false, noLabel = "Cancel — don't change anything") {
+function askBox(title, html, okLabel = 'Yes — go ahead', danger = false, noLabel = "Cancel — don't change anything", altLabel = '') { // resolves true (ok), 'alt' (second choice) or false (back / cancel)
   return new Promise((res) => {
     const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'askbox'; bg.style.zIndex = 80;
     bg.innerHTML = `<div class="sheet" style="max-width:620px"><div class="sheet-h"><button class="btn" data-act="ask-no">‹ Back</button><h2>${h(title)}</h2></div><div class="form">${html}
-      <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button><button class="btn" data-act="ask-no">${h(noLabel)}</button></div></div></div>`;
+      <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button>${altLabel ? `<button class="btn primary" data-act="ask-alt" style="font-size:17px;padding:11px 16px">${h(altLabel)}</button>` : ''}<button class="btn" data-act="ask-no">${h(noLabel)}</button></div></div></div>`;
     document.body.appendChild(bg); CONFIRM = { res }; try { history.pushState({ ask: 1 }, ''); } catch (e) { } updateBackBtn();
   });
 }
 let ASK_FORM = {};
-function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); ASK_FORM = {}; if (el) el.querySelectorAll('[data-ask]').forEach((x) => (ASK_FORM[x.dataset.ask] = x.value)); const ta = el && el.querySelector('textarea'); if (v && ta) v = ta.value.trim() || true; if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
-document.addEventListener('click', (e) => { const el = e.target.closest('[data-act=ask-yes],[data-act=ask-no]'); if (!el) return; e.stopPropagation(); closeAsk(el.dataset.act === 'ask-yes'); }, true);
+function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); ASK_FORM = {}; if (el) el.querySelectorAll('[data-ask]').forEach((x) => (ASK_FORM[x.dataset.ask] = x.value)); const ta = el && el.querySelector('textarea'); if (v === true && ta) v = ta.value.trim() || true; if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
+document.addEventListener('click', (e) => { const el = e.target.closest('[data-act=ask-yes],[data-act=ask-no],[data-act=ask-alt]'); if (!el) return; e.stopPropagation(); closeAsk(el.dataset.act === 'ask-yes' ? true : el.dataset.act === 'ask-alt' ? 'alt' : false); }, true);
 const askText = (t) => `<p style="font-size:16px;line-height:1.45;white-space:pre-wrap">${h(t)}</p>`;
 async function ask(msg, okLabel, danger) { const ok = await askBox('Please confirm', askText(msg), okLabel || 'Yes — go ahead', danger); if (ok) { S.skipConfirm = true; setTimeout(() => (S.skipConfirm = false), 0); } return ok; } // already confirmed → no second pop-up
 function updateBackBtn() { const b = $('#hdr-back'); if (b) b.style.display = CONFIRM || SHEET || (NAV.stack && NAV.stack.length) ? '' : 'none'; }
@@ -712,7 +712,7 @@ function iceCard(c) {
 function iceRow(i) { const x = i && D.contacts.find((y) => y.id === i.cid); return `<div class="icerow" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap"><input class="ice-who" list="ice-dl" placeholder="Start typing a contact's name" value="${x ? h(iceLabel(x)) : ''}" style="flex:2;min-width:180px;padding:9px;border:1px solid var(--line);border-radius:9px"><input class="ice-rel" placeholder="Relationship, e.g. Mum" value="${h((i && i.rel) || '')}" style="flex:1;min-width:120px;padding:9px;border:1px solid var(--line);border-radius:9px"><button type="button" class="btn small" data-act="ice-del">✕</button></div>`; }
 // linking a contact to a business whose category differs: match the business, or keep the contact's own?
 async function askLinkCat(names, b, cur) {
-  return askBox('Different category', `<p style="font-size:16.5px">${names} ${/,| and /.test(names) ? 'have' : 'has'} a different category from <b>${h(b.name)}</b>.</p><div class="grid2" style="margin:8px 0"><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px"><div class="lbl">Contact now</div>${h(cur)}</div><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px"><div class="lbl">Business</div>${h(tagName(bizCat(b)))}</div></div><p>Update the contact's category to match the business, or keep it different?</p>`, `Update to match business: ${tagName(bizCat(b))}`, false, `Keep it different: ${cur}`);
+  return askBox('Different category', `<p style="font-size:16.5px">${names} ${/,| and /.test(names) ? 'have' : 'has'} a different category from <b>${h(b.name)}</b>.</p><div class="grid2" style="margin:8px 0"><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px"><div class="lbl">Contact now</div>${h(cur)}</div><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px"><div class="lbl">Business</div>${h(tagName(bizCat(b)))}</div></div><p>Update the contact's category to match the business, or keep it different?</p>`, `Update to match business: ${tagName(bizCat(b))}`, false, "Cancel — don't link", `Keep it different: ${cur}`).then((r) => (r === true ? 'match' : r === 'alt' ? 'keep' : null)); // null = backed out: nothing is linked
 }
 function setIceTags(ids, removedIds = []) { // linked ICE contacts get the ICE tag; people no longer anyone's ICE lose it
   const still = new Set(D.contacts.flatMap((x) => (x.ice || []).map((i) => i.cid)));
@@ -892,6 +892,7 @@ function editContact(c) {
   <div class="f"><label><input type="checkbox" id="e-star" ${c.starred ? 'checked' : ''}> Starred (show at top of list)</label></div>
   ${isNew ? '' : `<div class="f"><button class="btn" data-act="del-contact" data-id="${c.id}" style="color:var(--red)">Delete contact</button></div>`}`;
   openSheet(isNew ? 'New contact' : 'Edit contact', body, async () => {
+    const origRec = JSON.stringify(c); // put the record back if the save is abandoned part-way
     const first = val('e-first'), last = val('e-last');
     if (!first && !last) { toast('Enter a name'); return false; }
     if (editorCat() === 'inactive' && !$('#e-inreason').value.trim() && !bizOf(c).some((b) => b.inactiveReason && bizCat(b) === 'inactive')) { toast('Please add the reason for inactivating'); $('#e-inwrap').style.display = ''; $('#e-inreason').focus(); return false; }
@@ -913,7 +914,7 @@ function editContact(c) {
     c.tags = [...addl];
     if (mode === 'biz') c.ownCats = false; else { c.ownCats = true; if (rv) c.tags.push(rv); if (curLinks(c).length && rv && rv === curLinks(c).map((l) => IDX.biz.get(l.bid)).filter(Boolean).map(bizCat).find(Boolean)) { c.ownCats = false; c.tags = c.tags.filter((t) => t !== rv); } }
     { const nb = curLinks(c).map((l) => IDX.biz.get(l.bid)).find((b) => b && !oldBids.has(b.id) && bizCat(b)); const mine = mode === 'own' ? rv : prevCat;
-      if (nb && mine && bizCat(nb) !== mine && (mode === 'own' || !oldBids.size)) { reindex(); if (await askLinkCat(`<b>${h(fullName(c))}</b>`, nb, tagName(mine))) setOne(c, bizCat(nb)); else setOne(c, mine); } }
+      if (nb && mine && bizCat(nb) !== mine && (mode === 'own' || !oldBids.size)) { reindex(); const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, nb, tagName(mine)); if (!r) { adopt(c, JSON.parse(origRec)); reindex(); toast('Not saved — your edits are still on screen'); return false; } if (r === 'match') setOne(c, bizCat(nb)); else setOne(c, mine); } }
     c.mobiles = readRep('mob'); c.landlines = readRep('land'); c.emails = readRep('email'); c.postal = readRep('postal').map((p) => p.value);
     if ($('#e-icewrap') && $('#e-icewrap').style.display !== 'none') {
       const byLabel = new Map(D.contacts.filter((x) => x.id !== c.id).map((x) => [iceLabel(x), x])); const byName = new Map(); D.contacts.forEach((x) => { const k = fullName(x).toLowerCase(); byName.set(k, byName.has(k) ? null : x); });
@@ -2157,7 +2158,7 @@ async function advBulkApply(op, list) {
   let biz = null, linkMatch = null;
   if (op === 'link') { const nm = $('#bk-biz').value.trim(); if (!nm) { toast('Type or pick a business name'); return false; } biz = D.businesses.find((b) => b.name.toLowerCase() === nm.toLowerCase()); if (!biz) { if (!(await askBox('New business?', askText(`"${nm}" doesn't exist yet. Create it and link the contacts to it?`), 'Yes — create it'))) return false; biz = newBusiness(nm); } }
   if (op === 'link' && bizCat(biz)) { const diff = list.filter((c) => !c.links.some((l) => l.bid === biz.id) && catOf(c) && catOf(c) !== bizCat(biz));
-    if (diff.length) linkMatch = new Set((await askLinkCat(diff.length > 4 ? `<b>${diff.length} of these contacts</b> (${h(diff.slice(0, 4).map(fullName).join(', '))}…)` : diff.map((c) => `<b>${h(fullName(c))}</b>`).join(diff.length === 2 ? ' and ' : ', '), biz, [...new Set(diff.map((c) => tagName(catOf(c))))].join(' / '))) ? diff.map((c) => c.id) : []); }
+    if (diff.length) { const r = await askLinkCat(diff.length > 4 ? `<b>${diff.length} of these contacts</b> (${h(diff.slice(0, 4).map(fullName).join(', '))}…)` : diff.map((c) => `<b>${h(fullName(c))}</b>`).join(diff.length === 2 ? ' and ' : ', '), biz, [...new Set(diff.map((c) => tagName(catOf(c))))].join(' / ')); if (!r) return false; linkMatch = new Set(r === 'match' ? diff.map((c) => c.id) : []); } }
   if (op === 'trash') {
     if (!(await ask(`Move these ${list.length} contacts to the trash?\n\n${list.slice(0, 15).map(fullName).join(', ')}${list.length > 15 ? ` and ${list.length - 15} more` : ''}\n\nThey can be restored from Settings → Trash.`, 'Yes — move to trash', true))) return false;
     list.forEach((c) => trashContact(c)); S.advSel.clear(); NEXT_LOG_LABEL = `Search: moved ${list.length} contacts to the trash`; return true;
@@ -2744,7 +2745,7 @@ document.addEventListener('click', async (e) => {
       if (!(await ask(`Merge "${isC ? fullName(other) : other.name}" into "${isC ? fullName(keep) : keep.name}"?\n\nEverything is combined into one; the extra one goes to the trash.`, 'Yes — merge'))) break;
       isC ? mergeContacts(keep, other) : mergeBiz(keep, other); if (await changed()) toast('Merged'); break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
-      let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) match = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev));
+      let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Not linked — nothing was changed'); break; } match = r === 'match'; }
       c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); S.skipConfirm = true; NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
     case 'area-ai': { let cids = [], bids = [], req = '';
       if (d.v === 'search') { if ((S.adv.kind || 'people') === 'people') { const r = advResults(); const sel = S.advSel && S.advSel.size ? r.filter((c) => S.advSel.has(c.id)) : r; cids = sel.slice(0, 80).map((c) => c.id); req = `About ${S.advSel && S.advSel.size ? 'the ' + sel.length + ' people I selected' : 'my search results (' + r.length + ' people' + (r.length > 80 ? ', first 80 included' : '') + ')'}: `; }
