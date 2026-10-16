@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '8.2 (17 Oct 2026)';
+const APP_VERSION = '8.3 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1555,7 +1555,7 @@ function renderSettings() {
   ${D.settings.photoPriority ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="prio-reset">Reset to default order</button></div>' : ''}</div>
   <div class="card"><h3>This device</h3>${(() => { const di = devInfo(); return `<div class="grid2 stack"><div class="f"><label>Your nickname</label><input id="s-nick" value="${h(di.nick)}" placeholder="e.g. Amelia"><div class="hint">Shown as "Hi ${h(di.nick || '…')}" when the app opens.</div></div>
     <div class="f"><label>Device name</label><div class="search"><input id="s-devmodel" value="${h(di.dev)}" placeholder="e.g. Amelia's Samsung or Office PC"><button class="btn small" data-act="dev-detect" title="Pick up the device model again">Detect</button></div><div class="hint">Picked up from the device where it allows (Android shares the model, e.g. "Samsung SM-S918B", not the name you gave the phone) — change it to anything you like.</div></div>
-    <div class="f"><label>This phone's number <span class="hint">(optional)</span></label><input id="s-devphone" value="${h(di.phone)}" inputmode="tel" placeholder="04xx xxx xxx"><div class="hint">Phones don't let apps read their own number, so type it in if you want it shown in the device list.</div></div></div>
+    <div class="f"><label>Your phone number</label><input id="s-devphone" value="${h(di.phone)}" inputmode="tel" placeholder="04xx xxx xxx"><div class="hint">Required. Phones don't let apps read their own number, so type it in (on a computer, use your mobile).</div></div></div>
     <div class="actions"><button class="btn primary small" data-act="devname-save">Save</button><span class="hint">Shown in the change log as "${h(deviceName())}"</span></div>`; })()}
     <div class="lbl" style="margin-top:8px">Devices using the app</div>${Object.entries(D.devices || {}).sort((a, b) => (b[1].last || 0) - (a[1].last || 0)).map(([k, v]) => `<div class="kv"><div class="k">${h(v.name || 'Device')}${k === DEVICE ? ' <span class="hint">(this one)</span>' : ''}</div><div class="v">${v.phone ? h(v.phone) + ' · ' : ''}last synced ${v.last ? new Date(v.last).toLocaleString('en-AU') : '—'} · v${h(v.ver || '?')}</div></div>`).join('') || '<div class="hint">Devices appear here after they sync.</div>'}</div>
   <div class="card"><h3>Display <span class="hint">(this device)</span></h3><div class="grid2">
@@ -2666,7 +2666,7 @@ document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'log-undo') { ev.preventDefault(); undoEntry(el.dataset.id); }
   if (el.dataset.act === 'log-more') { S.logShow += 50; renderAll(); }
-  if (el.dataset.act === 'devname-save') { const v = $('#s-nick').value.trim(); if (!v) { toast('Enter a nickname'); return; } LSset('bvt-nick', v); LSset('bvt-devmodel', $('#s-devmodel').value.trim() === AUTO_DEV ? '' : $('#s-devmodel').value.trim()); LSset('bvt-devphone', $('#s-devphone').value.trim()); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Saved — hi ' + v); updHi(); renderAll(); }
+  if (el.dataset.act === 'devname-save') { const v = $('#s-nick').value.trim(); if (!v) { toast('Enter a nickname'); return; } if ($('#s-devphone').value.replace(/\D/g, '').length < 8) { toast('Enter your phone number'); return; } LSset('bvt-nick', v); LSset('bvt-devmodel', $('#s-devmodel').value.trim() === AUTO_DEV ? '' : $('#s-devmodel').value.trim()); LSset('bvt-devphone', $('#s-devphone').value.trim()); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Saved — hi ' + v); updHi(); renderAll(); }
   if (el.dataset.act === 'dev-detect') { detectDevice().then((d) => { $('#s-devmodel').value = d || ''; if (!d) toast("This device doesn't share its model — type a name"); }); }
 });
 
@@ -3036,15 +3036,17 @@ async function routeAddedBox(fids) {
   if (await askBox(ok.length ? 'Added to route' : 'Route not changed', html, `View route (${S.route.stops.length} stop${S.route.stops.length === 1 ? '' : 's'})`, false, 'OK — keep going')) goTab('route');
 }
 async function askDeviceName() { // compulsory on a new device; asked once more on each device when it first opens v8.2
-  if (window.SEED) return; const recheck = !LSget('bvt-devask82'); if (devInfo().nick && !recheck) { updHi(); return; }
+  if (window.SEED) return; const recheck = !LSget('bvt-devask82'); const okPh = (v) => (v || '').replace(/\D/g, '').length >= 8; if (devInfo().nick && okPh(devInfo().phone) && !recheck) { updHi(); return; }
   await detectDevice(); const di = devInfo(); const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
   for (;;) { await askBox(di.nick ? 'Check this device\'s details' : 'Who is using this device?', `<p>${di.nick ? 'The app now greets you by name and keeps a name and number for each device. Check these are right for this one.' : 'Before you start, what should the app call you? It says hi when it opens, and your name shows in the change log so everyone can see who made each change.'}</p>
       <div class="f"><span class="lbl">Your nickname</span><input data-ask="nick" value="${h(di.nick)}" placeholder="e.g. Amelia" ${inp}></div>
       <div class="f"><span class="lbl">Device name</span><input data-ask="dev" value="${h(di.dev)}" placeholder="e.g. Amelia's Samsung or Office PC" ${inp}><div class="hint">Picked up from the device where it allows — change it to anything you like.</div></div>
-      <div class="f"><span class="lbl">This phone's number <span class="hint">(optional)</span></span><input data-ask="phone" value="${h(di.phone)}" inputmode="tel" placeholder="04xx xxx xxx" ${inp}><div class="hint">Phones don't let apps read their own number, so type it in if you'd like.</div></div>`, 'Save', false, di.nick ? 'Keep as is' : 'Save');
-    const nick = (ASK_FORM.nick || '').trim() || di.nick;
-    if (nick) { LSset('bvt-nick', nick); const dev = (ASK_FORM.dev || '').trim(); LSset('bvt-devmodel', !dev || dev === AUTO_DEV ? '' : dev); if (ASK_FORM.phone != null) LSset('bvt-devphone', ASK_FORM.phone.trim()); LSset('bvt-devname', deviceName()); LSset('bvt-devask82', '1'); D._devDirty = true; Sync.soon(); toast('Hi ' + nick + '!'); updHi(); renderAll(); return; }
-    toast('Please enter a nickname'); await new Promise((r) => setTimeout(r, 300)); }
+      <div class="f"><span class="lbl">Your phone number</span><input data-ask="phone" value="${h(di.phone)}" inputmode="tel" placeholder="04xx xxx xxx" ${inp}><div class="hint">Phones don't let apps read their own number, so please type it in (on a computer, use your mobile).</div></div>`, 'Save', false, 'Save');
+    const nick = (ASK_FORM.nick || '').trim(), ph = (ASK_FORM.phone || '').trim();
+    if (!nick) { toast('Please enter a nickname'); di.phone = ph; di.dev = (ASK_FORM.dev || '').trim() || di.dev; await new Promise((r) => setTimeout(r, 300)); continue; }
+    if (!okPh(ph)) { toast('Please enter your phone number'); di.nick = nick; di.dev = (ASK_FORM.dev || '').trim() || di.dev; di.phone = ph; await new Promise((r) => setTimeout(r, 300)); continue; }
+    { LSset('bvt-nick', nick); const dev = (ASK_FORM.dev || '').trim(); LSset('bvt-devmodel', !dev || dev === AUTO_DEV ? '' : dev); LSset('bvt-devphone', ph); LSset('bvt-devname', deviceName()); LSset('bvt-devask82', '1'); D._devDirty = true; Sync.soon(); toast('Hi ' + nick + '!'); updHi(); renderAll(); return; }
+  }
 }
 /* ---------------- nightly backups to Google Drive (kept 30 days) ---------------- */
 const Backup = {
