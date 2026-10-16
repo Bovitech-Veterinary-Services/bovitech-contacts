@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '7.9 (16 Oct 2026)';
+const APP_VERSION = '8.0 (16 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -296,6 +296,7 @@ function primaryOf(b) {
   return cs.find((c) => c.tags.includes('pa')) || cs.find((c) => c.tags.includes('pi')) || null;
 }
 const isClientBiz = (b) => { if (b.typeLocked) return b.type !== 'nonclient'; const cat = bizCat(b); return cat ? catClass('b', cat) !== 'n' : b.type !== 'nonclient'; }; // a type chosen on the business wins; otherwise its category decides (Settings → Categories)
+function makeIndustry(b) { const cat = bizCat(b); if (!cat || catClass('b', cat) !== 'n') setBizCat(b, 'industry'); setBizType(b, 'nonclient'); }
 function setBizType(b, v) { b.type = v === 'nonclient' ? 'nonclient' : 'client'; const cat = bizCat(b); b.typeLocked = !!cat && (b.type === 'client') !== (catClass('b', cat) !== 'n'); if (b.type === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; } touch(b); } // category decides (Settings → Categories); no category → the business type
 const NONCLIENT_CATS = new Set(['industry', 'bvs', 'bfriends', 'phone', 'prac']); // default; changeable in Settings → Categories
 const catClass = (who, cat) => { const m = ((D.settings || {}).catClass || {})[who]; return m && cat in m ? m[cat] : NONCLIENT_CATS.has(cat) ? 'n' : 'c'; }; // who: 'p' people, 'b' businesses
@@ -1342,7 +1343,7 @@ async function runBulk(t, op) {
     else if (op === 'linkall' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push({ bid: j.linkSug.bid }); reindex(); if (prev) setOne(c, prev); touch(c); } }
     else if (op === 'primall' && j.primSuggest) { const b = IDX.biz.get(j.id), c = D.contacts.find((x) => x.id === j.primSuggest); if (b && c) { b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } } }
     else if (op === 'bizonlyall' && j.bizonly) { const c = D.contacts.find((x) => x.id === j.bizonly.cid), b = IDX.biz.get(j.bizonly.bid); if (c && b) convertBizOnly(c, b); }
-    else if (op === 'noprimreq' || op === 'nonclient') { const b = IDX.biz.get(j.id); if (b) { b.primaryRequired = false; if (op === 'nonclient') setBizType(b, 'nonclient'); touch(b); } }
+    else if (op === 'noprimreq' || op === 'nonclient') { const b = IDX.biz.get(j.id); if (b) { b.primaryRequired = false; if (op === 'nonclient') makeIndustry(b); touch(b); } }
   });
   S.jobSel.clear(); NEXT_LOG_LABEL = `Jobs: ${label.replace(/^✓ /, '')} (${sel.length})`; photoCache.clear(); if (await changed()) { Sync.soon(); toast('✓ Done — ' + sel.length + ' job' + (sel.length === 1 ? '' : 's')); }
 }
@@ -1377,7 +1378,7 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       ${j.linkRev ? `<button class="btn small" data-act="link-past" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" data-v="1">Past employee</button><button class="btn small" data-act="linkrev-undo" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" style="color:var(--red)">Undo — remove the link</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkRev.cid}">View contact</button>` : ''}
       ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as current employee</button><button class="btn small greenbtn" data-act="link-pick-past" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as past employee</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkSug.cid}">View contact</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">View business</button>` : ''}
       ${j.oddbiz ? `<button class="btn small primary" data-act="oddbiz-fix" data-bid="${j.oddbiz}">Sort out this name…</button><button class="btn small" data-act="edit-biz" data-id="${j.oddbiz}">Rename by hand</button>` : ''}
-      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}${t === 'noprimary' ? `<button class="btn small" data-act="prim-find" data-bid="${j.id}">🔍 Find a contact…</button>` : ''}
+      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}${t === 'noprimary' ? `<button class="btn small" data-act="prim-find" data-bid="${j.id}">🔍 Find a contact…</button><button class="btn small" data-act="np-industry" data-bid="${j.id}">Not a client — industry business</button><button class="btn small" data-act="np-role" data-bid="${j.id}">Not a business — it's a role</button><button class="btn small" data-act="np-multi" data-bid="${j.id}">It's several businesses</button>` : ''}
       ${j.type === 'primnolink' ? `<button class="btn small primary" data-act="edit-contact" data-id="${j.id}">Edit contact</button>` : ''}
       ${j.nocat ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.nocat}">Choose categories for the business…</button>` : ''}
       ${j.catdiff ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.catdiff.bid}">Choose categories…</button>` : ''}
@@ -1864,11 +1865,12 @@ function obRow(p, b, allowRename) { // one part of a business name in the "Sort 
 document.addEventListener('change', (e) => { if (!e.target.classList.contains('ob-what')) return; const row = e.target.closest('.ob-row'); const f = e.target.value.startsWith('find'); row.querySelector('.ob-findwrap').style.display = f ? '' : 'none'; if (f) { row.querySelector('.ob-ex').value = ''; row.querySelector('.ob-chosen').textContent = 'No business chosen yet — search below.'; row.querySelector('.ob-find').focus(); } });
 document.addEventListener('input', (e) => { if (!e.target.classList.contains('ob-find')) return; const row = e.target.closest('.ob-row'); const pq = parseQuery(e.target.value); const res = pq.inc.length ? D.businesses.filter((x) => x.id !== S.obBid && matchQ(bizHay(x), pq)).slice(0, 8) : [];
   row.querySelector('.ob-findres').innerHTML = e.target.value.trim() ? `<div class="results">${res.map((x) => `<div data-act="ob-findpick" data-id="${x.id}"><b>${h(x.name)}</b> <span class="hint">${isClientBiz(x) ? 'client' : 'non-client'} · ${(IDX.bizContacts.get(x.id) || []).length} contacts</span></div>`).join('') || '<div class="hint">No matches.</div>'}</div>` : ''; });
-function oddBizSheet(b) {
-  if (!b) return; const cs = IDX.bizContacts.get(b.id) || []; const parts = parseBizName(b.name);
+function oddBizSheet(b, mode) { /* mode: 'role' = the whole name is a role; 'multi' = several businesses */
+  if (!b) return; const cs = IDX.bizContacts.get(b.id) || []; let parts = mode === 'role' ? [{ text: b.name, role: true }, { text: '' }] : parseBizName(b.name);
+  if (mode === 'multi' && parts.length < 2) parts = [...parts, { text: '' }];
   const hasStuff = b.farms.length || b.pics.length || b.patientIds.length; let renamed = false;
   S.obBid = b.id; let renamed2 = false; const row = (p) => { const r = obRow(p, b, !renamed2); if (r.includes('value="rename" selected')) renamed2 = true; return r; };
-  const body = `<p>Current name: <b>${h(b.name)}</b></p><div class="hint" style="margin-bottom:8px">I've split the name into its parts — check each one. Every contact ticked below is linked to each business you keep, and roles go into their Role field (if it's empty).</div>
+  const body = `<p>Current name: <b>${h(b.name)}</b></p>${mode === 'role' ? '<div class="hint" style="margin-bottom:8px"><b>Not a business — a role.</b> The name becomes the ticked contacts\' role. If they work for a business, search for it in the second part (or tap Ignore on it). Any phone, email or notes on this entry move to that business, or to the first ticked contact.</div>' : ''}<div class="hint" style="margin-bottom:8px">I've split the name into its parts — check each one. Every contact ticked below is linked to each business you keep, and roles go into their Role field (if it's empty).</div>
     <div id="ob-rows">${parts.map(row).join('')}</div><button type="button" class="btn small" data-act="ob-add">+ Add a part</button>
     <div class="f" style="margin-top:12px"><span class="lbl">Contacts at this business</span><div class="checks">${cs.map((c) => `<label><input type="checkbox" class="ob-c" value="${c.id}" checked>${h(fullName(c))}</label>`).join('') || '<span class="hint">No contacts linked.</span>'}</div></div>
     ${hasStuff ? '<div class="hint">This business has farms, PICs or patient IDs, so one part must be "Rename … to this".</div>' : '<div class="hint">If no part is "Rename … to this", the old business goes to the trash once its contacts are linked to the other businesses.</div>'}`;
@@ -1876,7 +1878,7 @@ function oddBizSheet(b) {
     const rows = [...document.querySelectorAll('#ob-rows .ob-row')].map((r) => ({ text: r.querySelector('.ob-text').value.trim() || (IDX.biz.get(r.querySelector('.ob-ex').value) || {}).name || '', what: r.querySelector('.ob-what').value, ex: (r.querySelector('.ob-ex') || {}).value })).filter((r) => r.text && r.what !== 'skip');
     if (rows.some((r) => r.what.startsWith('find') && !IDX.biz.get(r.ex))) { toast('Search and pick the existing business for each "Find…" part'); return false; }
     const ren = rows.filter((r) => r.what === 'rename'); if (ren.length > 1) { toast('Only one part can be the rename'); return false; } if (!ren.length && hasStuff) { toast('Choose which part this business is renamed to (it has farms, PICs or IDs)'); return false; }
-    if (!rows.some((r) => r.what !== 'role')) { toast('At least one part must be a business'); return false; }
+    if (!rows.some((r) => r.what !== 'role') && (hasStuff || mode !== 'role')) { toast(hasStuff ? 'This business has farms, PICs or IDs — one part must be a business' : 'At least one part must be a business'); return false; }
     const ticked = [...document.querySelectorAll('#sheet .ob-c')].filter((x) => x.checked).map((x) => D.contacts.find((c) => c.id === x.value)).filter(Boolean);
     const targets = [], pastTargets = [];
     rows.forEach((r) => { if (r.what === 'rename') { b.name = r.text; touch(b); targets.push(b); }
@@ -1885,10 +1887,19 @@ function oddBizSheet(b) {
       else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farms: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); targets.push(nb); } });
     const roles = rows.filter((r) => r.what === 'role').map((r) => r.text).join(', ');
     reindex();
-    ticked.forEach((c) => { const prev = catOf(c); const before = c.links.length; targets.forEach((t) => { const l = c.links.find((x) => x.bid === t.id); if (!l) c.links.push(roles && t !== b ? { bid: t.id, role: roles } : { bid: t.id }); else if (l.past) delete l.past; }); pastTargets.forEach((t) => { if (!c.links.some((x) => x.bid === t.id)) c.links.push({ bid: t.id, past: true }); }); if (!ren.length) c.links = c.links.filter((l) => l.bid !== b.id); if (roles && !c.role) c.role = roles; reindex(); if (prev) setOne(c, prev); touch(c); });
-    if (!ren.length && !(IDX.bizContacts.get(b.id) || []).filter((c) => !ticked.includes(c)).length) { reindex(); trashBiz(b); }
+    ticked.forEach((c) => { const prev = catOf(c); const before = c.links.length; targets.forEach((t) => { const l = c.links.find((x) => x.bid === t.id); if (!l) c.links.push(roles && t !== b ? { bid: t.id, role: roles } : { bid: t.id }); else if (l.past) delete l.past; }); pastTargets.forEach((t) => { if (!c.links.some((x) => x.bid === t.id)) c.links.push({ bid: t.id, past: true }); }); if (!ren.length) c.links = c.links.filter((l) => l.bid !== b.id); if (roles && !targets.length && !pastTargets.length) { if (!(c.role || '').toLowerCase().includes(roles.toLowerCase())) c.role = c.role ? c.role + ', ' + roles : roles; } else if (roles && !c.role) c.role = roles; reindex(); if (prev) setOne(c, prev); touch(c); });
+    if (!ren.length && !(IDX.bizContacts.get(b.id) || []).filter((c) => !ticked.includes(c)).length) { carryBizDetails(b, targets[0] || ticked[0]); reindex(); trashBiz(b); }
     S.sel = { kind: 'business', id: (targets[0] || pastTargets[0] || b).id }; NEXT_LOG_LABEL = `Sorted out business name "${parts.map((p) => p.text).join(' / ')}"`; return true;
   });
+}
+function carryBizDetails(b, dest) { /* a business entry that is going away: keep its phone, email and notes */
+  if (!dest) return; const isB = !!dest.farms; const same = (a, v) => a.some((x) => x.value.replace(/\s/g, '') === v.replace(/\s/g, ''));
+  (b.phones || []).forEach((p) => { if (isB) { dest.phones = dest.phones || []; if (!same(dest.phones, p.value)) dest.phones.push({ ...p }); } else { const mob = /^(\+?61\s?4|04)/.test(p.value.replace(/\s/g, '')); const arr = mob ? dest.mobiles : dest.landlines; if (!same([...dest.mobiles, ...dest.landlines], p.value)) arr.push({ label: p.label || (mob ? 'Mobile' : 'Work'), value: p.value }); } });
+  (b.emails || []).forEach((p) => { dest.emails = dest.emails || []; if (!same(dest.emails, p.value)) dest.emails.push({ ...p }); });
+  const join = (x, y) => [x, y].filter((t) => (t || '').trim()).join('\n\n');
+  if ((b.info || '').trim() && !(dest.info || '').includes(b.info.trim())) { dest.info = join(dest.info, b.info); delete dest.infoHtml; }
+  if ((b.warnings || '').trim()) dest.warnings = join(dest.warnings, b.warnings); if ((b.sideNotes || '').trim()) dest.sideNotes = join(dest.sideNotes, b.sideNotes);
+  touch(dest);
 }
 function convertBizOnly(c, b) { // contact that was really just the business → its details move onto the business
   const ph = [...c.mobiles.map((p) => ({ label: p.label || 'Mobile', value: p.value })), ...c.landlines.map((p) => ({ label: p.label || 'Phone', value: p.value }))], em = c.emails.map((p) => ({ label: p.label || '', value: p.value }));
@@ -2788,6 +2799,9 @@ document.addEventListener('click', async (e) => {
     case 'prim-set': { const b = IDX.biz.get(d.bid), c = D.contacts.find((x) => x.id === d.cid); if (!b || !c) break; b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
     case 'ob-add': $('#ob-rows').insertAdjacentHTML('beforeend', obRow({ text: '' }, IDX.biz.get(S.obBid) || { id: '', name: '' }, false)); break;
     case 'ob-findpick': { const row = el.closest('.ob-row'); const x = IDX.biz.get(d.id); if (!row || !x) break; row.querySelector('.ob-ex').value = x.id; row.querySelector('.ob-chosen').innerHTML = 'Chosen: <b>' + h(x.name) + '</b>'; row.querySelector('.ob-findres').innerHTML = ''; row.querySelector('.ob-find').value = ''; if (!row.querySelector('.ob-text').value.trim()) row.querySelector('.ob-text').value = x.name; break; }
+    case 'np-industry': { const b = IDX.biz.get(d.bid); if (!b) break; makeIndustry(b); NEXT_LOG_LABEL = `${b.name} made a non-client (industry) business`; if (await changed()) toast(`✓ ${b.name} is now an industry business`); break; }
+    case 'np-role': oddBizSheet(IDX.biz.get(d.bid), 'role'); break;
+    case 'np-multi': oddBizSheet(IDX.biz.get(d.bid), 'multi'); break;
     case 'oddbiz-fix': oddBizSheet(IDX.biz.get(d.bid)); break;
     case 'kind-pick': { el.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === el)); $('#e-kind').value = d.v; const hn = $('#e-kindhint');
       hn.style.display = d.v === 'person' ? 'none' : ''; hn.textContent = d.v === 'person' ? '' : `When you tap Save, this contact becomes ${d.v === 'client' ? 'a client business' : 'an industry (non-client) business'} — its phone, email, address and notes move onto the business and the contact goes to the trash.`; break; }
