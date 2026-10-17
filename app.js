@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.2 (17 Oct 2026)';
+const APP_VERSION = '9.4 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -641,6 +641,7 @@ function renderAll() {
   else if (S.tab === 'map') { renderMapTab(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'jobs') { $('#list').innerHTML = renderJobs(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'settings') { $('#list').innerHTML = renderSettings(); collapseSettings(); document.body.classList.remove('show-detail'); }
+  { const ch = document.querySelector('#list .chips'), on = ch && ch.querySelector('.chip.on'); if (on) ch.scrollLeft = Math.max(0, on.offsetLeft - ch.offsetLeft - 24); } /* keep the chosen toggle in view on phones */
   renderSyncPill();
 }
 
@@ -663,7 +664,7 @@ function renderLocList() {
   const rows = pins.filter((p) => (showPast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ([p.name, p.type, p.f.address, ...p.us.map((u) => u.b.name)].join(' ').toLowerCase(), pq))
     .sort((x, y) => alphaCmp(x.b.name, y.b.name) || alphaCmp(x.name, y.name));
   let html = `<div class="toolbar"><div class="search"><input id="lq" type="search" placeholder="Search locations, businesses or addresses…" value="${h(S.lq || '')}" autocomplete="off"></div>
-    <div class="seg" style="margin-top:8px">${[['all', 'All pins'], ['yard', 'Yard pins'], ['turn', 'Turn-off pins'], ['other', 'Non-farm locations']].map(([v, l]) => `<button class="${lt === v ? 'on' : ''}" data-act="ltype" data-v="${v}">${l} (${cnt(v)})</button>`).join('')}</div>
+    <div class="chips">${[['all', 'All pins', '📍'], ['yard', 'Yard pins', '🐄'], ['turn', 'Turn-off pins', TURN_EMOJI], ['other', 'Non-farm locations', '🏬']].map(([v, l, ic]) => `<button class="chip ${lt === v ? 'on' : ''}" data-act="ltype" data-v="${v}"><span class="ci">${ic}</span>${l}<span class="cn">${cnt(v)}</span></button>`).join('')}</div>
     <div class="row2"><span>${rows.length} pin${rows.length === 1 ? '' : 's'}</span><label style="font-weight:600"><input type="checkbox" data-act="lpast" ${showPast ? 'checked' : ''}> Include not current</label><button class="btn small" data-act="loc-map">🗺 Show these on the map</button></div></div><ul class="list">`;
   rows.slice(0, 500).forEach((p) => { const sf = p.f.safety || {};
     html += `<li class="item ${S.sel?.id === p.b.id && S.selFarm === p.f.id ? 'sel' : ''}" data-act="loc-open" data-bid="${p.b.id}" data-fid="${p.f.id}"><div class="av locav">${p.emoji}</div><div class="t"><div class="n">${h(p.name)}${p.cur ? '' : ' <span class="hint">(not current)</span>'}${sf.status && sf.status !== 'ok' ? (sf.status === 'stop' ? ' ⛔' : ' ⚠') : ''}${farmBiosecOf(p.f).length ? ' 🦠' : ''}</div><div class="s">${h(p.us.filter((u) => showPast || !u.past).map((u) => u.b.name).join(', '))} · ${h(p.type)}${p.lat == null ? ' · <b>no GPS pin</b>' : p.kind !== 'turn' && p.f.kmReturn != null ? ' · ' + p.f.kmReturn + ' km' : ''}</div></div>${p.lat != null ? `<a class="btn small" href="${gmapsNav(p)}" target="_blank" rel="noopener" title="Navigate">🧭</a>` : ''}</li>`; });
@@ -769,9 +770,9 @@ function tagChips() {
   return quick.map(([k, l]) => `<button class="chip quick ${S.quick[k] ? 'inc' : ''}" data-act="quick" data-v="${k}">${l}</button>`).join('') +
     tags.map((t) => `<button class="chip ${S.tagF[t.id] || ''}" data-act="tagf" data-v="${t.id}" title="Tap: include · tap again: exclude · again: off">${h(t.name)}</button>`).join('');
 }
-const CTYPES = [['all', 'All'], ['pc', 'Client people'], ['pn', 'Non-client people'], ['bc', 'Client businesses'], ['bn', 'Non-client businesses']];
+const CTYPES = [['all', 'All', '✦'], ['pc', 'Client people', '👤'], ['pn', 'Non-client people', '👥'], ['bc', 'Client businesses', '🏡'], ['bn', 'Non-client businesses', '🏢']];
 function ctypeSeg() { const ct = S.ctype || 'all'; const n = { all: D.contacts.length + D.businesses.length, pc: D.contacts.filter(isClientPerson).length, pn: D.contacts.filter((c) => !isClientPerson(c)).length, bc: D.businesses.filter(isClientBiz).length, bn: D.businesses.filter((b) => !isClientBiz(b)).length };
-  return `<div class="seg ctseg" style="margin-top:8px">${CTYPES.map(([v, l]) => `<button class="${ct === v ? 'on' : ''}" data-act="ctype" data-v="${v}">${l} (${n[v]})</button>`).join('')}</div>`; }
+  return `<div class="chips">${CTYPES.map(([v, l, ic]) => `<button class="chip ${ct === v ? 'on' : ''}" data-act="ctype" data-v="${v}"><span class="ci">${ic}</span>${l}<span class="cn">${n[v]}</span></button>`).join('')}</div>`; }
 function bizRowHtml(b) { const cs = IDX.bizContacts.get(b.id) || []; const flagged = jobs().some((j) => j.kind === 'business' && j.id === b.id);
   return `<li class="item ${S.sel?.id === b.id ? 'sel' : ''}" data-act="open" data-kind="business" data-id="${b.id}">${contactPhotoImg(bizPseudo(b))}<div class="t"><div class="n">${b.rating ? rbadge(b.rating) : ''}${h(b.name)}</div><div class="s">${isClientBiz(b) ? '' : '<b>Industry</b> · '}${cs.length} contact${cs.length === 1 ? '' : 's'} · ${b.farms.length} ${isClientBiz(b) ? 'farm' + (b.farms.length === 1 ? '' : 's') : 'location' + (b.farms.length === 1 ? '' : 's')}${cs.length ? ' · ' + h(cs.map((c) => c.first).join(', ')) : ''}</div></div>${flagged ? `<span style="color:var(--red)" title="Needs attention">${ICONS.flag}</span>` : ''}${b.warnings ? '<span class="wdot"></span>' : ''}</li>`; }
 function renderContactList() {
@@ -1871,7 +1872,15 @@ function editTag(t) {
 const CONFIG = window.BVT_CONFIG || {};
 const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts https://www.googleapis.com/auth/userinfo.email';
 const DATA_FILE = 'bovitech-contacts-data.json';
-function loadScript(src) { return new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); }); }
+const SCRIPT_P = {};
+function loadScript(src) { /* waits until the script has really loaded; a failed load can be tried again (weak reception) */
+  if (SCRIPT_P[src]) return SCRIPT_P[src];
+  SCRIPT_P[src] = new Promise((res, rej) => { document.querySelectorAll(`script[src="${src}"]`).forEach((x) => x.remove()); const s = document.createElement('script'); s.src = src; s.async = true;
+    const tm = setTimeout(() => fail('took too long — check the internet connection and try again'), 20000);
+    const fail = (why) => { clearTimeout(tm); s.remove(); delete SCRIPT_P[src]; rej(new Error("Couldn't reach Google sign-in (" + why + ')')); };
+    s.onload = () => { clearTimeout(tm); res(); }; s.onerror = () => fail('no connection'); document.head.appendChild(s); });
+  return SCRIPT_P[src];
+}
 const GAuth = {
   tok: null,
   valid() { if (!this.tok) { try { this.tok = JSON.parse(localStorage.getItem('bvt-tok') || 'null'); } catch (e) { } } return this.tok && Date.now() < this.tok.exp - 60000; },
@@ -1881,6 +1890,7 @@ const GAuth = {
     if (!interactive) throw Object.assign(new Error('signin'), { signin: true });
     if (!CONFIG.googleClientId) throw new Error('Google sign-in is not set up yet.');
     await loadScript('https://accounts.google.com/gsi/client');
+    if (!window.google || !google.accounts || !google.accounts.oauth2) { delete SCRIPT_P['https://accounts.google.com/gsi/client']; throw new Error("Google sign-in didn't load properly — check the internet connection and tap Sign in again."); }
     const r = await new Promise((res, rej) => {
       const c = google.accounts.oauth2.initTokenClient({ client_id: CONFIG.googleClientId, scope: SCOPES, hint: D.sync.email || 'bovitechvetservices@gmail.com', callback: (x) => (x.error ? rej(new Error(x.error)) : res(x)), error_callback: (e) => rej(new Error(e.type === 'popup_closed' ? 'Sign-in window was closed' : e.type || 'Sign-in failed')) });
       c.requestAccessToken({ prompt: D.sync.email ? '' : 'consent' });
@@ -3266,7 +3276,7 @@ document.addEventListener('click', async (e) => {
       NEXT_LOG_LABEL = `${fullName(c)} ${d.v === '1' ? 'marked as a past employee of' : 'made a current contact of'} ${b.name}`; S.skipConfirm = true; if (await changed()) toast(d.v === '1' ? `${fullName(c)} moved to past employees` : `${fullName(c)} is current again`); break; }
     case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && await ask(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
-    case 'ltype': S.ltype = d.v; renderLocList(); break;
+    case 'ltype': S.ltype = d.v; renderAll(); break;
     case 'lpast': S.lpast = el.checked; renderLocList(); break;
     case 'loc-open': S.sel = { kind: 'business', id: d.bid }; S.selFarm = d.fid; renderAll(); setTimeout(() => { const card = document.querySelector(`#detail [data-act=edit-farm][data-fid="${d.fid}"]`); const fc = card && card.closest('.farm'); if (fc) { fc.scrollIntoView({ block: 'center' }); fc.classList.add('flash'); } }, 60); break;
     case 'loc-map': { const lt = S.ltype || 'all'; const pq = parseQuery(S.lq || ''); const ids = [...new Set(allPins().filter((p) => (S.lpast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ([p.name, p.type, p.f.address, ...p.us.map((u) => u.b.name)].join(' ').toLowerCase(), pq)).map((p) => p.f.id))]; S.mapSel = new Set(ids); S.mapF = { ...(S.mapF || {}), past: !!S.lpast, q: '', type: '' }; S.mapFit = true; goTab('map'); break; }
