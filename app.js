@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '12.0 (18 Oct 2026)';
+const APP_VERSION = '12.1 (18 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -680,7 +680,7 @@ function navRestore() {
   NAV.restoring = true; S.tab = prev.tab; S.sel = prev.sel; S.backTo = null; renderAll(); NAV.restoring = false;
   NAV.last = prev; requestAnimationFrame(() => { $('#list').scrollTop = prev.scroll || 0; $('#detail').scrollTop = prev.dscroll || 0; });
 }
-function renderAll() {
+function renderAll() { try { applyBoxStyles(); } catch (e) { }
   navRecord(); updateBackBtn();
   renderTabs();
   const main = $('#main');
@@ -967,7 +967,7 @@ function setIceTags(ids, removedIds = []) { // linked ICE contacts get the ICE t
 const LAYOUT_SECS = {
   contact: [['jobs', '🚩 Jobs / flags for this person'], ['ice', '🚨 ICE contacts'], ['warn', '⚠ General warnings'], ['biosec', '🦠 Biosecurity'], ['side', '📝 Side notes'], ['contact', '📞 Phone, email and postal'], ['nomention', "🤫 Don't mention"], ['related', '👪 Related people'], ['tags', '🏷 Categories and tags'], ['info', 'ℹ️ General info'], ['biz', '🔗 Linked businesses'], ['pastbiz', '🕘 Past businesses']],
   business: [['warn', '⚠ General warnings'], ['biosec', '🦠 Biosecurity'], ['side', '📝 Side notes'], ['cat', '🏷 Contact category'], ['phone', '📞 Phone and email'], ['info', 'ℹ️ General info'], ['current', '👥 Current contacts / employees'], ['past', '🕘 Past contacts'], ['pic', '🔢 PIC'], ['pid', '🆔 Patient IDs'], ['routes', '🗺 Saved routes'], ['farms', '🐄 Farms / locations'], ['farmsused', '🐄 Farms used but not owned'], ['farmspast', '🕘 Not current farms']] };
-const LAYOUT_LOCKED = new Set(['jobs', 'warn', 'biosec', 'nomention']); // safety sections can be moved but never hidden
+const LAYOUT_LOCKED = new Set(); // every section's visibility can be chosen (nothing with info in it is ever hidden)
 const SEC_COLORS = [['', 'White (plain)', '#ffffff'], ['yellow', 'Yellow', '#fff3c4'], ['red', 'Red', '#fdeaea'], ['orange', 'Orange', '#ffe8d1'], ['green', 'Green', '#e3f5e6'], ['blue', 'Blue', '#e3edfb'], ['purple', 'Purple', '#efe3f7'], ['grey', 'Grey', '#ececec']];
 function customSecs(kind) { return (D.settings.customSecs || []).filter((x) => x.for === 'both' || x.for === kind); }
 function layoutKeys(kind) { const all = [...LAYOUT_SECS[kind].map((x) => x[0]), ...customSecs(kind).map((x) => 'cs:' + x.id)]; const saved = ((D.settings.layout || {})[kind] || []).filter((k) => all.includes(k));
@@ -986,6 +986,7 @@ function secEmpty(kind, k, rec, part) {
   if (k.startsWith('cs:')) return !((rec.custom || {})[k.slice(3)] || '').trim();
   const tpl = (t) => !(t || '').trim() || tplOnly(t);
   if (kind === 'contact') { const c = rec; switch (k) {
+    case 'nomention': return !(c.noMentionRel || []).length && !(c.noMention || '').trim(); case 'warn': return !hasWarning(c);
     case 'ice': return !(c.ice || []).length; case 'side': return !(c.sideNotes || '').trim() && !bizOf(c).some((b) => (b.sideNotes || '').trim());
     case 'contact': return !c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length; case 'related': return !(c.related || []).length;
     case 'tags': return !effTags(c).filter((t) => !RATING_SET.has(t)).length; case 'info': return tpl(c.info); case 'biz': return !bizOf(c).length; case 'pastbiz': return !pastBizOf(c).length; } }
@@ -1539,8 +1540,8 @@ function listCard(k, title, list, hint) { return `<div class="card"><h3><span cl
 const SCHEMES = [['classic', 'Classic black', '#141414'], ['green', 'Paddock green', '#2e6b34'], ['blue', 'Ocean blue', '#1d4f91'], ['teal', 'Teal', '#0f6e6e'], ['earth', 'Earth brown', '#6b4423'], ['plum', 'Plum', '#6a2c70'], ['rose', 'Rose', '#a8325e']];
 function layoutCard() { const K = S.layK || 'contact'; const keys = layoutKeys(K); const modes = layoutModes(K); const css = D.settings.customSecs || [];
   const sw = (c) => `<span style="display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid var(--line);background:${(SEC_COLORS.find((x) => x[0] === c) || SEC_COLORS[0])[2]};vertical-align:middle"></span>`;
-  return `<div class="card"><h3><span class="sp">🧩 Page layout and custom sections</span></h3>
-  <div class="hint" style="margin-bottom:8px">Hold <b>⠿</b> and drag to change the order of the sections on contact and business pages (or use the arrows). <b>Edit</b> changes a section's name, symbol and colour. For each section choose <b>Always show</b>, <b>Hide when empty</b> (it appears as soon as something is in it) or <b>Fold up</b> (shows as one line — tap to open). Applies on every device. Warnings, biosecurity, Don't mention and jobs always show.</div>
+  return `<div class="card"><h3><span class="sp">Page layout and custom sections</span></h3>
+  <div class="hint" style="margin-bottom:8px">Hold <b>⠿</b> and drag to change the order of the sections on contact and business pages (or use the arrows). <b>Edit</b> changes a section's name, symbol and colour. For each section choose <b>Always show</b>, <b>Hide when empty</b> (it appears as soon as something is in it) or <b>Fold up</b> (shows as one line — tap to open). Applies on every device.</div>
   <div class="chips" style="margin-bottom:8px">${[['contact', 'Contact page', '👤'], ['business', 'Business page', '🏢']].map(([v, l, ic]) => `<button class="chip ${K === v ? 'on' : ''}" data-act="lay-k" data-v="${v}"><span class="ci">${ic}</span>${l}</button>`).join('')}</div>
   <div class="hint" style="margin-bottom:4px">The name, photo, Inactive / Do not answer boxes always stay at the top.</div>
   <div data-dnd="layout">${keys.map((k, i) => { const si = secInfo(K, k); return `<div class="kv dragrow" data-dk="${h(k)}" style="align-items:center;flex-wrap:wrap"><span class="draghandle" title="Hold and drag">⠿</span><div class="v laylbl">${h(layoutLabel(K, k))}${si.color ? ' ' + sw(si.color) : ''}</div><div class="laybtns"><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="1" ${i < keys.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button>${NO_RENAME.has(k) ? '<span style="width:46px"></span>' : `<button class="btn small" data-act="${k.startsWith('cs:') ? 'cs-edit' : 'sec-edit'}" data-k="${h(k)}" data-id="${h(k.slice(3))}">Edit</button>`}${LAYOUT_LOCKED.has(k) ? '<span class="laymode" title="Safety sections always show">🔒 Always shown</span>' : `<select class="laymode" data-laymode="${h(k)}" aria-label="How this section shows"><option value="" ${!modes[k] ? 'selected' : ''}>Always show</option><option value="empty" ${modes[k] === 'empty' ? 'selected' : ''}>Hide when empty${LAY_ADDBOX.has(k) ? ' (➕ box too)' : ''}</option><option value="fold" ${modes[k] === 'fold' ? 'selected' : ''}>Fold up</option></select>`}</div></div>`; }).join('')}</div>
@@ -1583,6 +1584,37 @@ document.addEventListener('change', async (e) => { const k = e.target.dataset &&
   const all = { ...(D.settings.layoutMode || {}) }; const mine = { ...layoutModes(K) }; if (e.target.value) mine[k] = e.target.value; else delete mine[k]; all[K] = mine; D.settings.layoutMode = all;
   const hide = { ...(D.settings.layoutHide || {}) }; delete hide[K]; D.settings.layoutHide = hide; // the old on/off hide list is folded into the new setting
   touch(D.settings); NEXT_LOG_LABEL = `${layoutLabel(K, k)}: ${({ '': 'always show', empty: 'hide when empty', fold: 'fold up' })[e.target.value]} (${K} page)`; S.skipConfirm = true; await changed(); });
+/* ---------------- box colours and text (Settings → Box colours and text), all devices ---------------- */
+const BOXES = [
+  { k: 'inactive', l: 'Inactive client box', sel: '.inactivebox', txt: '.inactivebox,.inactivebox .body', sample: '<div class="inactivebox"><div style="font-family:var(--cond);font-size:20px;letter-spacing:.4px">INACTIVE CLIENT</div><div class="body">Retired and sold the farm</div></div>', d: { bg: '#111111', fg: '#ff3b3b', bd: '#111111', bold: true } },
+  { k: 'dna', l: 'Do not answer banner', sel: '.dnabanner', txt: '.dnabanner', sample: '<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE ☠️</div>', d: { bg: '#d71f2b', fg: '#ffffff', bd: '#d71f2b', bold: false } },
+  { k: 'dnareason', l: 'Do not answer — reason box', sel: '.dnareason', txt: '.dnareason .body', sample: '<div class="dnareason"><div class="lbl" style="color:var(--red-ink)">Reason</div><div class="body">Bad debtor</div></div>', d: { bg: '#ffffff', fg: '#a3121c', bd: '#d71f2b', bold: false } },
+  { k: 'warn', l: 'General warnings', sel: '.card.warn', txt: '.card.warn h3,.card.warn .body', sample: '<div class="card warn"><h3><span class="sp">⚠ General warnings</span></h3><div class="body">Dog bites — stay in the ute</div></div>', d: { bg: '#fdeaea', fg: '#a3121c', bd: '#f3b3b6', bold: false } },
+  { k: 'side', l: 'Side notes', sel: '.card.side', txt: '.card.side h3,.card.side .body', sample: '<div class="card side"><h3><span class="sp">📝 Side notes</span></h3><div class="body">Prefers a call after 4 pm</div></div>', d: { bg: '#fff6c7', fg: '#6b4f00', bd: '#efd46a', bold: false } },
+  { k: 'biosec', l: 'Biosecurity', sel: '.fbiosec', txt: '.fbiosec', sample: '<div class="fbiosec">🦠 <b>Biosecurity:</b> Ovine footrot</div>', d: { bg: '#fff1e6', fg: '#7a3300', bd: '#f5c7a1', bold: false } },
+  { k: 'nomention', l: "Don't mention", sel: '.card.nomention', txt: '.card.nomention h3,.card.nomention .body,.card.nomention .v', sample: '<div class="card nomention"><h3><span class="sp">🤫 Don\'t mention</span></h3><div class="body">Sam and Jeremy are divorced</div></div>', d: { bg: '#fff3a6', fg: '#4a3a00', bd: '#e7c200', bold: true } }];
+const BOX_SIZES = [['', 'Normal'], ['13px', 'Small'], ['18px', 'Large'], ['22px', 'Extra large']];
+function boxCss() { const st = D.settings.boxStyles || {}; return BOXES.map((b) => { const o = st[b.k]; if (!o) return ''; const box = [], txt = [];
+  if (o.bg) box.push(`background:${o.bg}!important`); if (o.bd) box.push(`border-color:${o.bd}!important`, 'border-style:solid', 'border-width:2px');
+  if (o.fg) txt.push(`color:${o.fg}!important`); if (o.bold != null) txt.push(`font-weight:${o.bold ? 800 : 400}!important`); if (o.italic) txt.push('font-style:italic!important'); if (o.size) txt.push(`font-size:${o.size}!important`);
+  return (box.length ? `${b.sel}{${box.join(';')}}` : '') + (txt.length ? `${b.txt.split(',').map((x) => x.trim()).join(',')}{${txt.join(';')}}` : ''); }).join('\n'); }
+function applyBoxStyles() { let el = document.getElementById('boxcss'); if (!el) { el = document.createElement('style'); el.id = 'boxcss'; document.head.appendChild(el); } const css = boxCss(); if (el.textContent !== css) el.textContent = css; }
+function boxCard() { return `<div class="card"><h3><span class="sp">Box colours and text</span></h3><div class="hint" style="margin-bottom:8px">Change the background, border and text of the coloured boxes on contact and business pages. Applies on every device.</div>
+  ${BOXES.map((b) => `<div class="kv" style="align-items:center;flex-wrap:wrap"><div class="v" style="flex:1 1 160px;min-width:140px"><b>${h(b.l)}</b>${(D.settings.boxStyles || {})[b.k] ? ' <span class="hint">· changed</span>' : ''}<div class="boxprev" style="margin-top:4px">${b.sample}</div></div><button class="btn small" data-act="box-edit" data-k="${b.k}">Edit</button></div>`).join('')}</div>`; }
+async function boxForm(k) { const b = BOXES.find((x) => x.k === k); if (!b) return; const o = { ...b.d, ...((D.settings.boxStyles || {})[k] || {}) }; const inp = 'style="width:100%;height:42px;padding:2px;border:1px solid var(--line);border-radius:9px"';
+  const r = await askBox(b.l, `<div id="box-prev" class="boxprev" style="margin-bottom:10px">${b.sample}</div>
+    <div class="grid2"><div class="f"><span class="lbl">Background</span><input type="color" data-ask="bg" data-boxk="${k}" value="${o.bg}" ${inp}></div><div class="f"><span class="lbl">Text colour</span><input type="color" data-ask="fg" data-boxk="${k}" value="${o.fg}" ${inp}></div>
+    <div class="f"><span class="lbl">Border</span><input type="color" data-ask="bd" data-boxk="${k}" value="${o.bd}" ${inp}></div><div class="f"><span class="lbl">Text size</span><select data-ask="size" data-boxk="${k}" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px">${BOX_SIZES.map(([v, l]) => `<option value="${v}" ${(o.size || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    <label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" data-askchk="bold" data-boxk="${k}" ${o.bold ? 'checked' : ''}> Bold text</label>
+    <label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" data-askchk="italic" data-boxk="${k}" ${o.italic ? 'checked' : ''}> Italic text</label>`, 'Save', false, 'Cancel', 'Back to the standard look');
+  const all = { ...(D.settings.boxStyles || {}) };
+  if (!r) { applyBoxStyles(); return; } if (r === 'alt') delete all[k]; else { const n = {}; ['bg', 'fg', 'bd'].forEach((x) => { if ((ASK_FORM[x] || '').toLowerCase() !== b.d[x].toLowerCase()) n[x] = ASK_FORM[x]; }); if (ASK_FORM.size) n.size = ASK_FORM.size; if (!!ASK_FORM.bold !== !!b.d.bold) n.bold = !!ASK_FORM.bold; if (ASK_FORM.italic) n.italic = true; if (Object.keys(n).length) all[k] = n; else delete all[k]; }
+  D.settings.boxStyles = all; touch(D.settings); NEXT_LOG_LABEL = b.l + ' look changed'; S.skipConfirm = true; await changed(); applyBoxStyles(); }
+// live preview while choosing colours
+['input', 'change'].forEach((ev) => document.addEventListener(ev, (e) => { const k = e.target.dataset && e.target.dataset.boxk; if (!k) return; const b = BOXES.find((x) => x.k === k); const box = $('#askbox'); if (!b || !box) return;
+  const g = (n) => box.querySelector(`[data-ask="${n}"]`), c = (n) => box.querySelector(`[data-askchk="${n}"]`); const pv = $('#box-prev'); if (!pv) return; const el = pv.querySelector(b.sel.replace(/^\.card\./, '.card.')) || pv.firstElementChild;
+  el.style.setProperty('background', g('bg').value, 'important'); el.style.setProperty('border', '2px solid ' + g('bd').value, 'important');
+  [el, ...el.querySelectorAll('.body,h3,.v')].forEach((t) => { t.style.setProperty('color', g('fg').value, 'important'); t.style.setProperty('font-weight', c('bold').checked ? '800' : '400', 'important'); t.style.setProperty('font-style', c('italic').checked ? 'italic' : 'normal', 'important'); if (g('size').value) t.style.setProperty('font-size', g('size').value, 'important'); else t.style.removeProperty('font-size'); }); }));
 const LIST_GET = { inactiveReasons: () => inactiveReasons(), linkRoles: () => linkRoles() };
 function roleOptions() { const L = linkRoles(); const used = [...new Set(D.contacts.flatMap((c) => c.links.map((l) => l.role).filter(Boolean)))].filter((r) => !L.includes(r)).sort((a, b) => a.localeCompare(b)); return [...L, ...used].slice(0, 80); } /* your list first (Settings → Roles), then others already in use */
 function roleSelect(role) { const opts = roleOptions(); const custom = role && !opts.includes(role); return `<select class="lk-rolesel" style="flex-basis:100%;margin-top:4px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:14.5px"><option value="">Role here — none</option>${opts.map((o) => `<option value="${h(o)}" ${o === role ? 'selected' : ''}>${h(o)}</option>`).join('')}<option value="__custom" ${custom ? 'selected' : ''}>✏️ Custom role…</option></select>`; }
@@ -2298,6 +2330,7 @@ function renderSettings() {
     ${pinTypes().map((t) => { const n = D.farms.filter((f) => f.pinType === t.id || (f.extra || []).some((x) => x.type === t.id)).length; return `<div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${t.emoji}</span><div class="v">${h(t.name)} <span class="hint">· ${t.yard ? 'yards · ' : ''}${n} pin${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="pintype-edit" data-id="${h(t.id)}">Edit</button>${n ? '' : `<button class="btn small" data-act="pintype-del" data-id="${h(t.id)}">Delete</button>`}</div>`; }).join('')}
     <div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${turnPin().emoji}</span><div class="v">${h(turnName())} <span class="hint">· from the road · built in · ${D.farms.filter((f) => f.turn && f.turn.lat != null).length} pins</span></div><button class="btn small" data-act="turnpin-edit" title="Change the name or symbol">Edit</button></div></div>
   ${layoutCard()}
+  ${boxCard()}
   ${listCard('inactiveReasons', 'Reasons for inactivating', inactiveReasons(), 'Tap-to-fill choices when someone is made Inactive. Use the arrows to change the order.')}
   ${listCard('linkRoles', 'Roles', linkRoles(), 'Quick choices for someone\'s role at a business (when linking, and in Edit contact). Roles already in use that aren\'t here still appear after these.')}
   <div class="card"><h3>Location types</h3><div class="hint" style="margin-bottom:6px">Choose whether each pin type counts as a yard location or a non-farm location. This decides which toggle it shows under in ${h(lab('loc'))} and Search. Applies on every device.</div>
@@ -2342,6 +2375,7 @@ function loadScript(src) { /* waits until the script has really loaded; a failed
 document.addEventListener('pointerdown', (e) => { /* Google sign-in lasts an hour; renew on the next tap so syncing carries on by itself */
   if (e.target.closest && e.target.closest('#sync, #askbox, .sheet-bg')) return; if (!window.Sync || !Sync.enabled() || !D || !D.sync || !D.sync.email || !navigator.onLine || GAuth.renewing) return; if (GAuth.valid() && GAuth.tok.exp - Date.now() > 10 * 60000) return; if (GAuth.lastTry && Date.now() - GAuth.lastTry < 60000) return;
   GAuth.renewing = true; GAuth.lastTry = Date.now(); GAuth.tok = null; GAuth.get(true).then(() => Sync.run(false)).catch(() => {}).finally(() => { GAuth.renewing = false; renderSyncPill(); }); }, true);
+const practiceAccount = () => D.settings.gAccount || D.sync.email || 'bovitechvetservices@gmail.com'; // one Google account for every device (Settings → Sync & Google)
 const GAuth = {
   tok: null,
   valid() { if (!this.tok) { try { this.tok = JSON.parse(localStorage.getItem('bvt-tok') || 'null'); } catch (e) { } } return this.tok && Date.now() < this.tok.exp - 60000; },
@@ -2353,12 +2387,16 @@ const GAuth = {
     await loadScript('https://accounts.google.com/gsi/client');
     if (!window.google || !google.accounts || !google.accounts.oauth2) { delete SCRIPT_P['https://accounts.google.com/gsi/client']; throw new Error("Google sign-in didn't load properly — check the internet connection and tap Sign in again."); }
     const r = await new Promise((res, rej) => {
-      const c = google.accounts.oauth2.initTokenClient({ client_id: CONFIG.googleClientId, scope: SCOPES, hint: D.sync.email || 'bovitechvetservices@gmail.com', callback: (x) => (x.error ? rej(new Error(x.error)) : res(x)), error_callback: (e) => rej(new Error(e.type === 'popup_closed' ? 'Sign-in window was closed' : e.type || 'Sign-in failed')) });
+      const c = google.accounts.oauth2.initTokenClient({ client_id: CONFIG.googleClientId, scope: SCOPES, hint: practiceAccount(), callback: (x) => (x.error ? rej(new Error(x.error)) : res(x)), error_callback: (e) => rej(new Error(e.type === 'popup_closed' ? 'Sign-in window was closed' : e.type || 'Sign-in failed')) });
       c.requestAccessToken({ prompt: D.sync.email ? '' : 'consent' });
     });
     if (!google.accounts.oauth2.hasGrantedAllScopes(r, ...SCOPES.split(' '))) throw new Error('Please tick all the boxes on the Google screen so the app can sync and update Google Contacts.');
     this.tok = { t: r.access_token, exp: Date.now() + r.expires_in * 1000 };
     try { localStorage.setItem('bvt-tok', JSON.stringify(this.tok)); } catch (e) { }
+    { let u = null; try { u = await (await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + r.access_token } })).json(); } catch (e) { }
+      const want = (D.settings.gAccount || '').toLowerCase(), got = ((u && u.email) || '').toLowerCase();
+      if (want && got && got !== want) { this.signOut(); throw new Error(`This device signed in as ${got}. Every device uses the practice Google account ${want} — please sign in again and choose that account.`); }
+      if (got && !want) { D.settings.gAccount = got; touch(D.settings); } if (got) D.sync.email = got; }
     if (!D.sync.email) { try { const u = await (await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + r.access_token } })).json(); D.sync.email = u.email; } catch (e) { } }
     return this.tok.t;
   },
@@ -2536,7 +2574,7 @@ function syncSettingsCard() {
   const gp = GContacts.st;
   return `<div class="card"><h3>Sync &amp; Google</h3>
   ${window.SEED ? '<div class="hint">This is the preview file — syncing works in the installed app.</div>' : ''}
-  <div class="kv"><div class="k">Google account</div><div class="v">${D.sync.email ? h(D.sync.email) : 'Not signed in'}</div></div>
+  <div class="kv" style="align-items:center"><div class="k">Google account</div><div class="v">${h(practiceAccount())} <span class="hint">· every device signs in with this account${D.sync.email && D.sync.email.toLowerCase() !== practiceAccount().toLowerCase() ? ' — <b style="color:var(--red)">this device is signed in as ' + h(D.sync.email) + '</b>' : !GAuth.valid() ? ' — this device needs to sign in' : ''}</span></div><button class="btn small" data-act="gacct-edit">Change</button></div>
   <div class="kv"><div class="k">Google Drive</div><div class="v">${D.sync.fileId ? 'Connected' : 'Not connected'}${D.sync.last ? ` · last synced ${new Date(D.sync.last).toLocaleString('en-AU')}` : ''}</div></div>
   <div class="kv"><div class="k">Changes waiting</div><div class="v">${pendingCount()}</div></div>
   ${Sync.msg ? `<div class="kv"><div class="k">Last error</div><div class="v" style="color:var(--red)">${h(Sync.msg)}</div></div>` : ''}
@@ -2741,8 +2779,12 @@ document.addEventListener('click', async (e) => {
 /* ---------------- advanced search ---------------- */
 const ADV_FIELDS = [['name', 'Name'], ['business', 'Business name'], ['role', 'Role / position'], ['phone', 'Phone numbers'], ['email', 'Email'], ['postal', 'Postal address'], ['farm', 'Farm name / address / info'], ['pic', 'Property Identification Code (PIC)'], ['pid', 'Patient ID'], ['info', 'General info'], ['warnings', 'Warnings (general + farm)'], ['side', 'Side notes'], ['tags', 'Tag names']];
 const ADV_MISSING = [['email', 'No email'], ['phone', 'No phone number'], ['mobile', 'No mobile'], ['business', 'No business'], ['pin', 'No farm GPS pin'], ['km', 'A farm with no km'], ['pic', 'No PIC'], ['pid', 'No patient ID'], ['rating', 'No A+ to C category'], ['primary', 'Business has no primary contact']];
+function advSel() { const v = (S.adv.sel || []).filter((x) => ['people', 'biz', 'loc'].includes(x)); return v.length === 3 ? [] : v; } // [] = search all
+function advSync() { const A = S.adv, sel = advSel(); const one = (arr) => (arr && arr.length === 1 ? arr[0] : '');
+  A.kind = sel.length !== 1 ? 'all' : sel[0] === 'people' ? 'people' : sel[0] === 'loc' ? 'loc' : one(A.bsubs) || 'bizall'; A.psub = one(A.psubs); }
+const advShows = (k) => { const sel = advSel(); return !sel.length || sel.includes(k); };
 function advDefault() { return { all: '', any: '', none: '', phrase: '', fields: [], tAll: [], tAny: [], tNone: [], warn: '', farmWarn: '', starred: '', multi: '', split: '', flagged: '', isPrimary: '', btype: '', missing: [], kmOp: '', kmVal: '', kmOp2: '', kmVal2: '', minOp: '', minVal: '', minOp2: '', minVal2: '', nearKm: '', near: { type: 'home' }, sort: 'first', lkind: '', lpin: '', lsafe: '', lrec: '', lcur: 'yes' }; }
-S.adv = advDefault();
+S.adv = advDefault(); S.adv.sel = S.adv.kind && S.adv.kind !== 'all' ? [S.adv.kind === 'loc' ? 'loc' : S.adv.kind === 'people' ? 'people' : 'biz'] : []; advSync();
 function advFieldText(c, f) {
   const bs = bizOf(c); const farms = bs.flatMap((b) => b.farms);
   switch (f) {
@@ -2842,6 +2884,7 @@ function advLocMatch(f, A) {
   if (wNone.length && wNone.some((w) => hay.includes(w))) return false; if (ph && !hay.includes(ph)) return false;
   if (A.lkind === 'turn' && !(f.turn && f.turn.lat != null)) return false; if (A.lkind === 'noturn' && f.turn && f.turn.lat != null) return false;
   if (A.lkind && !['turn', 'noturn'].includes(A.lkind) && locKind(f) !== A.lkind) return false;
+  if ((A.lsubs || []).length && (A.sel || []).includes('loc') && !A.lsubs.some((x) => (x === 'turn' ? f.turn && f.turn.lat != null : locKind(f) === x))) return false;
   if (A.lpin && f.pinType !== A.lpin && !(f.extra || []).some((x) => x.type === A.lpin)) return false;
   if (A.lsafe && ((f.safety || {}).status || 'ok') !== A.lsafe) return false;
   if (A.lrec && ((f.reception || {}).status || 'unknown') !== A.lrec) return false;
@@ -2867,12 +2910,13 @@ function renderAdvLocResults() {
   return html + '</ul></div>';
 }
 function renderAdvAllResults() {
-  const ps = advResults(), bs = D.businesses.filter((b) => advBizMatch(b, S.adv)).sort((a, b) => alphaCmp(a.name, b.name)), ls = advLocResults();
+  const bsub = (S.adv.bsubs || []).length === 1 && advSel().includes('biz') ? S.adv.bsubs[0] : '';
+  const ps = advShows('people') ? advResults() : [], bs = advShows('biz') ? D.businesses.filter((b) => (!bsub || (bsub === 'client') === isClientBiz(b)) && advBizMatch(b, S.adv)).sort((a, b) => alphaCmp(a.name, b.name)) : [], ls = advShows('loc') ? advLocResults() : [];
   const sec = (title, n, kind, rows) => `<div class="card"><h3><span class="sp">${title} (${n})</span>${n ? `<button class="btn small" data-act="adv-kind" data-v="${kind}">Bulk edit these →</button>` : ''}</h3><ul class="list">${rows || '<li class="empty">None.</li>'}${n > 40 ? `<li class="empty">…and ${n - 40} more — tap "Bulk edit these" to see them all.</li>` : ''}</ul></div>`;
   return `<div class="hint" style="margin-bottom:8px">Everything that matches. To bulk edit, tap "Bulk edit these" on a section.</div>
-  ${sec('👤 People', ps.length, 'people', ps.slice(0, 40).map((c) => `<li class="item" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, '', 120)}<div class="t"><div class="n">${h(fullName(c))}</div><div class="s">${h(bizOf(c).map((b) => b.name).join(', '))}</div></div></li>`).join(''))}
-  ${sec('🏢 Businesses', bs.length, 'bizall', bs.slice(0, 40).map(bizRowHtml).join(''))}
-  ${sec('📍 Pins', ls.length, 'loc', ls.slice(0, 40).map((f) => locRowLi(f, false)).join(''))}`;
+  ${!advShows('people') ? '' : sec('👤 People', ps.length, 'people', ps.slice(0, 40).map((c) => `<li class="item" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, '', 120)}<div class="t"><div class="n">${h(fullName(c))}</div><div class="s">${h(bizOf(c).map((b) => b.name).join(', '))}</div></div></li>`).join(''))}
+  ${!advShows('biz') ? '' : sec('🏢 Businesses', bs.length, bsub || 'bizall', bs.slice(0, 40).map(bizRowHtml).join(''))}
+  ${!advShows('loc') ? '' : sec('📍 Pins', ls.length, 'loc', ls.slice(0, 40).map((f) => locRowLi(f, false)).join(''))}`;
 }
 function advLocEditSheet() {
   const list = D.farms.filter((f) => S.advLSel.has(f.id)); if (!list.length) return;
@@ -2928,7 +2972,7 @@ function advBizEditSheet() {
     S.advBSel.clear(); return true;
   });
 }
-function advResults() { const ps = S.adv.kind === 'people' ? S.adv.psub || '' : ''; return sortContactsBy(D.contacts.filter((c) => advMatch(c, S.adv) && (!ps || (ps === 'client') === isClientPerson(c))), S.adv.sort); }
+function advResults() { const ps = (S.adv.psubs || []).length === 1 && advShows('people') && advSel().includes('people') ? S.adv.psubs[0] : ''; return sortContactsBy(D.contacts.filter((c) => advMatch(c, S.adv) && (!ps || (ps === 'client') === isClientPerson(c))), S.adv.sort); }
 function sortContactsBy(arr, mode) { const keep = S.sort; S.sort = mode; const r = sortContacts(arr).map((x) => x.c); S.sort = keep; return r; }
 function advTagPicker(key, label) {
   const sel = S.adv[key];
@@ -2943,12 +2987,14 @@ function renderAdvanced() {
   const A = S.adv; const nf = A.near.type === 'farm' ? IDX.farms.get(A.near.fid) : null;
   const kind = A.kind || 'people';
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('search'))}</h2>
-  <div class="card"><h3>Search for</h3>${(() => { const top = kind === 'all' ? 'all' : kind === 'people' ? 'people' : kind === 'loc' ? 'loc' : 'biz';
-    const chip = (act, v, l, on, extra = '') => `<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-v="${v}" ${extra} style="padding-right:12px">${l}</button>`;
-    const subs = top === 'people' ? [['', 'All people'], ['client', '👤 Client people'], ['nonclient', '👥 Non-client people']].map(([v, l]) => chip('adv-sub', v, l, (A.psub || '') === v, 'data-k="people"'))
-      : top === 'biz' ? [['bizall', 'All businesses'], ['client', '🏡 Client businesses'], ['nonclient', '🏢 Non-client businesses']].map(([v, l]) => chip('adv-kind', v, l, kind === v))
-      : top === 'loc' ? [['', 'All pins'], ['yard', '🐄 Yards'], ['turn', turnPin().emoji + ' ' + h(turnName())], ['other', '🏬 Non-farm']].map(([v, l]) => chip('adv-sub', v, l, (A.lkind || '') === v, 'data-k="loc"')) : [];
-    return `<div class="chips" style="margin-top:0">${[['all', '✦ Search all'], ['people', '👤 People'], ['biz', '🏢 Businesses'], ['loc', '📍 Pins']].map(([v, l]) => chip('adv-top', v, l, top === v)).join('')}</div>${subs.length ? `<div class="chips subchips">${subs.join('')}</div>` : ''}`; })()}</div>
+  <div class="card"><h3>Search for <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:500">— tap as many as you like</span></h3>${(() => { const sel = advSel();
+    const chip = (act, v, l, on, extra = '') => `<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-v="${v}" ${extra} style="padding-right:12px">${on && v !== 'all' ? '✓ ' : ''}${l}</button>`;
+    const subRow = (k, title, opts, cur) => `<div class="chips subchips wrapchips"><span class="hint" style="align-self:center;margin-right:2px">${title}:</span>${opts.map(([v, l]) => chip('adv-sub', v, l, cur.includes(v), `data-k="${k}"`)).join('')}</div>`;
+    return `<div class="chips wrapchips" style="margin-top:0">${chip('adv-top', 'all', '✦ Search all', !sel.length)}${[['people', '👤 People'], ['biz', '🏢 Businesses'], ['loc', '📍 Pins']].map(([v, l]) => chip('adv-top', v, l, sel.includes(v))).join('')}</div>
+      ${sel.includes('people') ? subRow('people', 'People', [['client', '👤 Client'], ['nonclient', '👥 Non-client']], A.psubs || []) : ''}
+      ${sel.includes('biz') ? subRow('biz', 'Businesses', [['client', '🏡 Client'], ['nonclient', '🏢 Non-client']], A.bsubs || []) : ''}
+      ${sel.includes('loc') ? subRow('loc', 'Pins', [['yard', '🐄 Yards'], ['turn', turnPin().emoji + ' ' + h(turnName())], ['other', '🏬 Non-farm']], A.lsubs || []) : ''}
+      <div class="hint" style="margin-top:6px">${!sel.length ? 'Searching people, businesses and pins.' : 'Nothing ticked underneath = all of them.'}</div>`; })()}</div>
 
   <div class="actions" style="margin:-4px 0 10px"><button class="btn" data-act="area-ai" data-v="search">🤖 Ask Claude about these results</button></div>
   <div class="hint" style="margin:-4px 0 10px">Fill in as many or as few boxes as you like — results must match everything you fill in. Tick results to bulk edit them. Tip: put a phrase in "quotes" to keep words together.</div>
@@ -3083,16 +3129,16 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]'); if (!el) return; const a = el.dataset.act;
-  if (a === 'adv-clear') { S.adv = advDefault(); renderAll(); }
+  if (a === 'adv-clear') { const keep = { sel: S.adv.sel, psubs: S.adv.psubs, bsubs: S.adv.bsubs, lsubs: S.adv.lsubs }; S.adv = { ...advDefault(), ...keep }; advSync(); renderAll(); }
   else if (a === 'adv-near') { S.adv.near = { type: el.dataset.v }; renderAll(); }
   else if (a === 'adv-near-pick') { S.adv.near = { type: 'farm', fid: el.dataset.fid }; renderAll(); }
   else if (a === 'adv-sel') { e.stopPropagation(); el.checked ? S.advSel.add(el.dataset.id) : S.advSel.delete(el.dataset.id); refreshAdv(); }
   else if (a === 'adv-selall') { advResults().forEach((c) => (el.checked ? S.advSel.add(c.id) : S.advSel.delete(c.id))); refreshAdv(); }
   else if (a === 'adv-selnone') { S.advSel.clear(); refreshAdv(); }
   else if (a === 'adv-edit') advEditSheet();
-  else if (a === 'adv-kind') { S.adv.kind = el.dataset.v; renderAll(); }
-  else if (a === 'adv-top') { const v = el.dataset.v; S.adv.kind = v === 'biz' ? 'bizall' : v; if (v !== 'people') S.adv.psub = ''; if (v !== 'loc' && v !== 'all') S.adv.lkind = ''; renderAll(); }
-  else if (a === 'adv-sub') { if (el.dataset.k === 'people') S.adv.psub = el.dataset.v; else S.adv.lkind = el.dataset.v; renderAll(); }
+  else if (a === 'adv-kind') { const v = el.dataset.v; S.adv.sel = [v === 'people' ? 'people' : v === 'loc' ? 'loc' : 'biz']; if (['client', 'nonclient'].includes(v)) S.adv.bsubs = [v]; advSync(); renderAll(); }
+  else if (a === 'adv-top') { const v = el.dataset.v; if (v === 'all') S.adv.sel = []; else { const cur = new Set(advSel()); cur.has(v) ? cur.delete(v) : cur.add(v); S.adv.sel = [...cur]; } advSync(); renderAll(); }
+  else if (a === 'adv-sub') { const key = { people: 'psubs', biz: 'bsubs', loc: 'lsubs' }[el.dataset.k]; const cur = new Set(S.adv[key] || []); cur.has(el.dataset.v) ? cur.delete(el.dataset.v) : cur.add(el.dataset.v); S.adv[key] = [...cur]; advSync(); renderAll(); }
   else if (a === 'advl-sel') { e.stopPropagation(); el.checked ? S.advLSel.add(el.dataset.id) : S.advLSel.delete(el.dataset.id); refreshAdv(); }
   else if (a === 'advl-selall') { advLocResults().forEach((f) => (el.checked ? S.advLSel.add(f.id) : S.advLSel.delete(f.id))); refreshAdv(); }
   else if (a === 'advl-selnone') { S.advLSel.clear(); refreshAdv(); }
@@ -3113,8 +3159,8 @@ document.addEventListener('click', (e) => {
     advPick().forEach((c) => { const bs = bizOf(c); rows.push([c.first, c.last, bs.map((b) => b.name).join('; '), distinctRatings(c).map((r) => RATING_SHORT[r]).join('; '), effTags(c).filter((t) => !RATING_SET.has(t)).map(tagName).join('; '), c.mobiles.map((p) => p.value).join('; '), c.landlines.map((p) => p.value).join('; '), c.emails.map((p) => p.value).join('; '), c.postal.join('; '), bs.flatMap((b) => b.pics.map((p) => p.value)).join('; '), bs.flatMap((b) => b.patientIds.map((p) => p.value)).join('; '), c.warnings]); });
     const blob = new Blob(['﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const l = document.createElement('a'); l.href = URL.createObjectURL(blob); l.download = `bovitech-contacts-search-${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(l); l.click(); l.remove();
-  } else if (a === 'go-adv') { S.adv.kind = 'people'; S.tab = 'search'; S.sel = null; renderAll(); }
-  else if (a === 'go-adv-biz') { S.adv.kind = S.btype === 'nonclient' ? 'nonclient' : 'client'; S.tab = 'search'; S.sel = null; renderAll(); }
+  } else if (a === 'go-adv') { S.adv.sel = ['people']; advSync(); S.tab = 'search'; S.sel = null; renderAll(); }
+  else if (a === 'go-adv-biz') { S.adv.sel = ['biz']; S.adv.bsubs = [S.btype === 'nonclient' ? 'nonclient' : 'client']; advSync(); S.tab = 'search'; S.sel = null; renderAll(); }
 });
 
 
@@ -3980,6 +4026,9 @@ document.addEventListener('click', async (e) => {
       if (a === 'lay-mv') { const keys = layoutKeys(K); const i = keys.indexOf(d.k), j = i + +d.d; if (i < 0 || j < 0 || j >= keys.length) break; [keys[i], keys[j]] = [keys[j], keys[i]]; lay[K] = keys; }
       if (a === 'lay-reset') { if (!(await ask(`Put the ${K} page back to the standard order, with every section always shown?`, 'Yes — reset'))) break; delete lay[K]; delete hide[K]; const lm = { ...(D.settings.layoutMode || {}) }; delete lm[K]; D.settings.layoutMode = lm; }
       D.settings.layout = lay; D.settings.layoutHide = hide; touch(D.settings); NEXT_LOG_LABEL = 'Page layout changed (' + K + ' page)'; S.skipConfirm = true; await changed(); break; }
+    case 'gacct-edit': { const r = await askBox('Practice Google account', `<div class="hint" style="margin-bottom:6px">Every device signs in with this one Google account — it holds the shared data file in Google Drive and the Google Contacts. If a device signs in with a different account, the app refuses it and asks again.</div><input data-ask="v" type="email" value="${h(practiceAccount())}" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"><div class="hint" style="margin-top:6px">⚠ Only change this if the practice is moving to a different Google account — the shared data file has to be in the new account's Google Drive.</div>`, 'Save', true, 'Cancel');
+      const v = (ASK_FORM.v || '').trim().toLowerCase(); if (!r || !v || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) break; D.settings.gAccount = v; touch(D.settings); NEXT_LOG_LABEL = 'Practice Google account set to ' + v; S.skipConfirm = true; await changed(); break; }
+    case 'box-edit': await boxForm(d.k); break;
     case 'sec-edit': await secNameForm(S.layK || 'contact', d.k); break;
     case 'cs-add': case 'cs-edit': { const list = [...(D.settings.customSecs || [])]; const i = list.findIndex((x) => x.id === d.id); const v = await customSecForm(i >= 0 ? list[i] : null); if (!v) break;
       if (i >= 0) list[i] = v; else list.push(v); D.settings.customSecs = list; touch(D.settings); NEXT_LOG_LABEL = `Custom section ${i >= 0 ? 'changed' : 'added'}: ${v.name}`; S.skipConfirm = true; await changed(); break; }
