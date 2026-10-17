@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.7 (17 Oct 2026)';
+const APP_VERSION = '9.8 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -448,7 +448,7 @@ function computeJobs() {
   // contacts
   D.contacts.forEach((c) => {
     const who = fullName(c);
-    if (needsPhotoChoice(c)) { const { dr, ptags } = photoCandidates(c); const cands = [...dr, ...ptags].sort((a, b) => prioIdx(a) - prioIdx(b)); add({ type: 'photo', kind: 'contact', id: c.id, who, note: 'Has more than one tag with a photo (' + [...dr, ...ptags].map(tagName).join(', ') + ') — choose one, or a split photo', photoSuggest: cands[0] }); }
+    if (needsPhotoChoice(c)) { const { dr, ptags } = photoCandidates(c); const cands = [...dr, ...ptags].sort((a, b) => prioIdx(a) - prioIdx(b)); add({ type: 'photo', kind: 'contact', id: c.id, who, note: 'Has more than one tag with a photo (' + [...dr, ...ptags].map(tagName).join(', ') + ') — choose one, or a split photo', photoSuggest: cands[0], photoCands: [...new Set(cands)] }); }
     if (c.tags.includes('sheep')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Choose Sheep only (regular) or Sheep only (occasional)' });
     (c.flags || []).forEach((fl) => {
       if (fl.type === 'sheepconfirm' && effTags(c).includes('sheepocc')) add({ type: 'sheep', kind: 'contact', id: c.id, who, note: 'Set to Sheep only (occasional) for now — change to regular if needed' });
@@ -1494,7 +1494,7 @@ function bulkOps(t, sel) {
   const ops = [];
   if (sel.some((j) => j.suggest)) ops.push({ op: 'usekm', label: '✓ Use suggested km for all', green: true });
   if (sel.some((j) => j.photoSuggest)) ops.push({ op: 'usephoto', label: '✓ Use suggested photo for all', green: true });
-  if (sel.some((j) => j.type === 'photo')) ops.push({ op: 'keepphoto', label: 'Leave photo as is for all' });
+  if (sel.some((j) => j.type === 'photo')) ops.push({ op: 'keepphoto', label: 'Leave photo as is for all' }, { op: 'splitphoto', label: 'Use a split photo for all (top two)' });
   if (t === 'catprop') ops.push({ op: 'catapply', label: '✓ Yes — change them too', green: true });
   if (t === 'blockcheck') ops.push({ op: 'blockyes', label: '✓ Yes — numbers blocked', green: true }, { op: 'blockno', label: 'Not yet' });
   if (t === 'nocat') ops.push({ op: 'setcat', label: 'Set this category for all selected', green: true });
@@ -1590,6 +1590,7 @@ async function runBulk(t, op) {
     } else if (op === 'catapply' && j.cat) applyCat(j.cat.cid, j.cat.at);
     else if (op === 'blockyes' && j.block) setBlocked(j.block, true);
     else if (op === 'blockno' && j.block) setBlocked(j.block, false);
+    else if (op === 'splitphoto' && j.type === 'photo' && (j.photoCands || []).length > 1) { const c = D.contacts.find((x) => x.id === j.id); if (c) { c.photoChoice = 'split:' + j.photoCands.slice(0, 2).join(','); touch(c); } }
     else if (op === 'keepphoto' && j.type === 'photo') { const c = D.contacts.find((x) => x.id === j.id); if (c) keepPhoto(c); }
     else if (op === 'usephoto' && j.photoSuggest) { const c = D.contacts.find((x) => x.id === j.id); if (c) { c.photoChoice = j.photoSuggest; touch(c); } }
     else if (op === 'setcat' && jbCat) { const c = D.contacts.find((x) => x.id === j.id); if (c) setOne(c, jbCat); }
@@ -1643,7 +1644,7 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       ${j.pick ? j.pick.alts.map((v) => `<button class="btn small" data-act="catpick-use" data-kind="${j.pick.kind}" data-id="${j.pick.id}" data-tag="${v}">↩ Keep previous category: ${h(tagName(v))}</button>`).join('') : ''}
       ${j.cat ? `<button class="btn small greenbtn" data-act="cat-apply" data-cid="${j.cat.cid}" data-at="${j.cat.at}">✓ Yes — change them too</button>` : ''}
       ${j.block ? `<button class="btn small greenbtn" data-act="block-yes" data-cid="${j.block}">✓ Yes — number blocked</button>${(D.contacts.find((x) => x.id === j.block) || { tags: [] }).tags.includes('blockedn') ? '' : `<button class="btn small" data-act="block-no" data-cid="${j.block}">Not yet</button>`}` : ''}
-      ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}${t === 'photo' ? `<button class="btn small" data-act="keep-photo" data-id="${j.id}" title="Keep the photo it shows now">Leave as is</button>` : ''}
+      ${j.photoSuggest ? `<button class="btn small" style="background:var(--green-bg);border-color:var(--green)" data-act="use-photo" data-id="${j.id}" data-tag="${j.photoSuggest}">✓ Use suggested: ${h(tagName(j.photoSuggest))}</button>` : ''}${t === 'photo' ? `<button class="btn small" data-act="keep-photo" data-id="${j.id}" title="Keep the photo it shows now">Leave as is</button>` : ''}${j.photoCands && j.photoCands.length > 1 ? `</div><div class="acts" style="margin-top:4px">${j.photoCands.filter((t2) => t2 !== j.photoSuggest).map((t2) => `<button class="btn small photopick" data-act="use-photo" data-id="${j.id}" data-tag="${t2}"><img src="${tagPhotoSrc(t2)}" alt="">Use ${h(tagName(t2))}</button>`).join('')}${j.photoCands.flatMap((a, i) => j.photoCands.slice(i + 1).map((b) => [a, b])).slice(0, 3).map(([a, b]) => `<button class="btn small photopick" data-act="use-photo" data-id="${j.id}" data-tag="split:${a},${b}"><span class="splitpv"><img src="${tagPhotoSrc(a)}" alt=""><img src="${tagPhotoSrc(b)}" alt=""></span>Split: ${h(tagName(a))} + ${h(tagName(b))}</button>`).join('')}` : ''}
       <button class="btn small" data-act="job-ai" data-key="${h(j.key)}" title="Ask Claude how to sort this out">🤖 Ask Claude</button>${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${j.okLabel ? '✓ ' + h(j.okLabel) : JOB_TYPES[t].btn || 'Mark resolved - changes not required'}</button>` : ''}</div></div></div>`;
 }
 function renderJobs() {
