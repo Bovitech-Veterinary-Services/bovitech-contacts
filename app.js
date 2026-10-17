@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '12.1 (18 Oct 2026)';
+const APP_VERSION = '12.2 (18 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -925,7 +925,14 @@ function flagLines(kind, id, fid) {
 // a job shown on the contact / business itself: tap it to open the same buttons as on the Jobs list
 const flagJob = (j) => `<details class="flagjob" ${S.flagOpen === j.key ? 'open' : ''} data-fk="${h(j.key)}"><summary class="flagline"><span style="color:var(--red)">${ICONS.flag}</span><div style="flex:1">${h(j.note)}</div><span class="hint" style="white-space:nowrap">Fix ▸</span></summary><div class="flagbody">${jobItemHtml(j, true)}</div></details>`;
 document.addEventListener('toggle', (e) => { const d = e.target; if (d.classList && d.classList.contains('flagjob')) { if (d.open) S.flagOpen = d.dataset.fk; else if (S.flagOpen === d.dataset.fk) S.flagOpen = null; } }, true);
-const inactiveBox = (r, kind, id) => `<div class="inactivebox"><div style="display:flex;align-items:center;gap:8px"><div style="font-family:var(--cond);font-size:20px;letter-spacing:.4px;flex:1">INACTIVE CLIENT</div>${id ? secEdit(kind, id, 'Inactive') : ''}</div>${r ? `<div class="body" style="margin-top:2px">${h(r)}</div>` : '<div style="opacity:.9;font-size:14px">No reason recorded yet — tap ✏️ to add one.</div>'}</div>`;
+const inactiveBox = (r, kind, id, from) => `<div class="inactivebox"><div style="display:flex;align-items:center;gap:8px"><div style="font-family:var(--cond);font-size:20px;letter-spacing:.4px;flex:1">INACTIVE CLIENT</div>${id ? secEdit(kind, id, 'Inactive') : ''}</div>${r ? `<div class="body" style="margin-top:2px">${h(r)}</div>` : '<div style="opacity:.9;font-size:14px">No reason recorded yet — tap ✏️ to add one.</div>'}${from ? `<div style="opacity:.75;font-size:12.5px;margin-top:4px">Reason from ${h(from)} — ✏️ edits it on the business</div>` : ''}</div>`;
+function contactInactiveBox(c) { /* the reason may live on the person or on their business — ✏️ opens whichever holds it */
+  if ((c.inactiveReason || '').trim()) return inactiveBox(c.inactiveReason, 'contact', c.id);
+  const ib = bizOf(c).filter((b) => bizCat(b) === 'inactive'); const withR = ib.filter((b) => (b.inactiveReason || '').trim());
+  if (withR.length === 1) return inactiveBox(withR[0].inactiveReason, 'business', withR[0].id, withR[0].name);
+  if (withR.length > 1) return inactiveBox(withR.map((b) => b.name + ': ' + b.inactiveReason).join('\n'), 'contact', c.id);
+  if (followsBiz(c) && ib.length === 1) return inactiveBox('', 'business', ib[0].id, ib[0].name);
+  return inactiveBox('', 'contact', c.id); }
 const dnaReasonBox = (r) => `<div class="dnareason"><div class="lbl" style="color:var(--red-ink)">Reason</div>${r ? `<div class="body">${h(r)}</div>` : '<div class="hint">No reason recorded yet — tap Edit to add one (e.g. bad debtor, not the client for us, don\'t feel safe).</div>'}</div>`;
 /* ---------------- ICE (in case of emergency) contacts for Bovitech staff ---------------- */
 const isStaff = (c) => catOf(c) === 'bvs';
@@ -1021,7 +1028,7 @@ function contactDetail(c) {
   const cflags = jobs().filter((j) => j.kind === 'contact' && j.id === c.id);
   const dna = effTags(c).includes('dna');
   let html = `<div class="d-wrap"><button class="back" data-act="back">‹ Back</button>
-  ${catOf(c) === 'inactive' ? inactiveBox(c.inactiveReason || bizOf(c).filter((b) => bizCat(b) === 'inactive').map((b) => b.inactiveReason).filter(Boolean).join('\n'), 'contact', c.id) : ''}
+  ${catOf(c) === 'inactive' ? contactInactiveBox(c) : ''}
   ${dna ? `<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE ☠️</div>${dnaReasonBox(c.dnaReason || bizOf(c).map((b) => b.dnaReason).filter(Boolean).join('\n'))}` : ''}
   <div class="hero">${contactPhotoImg(c, '', 320)}<div><h2>${h(fullName(c))}</h2><div class="sub">${h(c.role || '')}${c.role && bs.length ? ' · ' : ''}${h(bs.map((b) => b.name).join(', '))}</div>
   <div style="margin-top:6px">${contactRatings(c).map((r) => rbadge(r.rating) + (r.biz && bs.length > 1 ? `<span style="font-size:13px;color:var(--ink3);margin-right:8px">${h(r.biz.name)}</span>` : '')).join('')}</div></div></div>
@@ -1457,7 +1464,7 @@ function editContact(c) {
   <div class="f"><label>Postal address</label>${repRows('postal', c.postal.map((p) => ({ value: p })), [{ k: 'value', ph: 'PO Box / street, town, postcode' }])}</div>
   <div class="f"><label>General info</label>${richEditor('e-info', c)}</div>
   <div class="f"><label style="color:var(--red-ink)">General warnings (adds "CHECK WARNING" to the client's photo). If the warning relates to farm or yards, please add to the farm warning section under the relevant business.</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
-  <div class="f" id="e-inwrap" style="${catOf(c) === 'inactive' ? '' : 'display:none'}"><label style="color:var(--red-ink)">Inactive — reason (required, shown in a red box at the top)</label>${reasonChips('#e-inreason')}<textarea id="e-inreason" class="warn" style="min-height:60px" placeholder="e.g. inactivated as no longer using our routine services, or client retired and sold farm">${h(c.inactiveReason || '')}</textarea></div>
+  <div class="f" id="e-inwrap" style="${catOf(c) === 'inactive' ? '' : 'display:none'}"><label style="color:var(--red-ink)">Inactive — reason (required, shown in a red box at the top)</label>${reasonChips('#e-inreason')}<textarea id="e-inreason" class="warn" style="min-height:60px" placeholder="e.g. inactivated as no longer using our routine services, or client retired and sold farm">${h(c.inactiveReason || '')}</textarea>${!(c.inactiveReason || '').trim() ? bizOf(c).filter((b) => bizCat(b) === 'inactive' && (b.inactiveReason || '').trim()).map((b) => `<div class="hint" style="margin-top:4px">Currently showing the reason from <b>${h(b.name)}</b>: “${h(b.inactiveReason)}” — <a href="#" data-act="edit-biz" data-id="${b.id}" data-jump="Inactive">edit it on the business</a>. Anything typed here is for ${h(c.first || fullName(c))} only.</div>`).join('') : ''}</div>
   <div class="f" id="e-dnawrap" style="${effTags(c).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">☠️ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-dnareason" class="warn" placeholder="e.g. bad debtor, not the client for us, don't feel safe" style="min-height:60px">${h(c.dnaReason || '')}</textarea></div>
   <div class="f"><label style="color:#7a5a00">Side notes (a general caution but not an urgent warning, e.g. don't mention X as they don't talk)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
   ${customFields(c, 'contact')}
