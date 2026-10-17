@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.5 (17 Oct 2026)';
+const APP_VERSION = '9.6 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -2132,14 +2132,25 @@ function contactToBiz(c, kind) { // "This entry is a business": use the same-nam
 function obRow(p, b, allowRename) { // one part of a business name in the "Sort out business name" screen
   const ex = p.role || !p.text ? null : findBizByText(p.text, b.id); const def = p.role ? 'role' : ex ? 'existing' : !p.text ? 'find' : allowRename ? 'rename' : (isClientBiz(b) ? 'newclient' : 'newind');
   const o = (v, l) => `<option value="${v}" ${def === v ? 'selected' : ''}>${l}</option>`;
-  return `<div class="card ob-row" style="padding:10px;margin-bottom:8px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="ob-text" value="${h(p.text || '')}" placeholder="Name of this part" style="flex:2;min-width:180px;padding:9px;border:1px solid var(--line);border-radius:9px"><select class="ob-what" style="flex:2;min-width:240px;padding:9px;border:1px solid var(--line);border-radius:9px">
+  return `<div class="card ob-row" data-rid="${uid('r')}" style="padding:10px;margin-bottom:8px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="ob-text" value="${h(p.text || '')}" placeholder="Name of this part" style="flex:2;min-width:180px;padding:9px;border:1px solid var(--line);border-radius:9px"><select class="ob-what" style="flex:2;min-width:240px;padding:9px;border:1px solid var(--line);border-radius:9px">
     ${o('rename', `Rename "${h(b.name.slice(0, 30))}…" to this (keeps its farms, PICs, IDs)`)}
     ${ex ? o('existing', `Existing: ${h(ex.name)} — current employee`) + o('existing-past', `Existing: ${h(ex.name)} — past employee`) : ''}
     ${o('find', 'Find an existing business — current employee…')}${o('find-past', 'Find an existing business — past employee…')}
     ${o('newclient', 'New client business')}${o('newind', 'New non-client (industry) business')}
-    ${o('role', 'Not a business — a role/note (put in Role)')}<option value="skip">Ignore</option></select></div>
-    <input type="hidden" class="ob-ex" value="${ex ? ex.id : ''}"><div class="ob-findwrap" style="margin-top:6px;${def.startsWith('find') ? '' : 'display:none'}"><div class="hint ob-chosen">${ex && def.startsWith('find') ? 'Chosen: ' + h(ex.name) : 'No business chosen yet — search below.'}</div><input class="ob-find" placeholder="Search businesses…" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;margin-top:4px"><div class="ob-findres"></div></div></div>`;
+    ${o('role', 'Not a business — a role')}<option value="skip">Ignore</option></select></div>
+    <input type="hidden" class="ob-ex" value="${ex ? ex.id : ''}"><div class="ob-findwrap" style="margin-top:6px;${def.startsWith('find') ? '' : 'display:none'}"><div class="hint ob-chosen">${ex && def.startsWith('find') ? 'Chosen: ' + h(ex.name) : 'No business chosen yet — search below.'}</div><input class="ob-find" placeholder="Search businesses…" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;margin-top:4px"><div class="ob-findres"></div></div>
+    <div class="ob-rolewrap" style="margin-top:6px;${def === 'role' ? '' : 'display:none'}"><label class="hint" style="display:block;margin-bottom:2px">This role is at…</label><select class="ob-rolefor" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px"></select></div></div>`;
 }
+function obRefreshRoles() { /* the "role is at…" choices follow the business parts on screen */
+  const rows = [...document.querySelectorAll('#ob-rows .ob-row')]; const label = (r) => { const w = r.querySelector('.ob-what').value; const ex = IDX.biz.get(r.querySelector('.ob-ex').value); return (w.startsWith('find') || w.startsWith('existing')) && ex ? ex.name : r.querySelector('.ob-text').value.trim() || '(unnamed part)'; };
+  const bizRows = rows.filter((r) => !['role', 'skip'].includes(r.querySelector('.ob-what').value));
+  rows.forEach((r) => { const isRole = r.querySelector('.ob-what').value === 'role'; r.querySelector('.ob-rolewrap').style.display = isRole ? '' : 'none'; if (!isRole) return;
+    const sel = r.querySelector('.ob-rolefor'); const cur = sel.value || (bizRows.length === 1 ? bizRows[0].dataset.rid : '');
+    sel.innerHTML = `${bizRows.length > 1 ? '<option value="">Every business kept</option>' : ''}${bizRows.map((br) => `<option value="${br.dataset.rid}">${h(label(br))}${br.querySelector('.ob-what').value.endsWith('past') ? ' (past)' : ''}</option>`).join('')}<option value="general">No particular business (their general Role)</option>`;
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : sel.options[0].value; });
+}
+document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#ob-rows') && !e.target.classList.contains('ob-rolefor')) obRefreshRoles(); });
+document.addEventListener('input', (e) => { if (e.target.classList && e.target.classList.contains('ob-text')) obRefreshRoles(); });
 document.addEventListener('change', (e) => { if (!e.target.classList.contains('ob-what')) return; const row = e.target.closest('.ob-row'); const f = e.target.value.startsWith('find'); row.querySelector('.ob-findwrap').style.display = f ? '' : 'none'; if (f) { row.querySelector('.ob-ex').value = ''; row.querySelector('.ob-chosen').textContent = 'No business chosen yet — search below.'; row.querySelector('.ob-find').focus(); } });
 document.addEventListener('input', (e) => { if (!e.target.classList.contains('ob-find')) return; const row = e.target.closest('.ob-row'); const pq = parseQuery(e.target.value); const res = pq.inc.length ? D.businesses.filter((x) => x.id !== S.obBid && matchQ(bizHay(x), pq)).slice(0, 8) : [];
   row.querySelector('.ob-findres').innerHTML = e.target.value.trim() ? `<div class="results">${res.map((x) => `<div data-act="ob-findpick" data-id="${x.id}"><b>${h(x.name)}</b> <span class="hint">${isClientBiz(x) ? 'client' : 'non-client'} · ${(IDX.bizContacts.get(x.id) || []).length} contacts</span></div>`).join('') || '<div class="hint">No matches.</div>'}</div>` : ''; });
@@ -2148,24 +2159,32 @@ function oddBizSheet(b, mode) { /* mode: 'role' = the whole name is a role; 'mul
   if (mode === 'multi' && parts.length < 2) parts = [...parts, { text: '' }];
   const hasStuff = b.farms.length || b.pics.length || b.patientIds.length; let renamed = false;
   S.obBid = b.id; let renamed2 = false; const row = (p) => { const r = obRow(p, b, !renamed2); if (r.includes('value="rename" selected')) renamed2 = true; return r; };
-  const body = `<p>Current name: <b>${h(b.name)}</b></p>${mode === 'role' ? '<div class="hint" style="margin-bottom:8px"><b>Not a business — a role.</b> The name becomes the ticked contacts\' role. If they work for a business, search for it in the second part (or tap Ignore on it). Any phone, email or notes on this entry move to that business, or to the first ticked contact.</div>' : ''}<div class="hint" style="margin-bottom:8px">I've split the name into its parts — check each one. Every contact ticked below is linked to each business you keep, and roles go into their Role field (if it's empty).</div>
+  const body = `<p>Current name: <b>${h(b.name)}</b></p>${mode === 'role' ? '<div class="hint" style="margin-bottom:8px"><b>Not a business — a role.</b> The name becomes the ticked contacts\' role. If they work for a business, search for it in the second part (or tap Ignore on it). Any phone, email or notes on this entry move to that business, or to the first ticked contact.</div>' : ''}<div class="hint" style="margin-bottom:8px">I've split the name into its parts — check each one. Every contact ticked below is linked to each business you keep. For a role, choose which business it's at.</div>
     <div id="ob-rows">${parts.map(row).join('')}</div><button type="button" class="btn small" data-act="ob-add">+ Add a part</button>
     <div class="f" style="margin-top:12px"><span class="lbl">Contacts at this business</span><div class="checks">${cs.map((c) => `<label><input type="checkbox" class="ob-c" value="${c.id}" checked>${h(fullName(c))}</label>`).join('') || '<span class="hint">No contacts linked.</span>'}</div></div>
     ${hasStuff ? '<div class="hint">This business has farms, PICs or patient IDs, so one part must be "Rename … to this".</div>' : '<div class="hint">If no part is "Rename … to this", the old business goes to the trash once its contacts are linked to the other businesses.</div>'}`;
+  setTimeout(obRefreshRoles, 0);
   openSheet('Sort out business name', body, () => {
-    const rows = [...document.querySelectorAll('#ob-rows .ob-row')].map((r) => ({ text: r.querySelector('.ob-text').value.trim() || (IDX.biz.get(r.querySelector('.ob-ex').value) || {}).name || '', what: r.querySelector('.ob-what').value, ex: (r.querySelector('.ob-ex') || {}).value })).filter((r) => r.text && r.what !== 'skip');
+    const rows = [...document.querySelectorAll('#ob-rows .ob-row')].map((r) => ({ rid: r.dataset.rid, text: r.querySelector('.ob-text').value.trim() || (IDX.biz.get(r.querySelector('.ob-ex').value) || {}).name || '', what: r.querySelector('.ob-what').value, ex: (r.querySelector('.ob-ex') || {}).value, rolefor: (r.querySelector('.ob-rolefor') || {}).value || '' })).filter((r) => r.text && r.what !== 'skip');
     if (rows.some((r) => r.what.startsWith('find') && !IDX.biz.get(r.ex))) { toast('Search and pick the existing business for each "Find…" part'); return false; }
     const ren = rows.filter((r) => r.what === 'rename'); if (ren.length > 1) { toast('Only one part can be the rename'); return false; } if (!ren.length && hasStuff) { toast('Choose which part this business is renamed to (it has farms, PICs or IDs)'); return false; }
     if (!rows.some((r) => r.what !== 'role') && (hasStuff || mode !== 'role')) { toast(hasStuff ? 'This business has farms, PICs or IDs — one part must be a business' : 'At least one part must be a business'); return false; }
     const ticked = [...document.querySelectorAll('#sheet .ob-c')].filter((x) => x.checked).map((x) => D.contacts.find((c) => c.id === x.value)).filter(Boolean);
-    const targets = [], pastTargets = [];
-    rows.forEach((r) => { if (r.what === 'rename') { b.name = r.text; touch(b); targets.push(b); }
-      else if (r.what === 'existing' || r.what === 'find') { const x = IDX.biz.get(r.ex); if (x) targets.push(x); }
-      else if (r.what === 'existing-past' || r.what === 'find-past') { const x = IDX.biz.get(r.ex); if (x) pastTargets.push(x); }
-      else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); touch(nb); targets.push(nb); } });
-    const roles = rows.filter((r) => r.what === 'role').map((r) => r.text).join(', ');
+    const targets = [], pastTargets = [], ridOf = new Map();
+    rows.forEach((r) => { if (r.what === 'rename') { b.name = r.text; touch(b); targets.push(b); ridOf.set(b, r.rid); }
+      else if (r.what === 'existing' || r.what === 'find') { const x = IDX.biz.get(r.ex); if (x) { targets.push(x); ridOf.set(x, r.rid); } }
+      else if (r.what === 'existing-past' || r.what === 'find-past') { const x = IDX.biz.get(r.ex); if (x) { pastTargets.push(x); ridOf.set(x, r.rid); } }
+      else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); touch(nb); targets.push(nb); ridOf.set(nb, r.rid); } });
+    const roleRows = rows.filter((r) => r.what === 'role'); const anyBiz = targets.length || pastTargets.length;
+    const roleAtBiz = (t) => roleRows.filter((r) => r.rolefor === ridOf.get(t) || (r.rolefor === '' && anyBiz)).map((r) => r.text).join(', ');
+    const general = roleRows.filter((r) => r.rolefor === 'general' || !anyBiz).map((r) => r.text).join(', ');
     reindex();
-    ticked.forEach((c) => { const prev = catOf(c); const before = c.links.length; targets.forEach((t) => { const l = c.links.find((x) => x.bid === t.id); if (!l) c.links.push(roles && t !== b ? { bid: t.id, role: roles } : { bid: t.id }); else if (l.past) delete l.past; }); pastTargets.forEach((t) => { if (!c.links.some((x) => x.bid === t.id)) c.links.push({ bid: t.id, past: true }); }); if (!ren.length) c.links = c.links.filter((l) => l.bid !== b.id); if (roles && !targets.length && !pastTargets.length) { if (!(c.role || '').toLowerCase().includes(roles.toLowerCase())) c.role = c.role ? c.role + ', ' + roles : roles; } else if (roles && !c.role) c.role = roles; reindex(); if (prev) setOne(c, prev); touch(c); });
+    ticked.forEach((c) => { const prev = catOf(c);
+      const put = (t, past) => { const rl = roleAtBiz(t); let l = c.links.find((x) => x.bid === t.id); if (!l) { l = past ? { bid: t.id, past: true } : { bid: t.id }; c.links.push(l); } else if (!past && l.past) delete l.past; if (rl) l.role = rl; };
+      targets.forEach((t) => put(t, false)); pastTargets.forEach((t) => put(t, true));
+      if (!ren.length) c.links = c.links.filter((l) => l.bid !== b.id);
+      if (general && !(c.role || '').toLowerCase().includes(general.toLowerCase())) c.role = c.role ? c.role + ', ' + general : general;
+      reindex(); if (prev) setOne(c, prev); touch(c); });
     if (!ren.length && !(IDX.bizContacts.get(b.id) || []).filter((c) => !ticked.includes(c)).length) { carryBizDetails(b, targets[0] || ticked[0]); reindex(); trashBiz(b); }
     S.sel = { kind: 'business', id: (targets[0] || pastTargets[0] || b).id }; NEXT_LOG_LABEL = `Sorted out business name "${parts.map((p) => p.text).join(' / ')}"`; return true;
   });
@@ -3260,8 +3279,8 @@ document.addEventListener('click', async (e) => {
       NEXT_LOG_LABEL = `Applied warning for ${j.who} as ${d.to === 'general' ? 'general warning' : d.to === 'side' ? 'side note' : 'farm warning'}`;
       if (await changed()) toast('✓ Applied — you can now remove it from general info if you like'); break; }
     case 'prim-set': { const b = IDX.biz.get(d.bid), c = D.contacts.find((x) => x.id === d.cid); if (!b || !c) break; b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
-    case 'ob-add': $('#ob-rows').insertAdjacentHTML('beforeend', obRow({ text: '' }, IDX.biz.get(S.obBid) || { id: '', name: '' }, false)); break;
-    case 'ob-findpick': { const row = el.closest('.ob-row'); const x = IDX.biz.get(d.id); if (!row || !x) break; row.querySelector('.ob-ex').value = x.id; row.querySelector('.ob-chosen').innerHTML = 'Chosen: <b>' + h(x.name) + '</b>'; row.querySelector('.ob-findres').innerHTML = ''; row.querySelector('.ob-find').value = ''; if (!row.querySelector('.ob-text').value.trim()) row.querySelector('.ob-text').value = x.name; break; }
+    case 'ob-add': $('#ob-rows').insertAdjacentHTML('beforeend', obRow({ text: '' }, IDX.biz.get(S.obBid) || { id: '', name: '' }, false)); obRefreshRoles(); break;
+    case 'ob-findpick': { const row = el.closest('.ob-row'); const x = IDX.biz.get(d.id); if (!row || !x) break; row.querySelector('.ob-ex').value = x.id; row.querySelector('.ob-chosen').innerHTML = 'Chosen: <b>' + h(x.name) + '</b>'; row.querySelector('.ob-findres').innerHTML = ''; row.querySelector('.ob-find').value = ''; if (!row.querySelector('.ob-text').value.trim()) row.querySelector('.ob-text').value = x.name; obRefreshRoles(); break; }
     case 'np-industry': { const b = IDX.biz.get(d.bid); if (!b) break; makeIndustry(b); NEXT_LOG_LABEL = `${b.name} made a non-client (industry) business`; if (await changed()) toast(`✓ ${b.name} is now an industry business`); break; }
     case 'np-role': oddBizSheet(IDX.biz.get(d.bid), 'role'); break;
     case 'np-multi': oddBizSheet(IDX.biz.get(d.bid), 'multi'); break;
