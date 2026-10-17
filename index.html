@@ -196,6 +196,7 @@ body.show-detail #detail{display:block}
 .job .who{font-weight:600}
 .job .note{font-size:14px;color:var(--ink2)}
 .job .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.relsug{border-top:1px solid var(--line);padding:6px 0}.relsug:first-child{border-top:0}.relsug .acts{margin-top:4px}
 details.jobgroup>summary{list-style:none;cursor:pointer;padding:10px 12px;background:#efebe4;font-weight:700;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--line)}
 details.jobgroup>summary::-webkit-details-marker{display:none}
 .jobcheck{width:20px;height:20px;flex:none;margin:2px 0 0;accent-color:var(--ink);cursor:pointer}
@@ -273,6 +274,7 @@ html[data-theme=dark] textarea.biosec{background:#2d1c10}
 .mpin.turn{border-radius:6px;font-size:14px}.mpin.home{border-color:#141414;font-size:18px}
 .mpop .actions{gap:4px}.mpop .btn.small{padding:4px 8px;font-size:13px}
 .lnk{color:var(--blue,#1a5fb4);text-decoration:underline;cursor:pointer}
+.nodet{display:inline-block;font-size:11px;font-weight:600;color:#666;background:#eee;border-radius:6px;padding:1px 6px;margin-left:4px;vertical-align:middle;white-space:nowrap}
 .toolbar .seg{display:flex;flex-wrap:wrap;width:100%}
 .toolbar .seg button{flex:1 1 auto;padding:7px 9px;font-size:14px;line-height:1.2}
 .emogrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:4px;max-height:220px;overflow-y:auto;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
@@ -310,6 +312,24 @@ html[data-theme=dark] .card.nomention{background:#3a3200;border-color:#8a7400}ht
 .card.nomention.empty{background:#fffbe0;border-width:1px}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;z-index:99;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .sec-h{font-family:var(--cond);font-size:20px;margin:16px 0 8px}
+.picin{text-transform:uppercase}
+/* custom section colours */
+.card.cs-yellow,textarea.cs-yellow{background:#fff3c4;border-color:#f0d78a}.card.cs-red,textarea.cs-red{background:#fdeaea;border-color:#f3b6b9}.card.cs-orange,textarea.cs-orange{background:#ffe8d1;border-color:#f5c493}
+.card.cs-green,textarea.cs-green{background:#e3f5e6;border-color:#a9dab3}.card.cs-blue,textarea.cs-blue{background:#e3edfb;border-color:#a9c2ec}.card.cs-purple,textarea.cs-purple{background:#efe3f7;border-color:#cfb0e3}.card.cs-grey,textarea.cs-grey{background:#ececec;border-color:#cfcfcf}
+html[data-theme=dark] .cs-yellow{background:#3a3215;border-color:#6b5a1f}html[data-theme=dark] .cs-red{background:#3b1517;border-color:#6e2a2e}html[data-theme=dark] .cs-orange{background:#3d2614;border-color:#6e4422}
+html[data-theme=dark] .cs-green{background:#16311c;border-color:#2c5a35}html[data-theme=dark] .cs-blue{background:#152640;border-color:#2a4672}html[data-theme=dark] .cs-purple{background:#2c1838;border-color:#4f2d63}html[data-theme=dark] .cs-grey{background:#2b2b2b;border-color:#444}
+/* colour schemes (Settings → Display, per device) */
+html[data-scheme=green]{--acc:#2e6b34;--acc-bg:#e3efe0}html[data-scheme=blue]{--acc:#1d4f91;--acc-bg:#e1eaf6}html[data-scheme=teal]{--acc:#0f6e6e;--acc-bg:#dcefed}
+html[data-scheme=earth]{--acc:#6b4423;--acc-bg:#f0e4d6}html[data-scheme=plum]{--acc:#6a2c70;--acc-bg:#efe0f0}html[data-scheme=rose]{--acc:#a8325e;--acc-bg:#f8e1ea}
+html[data-theme=light][data-scheme=green]{--bg:#f2f6ef}html[data-theme=light][data-scheme=blue]{--bg:#f0f4f9}html[data-theme=light][data-scheme=teal]{--bg:#eef6f5}html[data-theme=light][data-scheme=earth]{--bg:#f8f2ea}html[data-theme=light][data-scheme=plum]{--bg:#f7f1f7}html[data-theme=light][data-scheme=rose]{--bg:#fbf1f4}
+html[data-scheme] header.top,html[data-theme=dark][data-scheme] header.top{background:var(--acc)}
+html[data-scheme] .btn.primary,html[data-scheme] .seg button.on,html[data-scheme] .stop .num,html[data-scheme] .chip.on,html[data-scheme] .toast,
+html[data-theme=dark][data-scheme] .btn.primary,html[data-theme=dark][data-scheme] .seg button.on,html[data-theme=dark][data-scheme] .stop .num,html[data-theme=dark][data-scheme] .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+html[data-theme=dark][data-scheme] .chip.on .cn{background:rgba(255,255,255,.2);color:#fff}
+html[data-scheme] nav.tabs button.on{color:var(--acc)}
+@media(min-width:900px){html[data-theme=light][data-scheme] nav.tabs button.on{background:var(--acc-bg)}}
+.schsw{width:30px;height:30px;border-radius:50%;border:3px solid var(--card);box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}
+.schsw.on{box-shadow:0 0 0 3px var(--ink)}
 </style>
 </head>
 <body>

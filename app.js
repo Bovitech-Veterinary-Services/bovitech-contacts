@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '10.8 (17 Oct 2026)';
+const APP_VERSION = '11.0 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -299,7 +299,7 @@ function parseQuery(q) {
 }
 function contactHay(c) {
   if (IDX.hay.has(c.id)) return IDX.hay.get(c.id);
-  const bs = bizOf(c); const parts = [fullName(c), c.role, c.info, c.warnings, c.sideNotes, c.dnaReason, ...c.postal];
+  const bs = bizOf(c); const parts = [fullName(c), c.role, c.info, c.warnings, c.sideNotes, c.dnaReason, ...c.postal, ...Object.values(c.custom || {}), ...(c.related || []).map((r) => r.name)];
   c.tags.forEach((t) => parts.push(tagName(t)));
   contactRatings(c).forEach((r) => parts.push(tagName(r.rating)));
   [...c.mobiles, ...c.landlines].forEach((p) => parts.push(p.value, p.value.replace(/\D/g, ''), p.value.replace(/\D/g, '').replace(/^61/, '0')));
@@ -349,7 +349,7 @@ const catClass = (who, cat) => { const m = ((D.settings || {}).catClass || {})[w
 const isClientPerson = (c) => catClass('p', catOf(c)) !== 'n';
 const PREF = (() => { try { return JSON.parse(localStorage.getItem('bvt-prefs') || '{}'); } catch (e) { return {}; } })(); // this device only
 function savePref(k, v) { PREF[k] = v; try { localStorage.setItem('bvt-prefs', JSON.stringify(PREF)); } catch (e) { } }
-function applyUi() { const th = PREF.theme || 'auto'; const dark = th === 'dark' || (th === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = dark ? 'dark' : 'light'; document.body.style.zoom = { normal: '', large: '1.12', xl: '1.25' }[PREF.size || 'normal'] || ''; }
+function applyUi() { const th = PREF.theme || 'auto'; const dark = th === 'dark' || (th === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = dark ? 'dark' : 'light'; if (PREF.scheme && PREF.scheme !== 'classic') document.documentElement.dataset.scheme = PREF.scheme; else delete document.documentElement.dataset.scheme; document.body.style.zoom = { normal: '', large: '1.12', xl: '1.25' }[PREF.size || 'normal'] || ''; }
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyUi); } catch (e) { }
 const REVIEW_LINKS_FROM = new Date('2026-10-16T00:00:00+08:00').getTime(), REVIEW_LINKS_TO = new Date('2026-10-16T21:05:00+08:00').getTime(); // links made from v6.0 onwards get reviewed
 const PIC_RX = /^W[A-Z]{3}\d{4}$/;
@@ -409,8 +409,10 @@ function setBlocked(cid, yes) {
   c.tags = c.tags.filter((t) => t !== 'blockedn' && (yes || t !== 'blockedc')); c.tags.push(yes ? 'blockedc' : 'blockedn');
   if (yes) c.flags = (c.flags || []).filter((f) => f.type !== 'blockcheck'); touch(c);
 }
+const noDet = (c) => !!c.noDetails && !c.emails.length && !c.mobiles.length && !c.landlines.length && !c.postal.length; // name only — we know who they are but not how to reach them
 function missingInfo(c) {
   const bs = bizOf(c); const m = []; // which fields count is set in Settings → Required information
+  if (noDet(c)) return []; // name-only people aren't chased for details
   if (reqOn('email') && !c.emails.length) m.push('email');
   if (reqOn('phone') && !c.mobiles.length && !c.landlines.length) m.push('phone number');
   if (reqOn('mobile') && !c.mobiles.length) m.push('mobile number');
@@ -453,8 +455,14 @@ function computeJobs() {
   }
   dupeJobs(add);
   D.contacts.forEach((c) => { if (c.infoMove) add({ type: 'infomove', key: 'infomove:' + c.id + ':' + (c.infoMove.at || 0), kind: 'contact', id: c.id, who: fullName(c), note: c.infoMove.pending ? 'General info to move to a business — which business does it belong to?' : 'General info moved to ' + ((IDX.biz.get(c.infoMove.bid) || {}).name || 'a business') + ' — is that the right business?', infoMove: c.infoMove });
-    relSuggest(c).forEach((sg) => add({ type: 'relsuggest', key: 'relsuggest:' + [c.id, sg.o.id].sort().join('|'), kind: 'contact', id: c.id, who: fullName(c) + '  ↔  ' + fullName(sg.o), note: 'Possibly related — ' + sg.why, relSug: { a: c.id, b: sg.o.id, rel: sg.rel } }));
     if (relLines(c).length) add({ type: 'relmove', key: 'relmove:' + c.id, kind: 'contact', id: c.id, who: fullName(c), note: 'Relationships in general info — move them to Related people, or keep them in general info?', relProps: relProposals(c) }); });
+  { /* suggested related people — one job per family group, a row per possible pair with one-tap guesses */
+    const pairs = []; D.contacts.forEach((c) => relSuggest(c).forEach((sg) => { const k = 'relsuggest:' + [c.id, sg.o.id].sort().join('|'); if (!dis[k]) pairs.push({ a: c, b: sg.o, why: sg.why, guess: sg.guess, k }); }));
+    const par = new Map(); const fnd = (x) => { while (par.get(x) !== x) x = par.get(x); return x; };
+    pairs.forEach((p) => { [p.a.id, p.b.id].forEach((id) => { if (!par.has(id)) par.set(id, id); }); par.set(fnd(p.a.id), fnd(p.b.id)); });
+    const grp = new Map(); pairs.forEach((p) => { const r = fnd(p.a.id); if (!grp.has(r)) grp.set(r, []); grp.get(r).push(p); });
+    grp.forEach((ps) => { const people = [...new Set(ps.flatMap((p) => [p.a, p.b]))].sort((x, y) => alphaCmp(fullName(x), fullName(y)));
+      add({ type: 'relsuggest', key: 'relsuggestg:' + people.map((x) => x.id).sort().join('|'), kind: 'contact', id: people[0].id, who: people.map(fullName).join(' · '), note: ps.length === 1 ? 'Possibly related — ' + ps[0].why : `${ps.length} possible relationships — tap the one that fits for each pair`, relSugs: ps.map((p) => ({ a: p.a.id, b: p.b.id, why: p.why, guess: p.guess, k: p.k })) }); }); }
   { const all = D.farms.filter((f) => f.turn && f.turn.lat != null && !f.pinChecked && farmUsersOf(f.id).some((u) => !u.past)).sort((a, b) => alphaCmp(farmLabel(a), farmLabel(b)));
     const inactive = (f) => farmUsersOf(f.id).filter((u) => !u.past).every((u) => ['inactive', 'dna'].includes(bizCat(u.b)));
     [['pincheck', all.filter((f) => !inactive(f))], ['pincheckin', all.filter(inactive)]].forEach(([type, todo]) => todo.filter((f) => !dis[type + ':' + f.id]).slice(0, 20).forEach((f) => { const b = IDX.farmBiz.get(f.id); add({ type, key: type + ':' + f.id, kind: 'business', id: b.id, fid: f.id, who: farmLabel(f), note: `Turn-off pin — check it's in the right place, then add the yards (${todo.length} left to check)` }); })); }
@@ -537,7 +545,7 @@ const JOB_TYPES = {
   pincheckin: { t: 'Check pins — inactive clients (20 at a time)', manual: false },
   infomove: { t: 'General info moved to a business — check it', manual: false },
   relmove: { t: 'Relationships in general info — move to Related people?', manual: true, btn: 'Keep in general info' },
-  relsuggest: { t: 'Suggested related people', manual: true, btn: 'Not related' },
+  relsuggest: { t: 'Suggested related people', manual: true, btn: 'None of these are related' },
   nearpin: { t: 'Same GPS pin on two farms — same yards or different?', manual: false },
   nogps: { t: 'Farm address with no GPS pin', manual: true },
   signfix: { t: 'GPS pin corrected (missing minus sign) — confirm', manual: true, btn: 'Pin is correct' },
@@ -569,12 +577,19 @@ const JOB_TYPES = {
 };
 let JOBS_CACHE = null;
 function jobs() { if (!JOBS_CACHE) { const off = new Set(PREF.jobsOff || []); JOBS_CACHE = computeJobs().filter((j) => !off.has(j.type)); } return JOBS_CACHE; } // job types switched off in Settings are hidden on this device
+const INACT = ['inactive', 'dna'];
+function jobInactive(j) { /* is this job about an inactive / do-not-answer client? (they go in the Inactive list so active clients come first) */
+  if (j.type === 'pincheckin') return true; if (j.type === 'pincheck') return false;
+  if (j.relSugs) return [...new Set(j.relSugs.flatMap((x) => [x.a, x.b]))].every((id) => { const c = D.contacts.find((y) => y.id === id); return c && INACT.includes(catOf(c)); });
+  if (j.kind === 'business') { const b = IDX.biz.get(j.id); return !!b && INACT.includes(bizCat(b)); }
+  const c = D.contacts.find((x) => x.id === j.id); return !!c && INACT.includes(catOf(c)); }
+function jobsShown() { const v = S.jobAct || 'active'; return v === 'all' ? jobs() : jobs().filter((j) => jobInactive(j) === (v === 'inactive')); }
 function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind === kind || (kind === 'contact' && false))); }
 
 /* ---------------- rendering: shell ---------------- */
 const TABS = [['contacts', 'Contacts'], ['loc', 'Locations'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['map', 'Farm Map'], ['jobs', 'Jobs'], ['settings', 'Settings']];
 function renderTabs() {
-  const n = jobs().length;
+  const n = jobs().filter((j) => !jobInactive(j)).length;
   $('#tabs').innerHTML = TABS.map(([k]) => { const l = lab(k); return `<button data-act="tab" data-v="${k}" class="${S.tab === k || (k === 'contacts' && S.tab === 'biz') ? 'on' : ''}">${ICONS[k]}<span>${l}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`; }).join('');
 }
 // contacts / businesses that have just become "Do not answer" and have no reason yet
@@ -687,6 +702,27 @@ function allPins() { /* one row per pin: the farm's main pin, its turn-off and a
   });
   return out;
 }
+/* Redraw a list without rebuilding its search box: the box being typed in stays the same element,
+   so the phone keyboard's word prediction (IME composition) isn't confused into repeating letters. */
+function patchList(list, html, inputId) {
+  const old = list.querySelector('#' + inputId);
+  if (!old) { list.innerHTML = html; return; }
+  const tpl = document.createElement('div'); tpl.innerHTML = html;
+  const nw = tpl.querySelector('#' + inputId);
+  const chain = (n, root) => { const a = []; while (n && n !== root) { a.push(n); n = n.parentNode; } return n === root ? a : null; };
+  const co = nw && chain(old, list), cn = nw && chain(nw, tpl);
+  if (!co || !cn || co.length !== cn.length) { list.innerHTML = html; return; }
+  ['placeholder', 'title'].forEach((a) => { const v = nw.getAttribute(a); if (v == null) old.removeAttribute(a); else if (old.getAttribute(a) !== v) old.setAttribute(a, v); });
+  for (let i = co.length - 1; i >= 0; i--) {
+    const pOld = i === co.length - 1 ? list : co[i + 1], pNew = i === cn.length - 1 ? tpl : cn[i + 1], kO = co[i], kN = cn[i];
+    while (pOld.firstChild !== kO) pOld.removeChild(pOld.firstChild);
+    while (kO.nextSibling) pOld.removeChild(kO.nextSibling);
+    let seen = false; const before = [], after = [];
+    [...pNew.childNodes].forEach((n) => { if (n === kN) seen = true; else (seen ? after : before).push(n); });
+    before.forEach((n) => pOld.insertBefore(n, kO)); after.forEach((n) => pOld.appendChild(n));
+    if (i > 0 && kO.className !== kN.className) kO.className = kN.className;
+  }
+}
 function renderLocList() {
   const keepFocus = document.activeElement && document.activeElement.id === 'lq';
   const lt = S.ltype || 'all'; const showPast = !!S.lpast; const pq = parseQuery(S.lq || '');
@@ -700,9 +736,10 @@ function renderLocList() {
     html += `<li class="item ${S.sel?.id === p.b.id && S.selFarm === p.f.id ? 'sel' : ''}" data-act="loc-open" data-bid="${p.b.id}" data-fid="${p.f.id}"><div class="av locav">${p.emoji}</div><div class="t"><div class="n">${h(p.name)}${p.cur ? '' : ' <span class="hint">(not current)</span>'}${sf.status && sf.status !== 'ok' ? (sf.status === 'stop' ? ' ⛔' : ' ⚠') : ''}${farmBiosecOf(p.f).length ? ' 🦠' : ''}</div><div class="s">${h(p.us.filter((u) => showPast || !u.past).map((u) => u.b.name).join(', '))} · ${h(p.type)}${p.lat == null ? ' · <b>no GPS pin</b>' : p.kind !== 'turn' && p.f.kmReturn != null ? ' · ' + p.f.kmReturn + ' km' : ''}</div></div>${p.lat != null ? `<a class="btn small" href="${gmapsNav(p)}" target="_blank" rel="noopener" title="Navigate">🧭</a>` : ''}</li>`; });
   if (rows.length > 500) html += '<li class="empty">Showing first 500 — search to narrow it down.</li>';
   if (!rows.length) html += '<li class="empty">No locations match.</li>';
-  $('#list').innerHTML = html + '</ul>';
-  if (keepFocus) { const q = $('#lq'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  patchList($('#list'), html + '</ul>', 'lq');
+  if (keepFocus && document.activeElement?.id !== 'lq') { const q = $('#lq'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 }
+document.addEventListener('change', (e) => { if (e.target.classList && e.target.classList.contains('picin')) e.target.value = e.target.value.toUpperCase().replace(/\s+/g, ''); });
 document.addEventListener('input', (e) => { if (e.target.id === 'lq') { S.lq = e.target.value; clearTimeout(e.target._tm); e.target._tm = setTimeout(renderLocList, 120); } });
 
 /* ---------------- farm map (Leaflet + OpenStreetMap; needs internet for the map tiles) ---------------- */
@@ -834,14 +871,14 @@ function renderContactList() {
   if (mix && bq.length) { if (!alphaSort) html += `<li class="group-h">Businesses</li>`; flushB(null); }
   if (!rows.length && !(mixB && mixB.length)) html += `<li class="empty">No matches.</li>`;
   html += '</ul>';
-  list.innerHTML = html;
-  if (keepFocus) { const q = $('#q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  patchList(list, html, 'q');
+  if (keepFocus && document.activeElement?.id !== 'q') { const q = $('#q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 }
 
 /* ---------------- business list ---------------- */
 function bizHay(b) {
   if (IDX.bhay.has(b.id)) return IDX.bhay.get(b.id);
-  const parts = [b.name, b.info, b.warnings, b.sideNotes, b.rating ? tagName(b.rating) : ''];
+  const parts = [b.name, b.info, b.warnings, b.sideNotes, b.rating ? tagName(b.rating) : '', ...Object.values(b.custom || {})];
   (b.phones || []).forEach((p) => parts.push(p.value, p.value.replace(/\D/g, ''))); (b.emails || []).forEach((p) => parts.push(p.value));
   b.pics.forEach((p) => parts.push(p.value)); b.patientIds.forEach((p) => parts.push(p.label, p.value)); b.farms.forEach((f) => parts.push(f.name, f.address, f.info));
   (IDX.bizContacts.get(b.id) || []).forEach((c) => parts.push(fullName(c)));
@@ -859,8 +896,8 @@ function renderBizList() {
     <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="b" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
   rows.slice(0, 400).forEach((b) => { html += bizRowHtml(b); });
   if (!rows.length) html += `<li class="empty">No businesses match.</li>`;
-  $('#list').innerHTML = html + '</ul>';
-  if (keepFocus) { const q = $('#bq'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  patchList($('#list'), html + '</ul>', 'bq');
+  if (keepFocus && document.activeElement?.id !== 'bq') { const q = $('#bq'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 }
 
 /* ---------------- detail views ---------------- */
@@ -919,6 +956,24 @@ function setIceTags(ids, removedIds = []) { // linked ICE contacts get the ICE t
   ids.forEach((id) => { const x = D.contacts.find((y) => y.id === id); if (x && !x.tags.includes('ice')) { x.tags.push('ice'); touch(x); } });
   removedIds.filter((id) => !still.has(id)).forEach((id) => { const x = D.contacts.find((y) => y.id === id); if (x && x.tags.includes('ice')) { x.tags = x.tags.filter((t) => t !== 'ice'); touch(x); } });
 }
+/* ---------------- page layout (Settings → Page layout): section order, hidden sections, custom sections ---------------- */
+const LAYOUT_SECS = {
+  contact: [['jobs', '🚩 Jobs / flags for this person'], ['ice', '🚨 ICE contacts'], ['warn', '⚠ General warnings'], ['biosec', '🦠 Biosecurity'], ['side', '📝 Side notes'], ['contact', '📞 Phone, email and postal'], ['nomention', "🤫 Don't mention"], ['related', '👪 Related people'], ['tags', '🏷 Categories and tags'], ['info', 'ℹ️ General info'], ['biz', '🔗 Linked businesses'], ['pastbiz', '🕘 Past businesses']],
+  business: [['warn', '⚠ General warnings'], ['biosec', '🦠 Biosecurity'], ['side', '📝 Side notes'], ['cat', '🏷 Contact category'], ['phone', '📞 Phone and email'], ['info', 'ℹ️ General info'], ['current', '👥 Current contacts / employees'], ['past', '🕘 Past contacts'], ['pic', '🔢 PIC'], ['pid', '🆔 Patient IDs'], ['routes', '🗺 Saved routes'], ['farms', '🐄 Farms / locations'], ['farmsused', '🐄 Farms used but not owned'], ['farmspast', '🕘 Not current farms']] };
+const LAYOUT_LOCKED = new Set(['jobs', 'warn', 'biosec', 'nomention']); // safety sections can be moved but never hidden
+const SEC_COLORS = [['', 'White (plain)', '#ffffff'], ['yellow', 'Yellow', '#fff3c4'], ['red', 'Red', '#fdeaea'], ['orange', 'Orange', '#ffe8d1'], ['green', 'Green', '#e3f5e6'], ['blue', 'Blue', '#e3edfb'], ['purple', 'Purple', '#efe3f7'], ['grey', 'Grey', '#ececec']];
+function customSecs(kind) { return (D.settings.customSecs || []).filter((x) => x.for === 'both' || x.for === kind); }
+function layoutKeys(kind) { const all = [...LAYOUT_SECS[kind].map((x) => x[0]), ...customSecs(kind).map((x) => 'cs:' + x.id)]; const saved = ((D.settings.layout || {})[kind] || []).filter((k) => all.includes(k));
+  const out = [...saved]; all.forEach((k, i) => { if (out.includes(k)) return; const prev = all.slice(0, i).reverse().find((x) => out.includes(x)); out.splice(prev ? out.indexOf(prev) + 1 : 0, 0, k); }); return out; } // new sections slot in after their usual neighbour
+function layoutLabel(kind, k) { if (k.startsWith('cs:')) { const cs = (D.settings.customSecs || []).find((x) => 'cs:' + x.id === k); return cs ? '✨ ' + cs.name : k; } return (LAYOUT_SECS[kind].find((x) => x[0] === k) || [, k])[1]; }
+function layoutHidden(kind) { return new Set(((D.settings.layoutHide || {})[kind] || []).filter((k) => !LAYOUT_LOCKED.has(k))); }
+function layoutApply(kind, html, M) { if (!M.length) return html; const parts = {}; M.forEach(([k, at], i) => { if (k === '_end') return; parts[k] = (parts[k] || '') + html.slice(at, M[i + 1] ? M[i + 1][1] : html.length); });
+  const endAt = (M.find((x) => x[0] === '_end') || [, html.length])[1]; const hid = layoutHidden(kind);
+  return html.slice(0, M[0][1]) + layoutKeys(kind).filter((k) => !hid.has(k)).map((k) => parts[k] || '').join('') + html.slice(endAt); }
+function customCard(rec, cs, kind) { const v = ((rec.custom || {})[cs.id] || '').trim();
+  return `<div class="card ${cs.color ? 'cs-' + cs.color : ''}"><h3><span class="sp">${h(cs.name)}</span>${secEdit(kind, rec.id, cs.name)}</h3>${v ? `<div class="body">${h(v)}</div>` : '<div class="hint">Nothing recorded.</div>'}</div>`; }
+function customFields(rec, kind) { return customSecs(kind).map((cs) => `<div class="f"><label>${h(cs.name)}</label><textarea data-custom="${cs.id}" class="${cs.color ? 'cs-' + cs.color : ''}" rows="3">${h((rec.custom || {})[cs.id] || '')}</textarea></div>`).join(''); }
+function readCustom(rec) { const els = [...document.querySelectorAll('#sheet [data-custom]')]; if (!els.length) return; const o = { ...(rec.custom || {}) }; els.forEach((el) => { const v = el.value.trim(); if (v) o[el.dataset.custom] = v; else delete o[el.dataset.custom]; }); if (Object.keys(o).length) rec.custom = o; else delete rec.custom; }
 function contactDetail(c) {
   const bs = bizOf(c);
   const tags = effTags(c).filter((t) => !RATING_SET.has(t));
@@ -926,24 +981,36 @@ function contactDetail(c) {
   const dna = effTags(c).includes('dna');
   let html = `<div class="d-wrap"><button class="back" data-act="back">‹ Back</button>
   ${catOf(c) === 'inactive' ? inactiveBox(c.inactiveReason || bizOf(c).filter((b) => bizCat(b) === 'inactive').map((b) => b.inactiveReason).filter(Boolean).join('\n'), 'contact', c.id) : ''}
-  ${dna ? `<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE</div>${dnaReasonBox(c.dnaReason || bizOf(c).map((b) => b.dnaReason).filter(Boolean).join('\n'))}` : ''}
+  ${dna ? `<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE ☠️</div>${dnaReasonBox(c.dnaReason || bizOf(c).map((b) => b.dnaReason).filter(Boolean).join('\n'))}` : ''}
   <div class="hero">${contactPhotoImg(c, '', 320)}<div><h2>${h(fullName(c))}</h2><div class="sub">${h(c.role || '')}${c.role && bs.length ? ' · ' : ''}${h(bs.map((b) => b.name).join(', '))}</div>
   <div style="margin-top:6px">${contactRatings(c).map((r) => rbadge(r.rating) + (r.biz && bs.length > 1 ? `<span style="font-size:13px;color:var(--ink3);margin-right:8px">${h(r.biz.name)}</span>` : '')).join('')}</div></div></div>
   <div class="actions"><button class="btn primary" data-act="edit-contact" data-id="${c.id}">Edit</button><button class="btn" data-act="star" data-id="${c.id}">${isFav(c) ? '★ Favourite' : '☆ Favourite'}</button>${c.mobiles[0] ? `<a class="btn" href="tel:${h(c.mobiles[0].value.replace(/[^\d+]/g, ''))}">📞 Call</a>` : ''}</div>`;
+  const M = []; const mark = (k) => M.push([k, html.length]);
+  mark('jobs');
   html += cflags.map(flagJob).join('');
+  mark('ice');
   html += iceCard(c);
+  mark('warn');
   if (hasWarning(c)) {
     html += `<div class="card warn"><h3><span class="sp">⚠ General warnings</span>${secEdit('contact', c.id, 'General warnings')}</h3>${c.warnings ? `<div class="body">${h(c.warnings)}</div>` : ''}${bs.filter((b) => b.warnings).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.warnings)}</div>`).join('')}</div>`;
   }
+  mark('biosec');
   html += bs.map((b) => biosecBanner(b.biosec, bs.length > 1 ? b.name : '')).join('');
+  mark('side');
   if ((c.sideNotes || '').trim() || bs.some((b) => (b.sideNotes || '').trim())) {
     html += `<div class="card side"><h3><span class="sp">📝 Side notes</span>${secEdit('contact', c.id, 'Side notes')}</h3>${c.sideNotes ? `<div class="body">${h(c.sideNotes)}</div>` : ''}${bs.filter((b) => b.sideNotes).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.sideNotes)}</div>`).join('')}</div>`;
   }
-  html += `<div class="card"><h3><span class="sp">Contact</span>${secEdit('contact', c.id, 'Mobile numbers')}</h3>${phoneLinks(c.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), true)}${phoneLinks(c.landlines.map((p) => ({ ...p, label: p.label || 'Landline' })))}${c.emails.map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div><a class="cbtn" href="mailto:${h(e.value)}" title="Send an email" aria-label="Email">📧</a></div>`).join('')}${c.postal.map((p) => `<div class="kv"><div class="k">Postal</div><div class="v">${h(p)}</div></div>`).join('')}${!c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length ? '<div class="hint">No contact details yet.</div>' : ''}</div>`;
+  mark('contact');
+  html += `<div class="card"><h3><span class="sp">Contact</span>${secEdit('contact', c.id, 'Mobile numbers')}</h3>${phoneLinks(c.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), true)}${phoneLinks(c.landlines.map((p) => ({ ...p, label: p.label || 'Landline' })))}${c.emails.map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div><a class="cbtn" href="mailto:${h(e.value)}" title="Send an email" aria-label="Email">📧</a></div>`).join('')}${c.postal.map((p) => `<div class="kv"><div class="k">Postal</div><div class="v">${h(p)}</div></div>`).join('')}${!c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length ? (noDet(c) ? '<div class="hint">Name only — ' + NODET + ' (we know who they are, but not how to reach them).</div>' : '<div class="hint">No contact details yet.</div>') : ''}</div>`;
+  mark('nomention');
   html += noMentionCard(c);
+  mark('related');
   html += relatedCard(c);
+  mark('tags');
   if (tags.length) html += `<div class="card"><h3><span class="sp">Categories and tags</span>${secEdit('contact', c.id, 'Category')}</h3><div class="tagrow">${tags.map(tagPill).join('')}</div>${followsBiz(c) && effCats(c).length ? '<div class="hint" style="margin-top:6px">Categories follow the business</div>' : c.ownCats && bs.length ? '<div class="hint" style="margin-top:6px">This contact has its own categories (different to the business)</div>' : ''}</div>`;
+  mark('info');
   html += `<div class="card"><h3><span class="sp">General info</span>${secEdit('contact', c.id, 'General info')}</h3>${infoView(c)}</div>`;
+  mark('biz');
   html += `<h2 class="sec-h" style="font-size:20px;margin:18px 0 8px;display:flex;align-items:center;gap:8px">🔗 Linked ${bs.length === 1 ? 'business' : 'businesses'} <span class="count" style="font-size:14px;background:var(--ink);color:#fff;border-radius:99px;padding:1px 9px">${bs.length}</span></h2>${bs.length ? '' : `<div class="card"><div class="hint">Not linked to a business yet — tap Edit to link one.</div></div>`}`;
   bs.forEach((b) => {
     html += `<div class="card" style="border-left:5px solid var(--ink3)"><h3>${b.rating ? rbadge(b.rating) : ''}<span class="sp">${h(b.name)}${isClientBiz(b) ? '' : ' <span class="hint">(industry)</span>'}</span>${secEdit('contact', c.id, 'Businesses')}<button class="btn small" data-act="open" data-kind="business" data-id="${b.id}">Open business</button></h3>`;
@@ -954,9 +1021,12 @@ function contactDetail(c) {
     html += bizRoutesHtml(b);
     html += '</div>';
   });
+  mark('pastbiz');
   { const pb = pastBizOf(c); if (pb.length) html += `<div class="card" style="opacity:.85"><h3><span class="sp">Past businesses (${pb.length})</span>${secEdit('contact', c.id, 'Businesses')}</h3>${pb.map((b) => `<div style="display:flex;align-items:center;gap:6px;margin:4px 0"><span class="biz-link sp" data-act="open" data-kind="business" data-id="${b.id}" style="flex:1">${h(b.name)}${(c.links.find((l) => l.bid === b.id) || {}).role ? `<span class="hint"> · ${h(c.links.find((l) => l.bid === b.id).role)}</span>` : ''}</span><button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="0">Make current</button></div>`).join('')}</div>`; }
+  customSecs('contact').forEach((cs) => { mark('cs:' + cs.id); html += customCard(c, cs, 'contact'); });
+  mark('_end');
   html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="contact" data-id="${c.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="contact" data-id="${c.id}">🤖 Ask Claude about ${h(c.first || fullName(c))}</button></div>`;
-  return html + '</div>';
+  return layoutApply('contact', html, M) + '</div>';
 }
 
 
@@ -1015,23 +1085,31 @@ function tplOnly(txt) { const t = (txt || '').replace(/^\s*\*[^*]+\*\s*$/gm, '')
 function relLines(c) { const secs = infoSections(c.info).filter(isRelSec); return secs.flatMap((x) => x.lines.map((l) => l.trim()).filter((l) => l && l !== '-')); }
 const REL_WORDS = [[/husband/i, 'Husband'], [/wife/i, 'Wife'], [/partner|spouse|de facto/i, 'Partner'], [/in.?law/i, 'In-law'], [/mother|mum|mom/i, 'Mother'], [/father|dad/i, 'Father'], [/parent/i, 'Parent'], [/son\b/i, 'Son'], [/daughter/i, 'Daughter'], [/kid|child/i, 'Child'], [/brother/i, 'Brother'], [/sister/i, 'Sister'], [/sibling/i, 'Sibling'], [/grand ?(mother|father|parent|ma|pa)/i, 'Grandparent'], [/grand ?(son|daughter|child|kid)/i, 'Grandchild'], [/aunt|uncle/i, 'Aunt/Uncle'], [/niece|nephew/i, 'Niece/Nephew'], [/cousin/i, 'Cousin'], [/friend/i, 'Friend'], [/neighbo/i, 'Neighbour']];
 function relProposals(c) { /* "-Husband: Jeff Stoney" → [{line, label, rel, names:[{text, o}]}] */
-  return relLines(c).map((line) => { const m = line.replace(/^[-•*\s]+/, '').match(/^([^:]{1,40}):\s*(.*)$/); if (!m) return { line, names: [] };
+  return relLines(c).map((line) => { const t = line.replace(/^[-•*\s]+/, ''); let m = t.match(/^([^:]{1,40}):\s*(.*)$/);
+    if (!m) { const m2 = t.match(/^([A-Za-z][A-Za-z' /-]{1,30}?)\s+(?:is|are|=|-|–)\s+(.+)$/i); if (m2 && REL_WORDS.some(([rx]) => rx.test(m2[1]))) m = m2; } // "Father is Alby Van Dongen"
+    if (!m) return { line, names: [] };
     const label = m[1].trim(); const rel = (REL_WORDS.find(([rx]) => rx.test(label)) || [, label.replace(/^./, (x) => x.toUpperCase())])[1];
-    const names = m[2].split(/,|\band\b|&|\//).map((x) => x.trim().replace(/\(.*?\)/g, '').trim()).filter(Boolean).map((text) => { const low = text.toLowerCase();
+    const note = (m[2].match(/\(([^)]*)\)/g) || []).map((x) => x.slice(1, -1).trim()).filter(Boolean).join('; ');
+    const names = m[2].replace(/\([^)]*\)/g, ' ').split(/,|\band\b|&|\//).map((x) => x.trim().replace(/\(.*?\)/g, '').trim()).filter(Boolean).map((text) => { const low = text.toLowerCase();
       let o = D.contacts.find((x) => x !== c && fullName(x).toLowerCase() === low) || (!/\s/.test(text) ? D.contacts.find((x) => x !== c && (x.first || '').toLowerCase() === low && ((x.last && x.last === c.last) || bizOf(x).some((b) => bizOf(c).includes(b)))) : null);
       return { text, o: o || null }; });
-    return { line, label, rel, names }; }); }
+    return { line, label, rel, names, note }; }); }
 let SURNAMES = null;
 function relSuggest(c) { /* same surname and something shared (business, phone, email, address) — and not already linked as related */
   const last = (c.last || '').trim().toLowerCase(); if (last.length < 3) return [];
   if (!SURNAMES || SURNAMES.d !== D.contacts) { const m = new Map(); D.contacts.forEach((x) => { const k = (x.last || '').trim().toLowerCase(); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); SURNAMES = { d: D.contacts, m }; }
   const mine = { b: new Set(c.links.map((l) => l.bid)), ph: new Set([...c.mobiles, ...c.landlines].map((p) => p.value.replace(/\D/g, '').slice(-9)).filter((x) => x.length >= 8)), em: new Set(c.emails.map((e) => e.value.trim().toLowerCase())), po: new Set(c.postal.map((x) => x.trim().toLowerCase())) };
-  const out = []; (SURNAMES.m.get(last) || []).forEach((o) => { if (o === c || o.id < c.id) return; if ((c.related || []).some((r) => r.cid === o.id)) return;
+  const out = []; (SURNAMES.m.get(last) || []).forEach((o) => { if (o === c || o.id < c.id) return; if ([...(c.related || []), ...(c.noMentionRel || [])].some((r) => r.cid === o.id) || [...(o.related || []), ...(o.noMentionRel || [])].some((r) => r.cid === c.id)) return;
     const why = []; if (o.links.some((l) => mine.b.has(l.bid))) why.push('same surname, linked to the same business'); else if ([...o.mobiles, ...o.landlines].some((p) => mine.ph.has(p.value.replace(/\D/g, '').slice(-9)))) why.push('same surname and phone number'); else if (o.emails.some((e) => mine.em.has(e.value.trim().toLowerCase()))) why.push('same surname and email'); else if (o.postal.some((x) => mine.po.has(x.trim().toLowerCase()))) why.push('same surname and address');
-    if (why.length) out.push({ o, why: why[0], rel: 'Other family' }); }); return out; }
+    if (why.length) out.push({ o, why: why[0], rel: 'Other family', guess: relGuess(c, o) }); }); return out; }
+function relGuess(a, b) { /* look for "Husband: Jeff" style lines in either person's general info → {relB: what b is to a, relA: what a is to b} */
+  const find = (x, y) => { if (!(y.first || '').trim() || !x.info) return null; const rx = new RegExp('\\b' + y.first.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    const line = x.info.split('\n').find((l) => rx.test(l) && REL_WORDS.some(([w]) => w.test(l))); if (!line) return null; const lab = (line.match(/^[-•*\s]*([^:]{1,40}):/) || [, line])[1]; const w = REL_WORDS.find(([r]) => r.test(lab)); return w ? w[1] : null; };
+  const r1 = find(a, b); if (r1) return { relB: r1, relA: REL_BACK[r1] || 'Other family', src: a };
+  const r2 = find(b, a); if (r2) return { relB: REL_BACK[r2] || 'Other family', relA: r2, src: b }; return null; }
 function relApply(c) { /* add the people found as related, take their lines out of general info */
   const props = relProposals(c); let n = 0; const used = new Set();
-  props.forEach((p) => { (p.names || []).forEach((nm) => { if (!nm.o) return; const o = nm.o; const existing = (c.related || []).find((r) => r.cid === o.id); setRelated(c, o, existing ? existing.rel : p.rel, REL_BACK[p.rel] || ((o.related || []).find((r) => r.cid === c.id) || {}).rel || 'Other'); n++; }); if (p.names && p.names.length && p.names.every((nm) => nm.o)) used.add(p.line); });
+  props.forEach((p) => { (p.names || []).forEach((nm) => { if (!nm.o) { if (p.rel && !(c.related || []).some((r) => !r.cid && r.name === nm.text)) { setRelatedName(c, nm.text, p.rel); n++; } return; } const o = nm.o; const existing = (c.related || []).find((r) => r.cid === o.id); setRelated(c, o, existing ? existing.rel : p.rel, REL_BACK[p.rel] || ((o.related || []).find((r) => r.cid === c.id) || {}).rel || 'Other'); n++; }); if (p.names && p.names.length && p.rel && !p.note) used.add(p.line); });
   const secs = infoSections(c.info).map((x) => (isRelSec(x) ? { ...x, lines: x.lines.filter((l) => !used.has(l.trim())) } : x)).filter((x) => !isRelSec(x) || x.lines.join('').trim());
   c.info = joinSections(secs); delete c.infoHtml; touch(c); return n; }
 function infoBlockFor(c, text) { return `*From ${fullName(c)}*\n${text}`; }
@@ -1066,7 +1144,7 @@ const NM_TYPES = ['Divorced', 'Ex-husband', 'Ex-wife', 'Ex-partner', 'Separated'
 const NM_BACK = { Divorced: 'Divorced', 'Ex-husband': 'Ex-wife', 'Ex-wife': 'Ex-husband', 'Ex-partner': 'Ex-partner', Separated: 'Separated', 'Estranged family': 'Estranged family', 'Falling out': 'Falling out', 'Passed away': '', Other: 'Other' };
 function noMentionCard(c) { const rs = (c.noMentionRel || []).map((r) => ({ ...r, o: r.cid ? D.contacts.find((x) => x.id === r.cid) : null })).filter((r) => r.o || r.name).sort((a, b) => alphaCmp(a.o ? fullName(a.o) : a.name, b.o ? fullName(b.o) : b.name));
   if (!rs.length && !(c.noMention || '').trim()) return `<div class="card nomention empty"><h3><span class="sp">🤫 Don't mention</span><button class="btn small" data-act="nm-add" data-id="${c.id}" title="Add a person or relationship not to mention">➕</button></h3><div class="hint">Nothing recorded.</div></div>`;
-  return `<div class="card nomention"><h3><span class="sp">🤫 Don't mention</span><button class="btn small" data-act="nm-add" data-id="${c.id}" title="Add a person or relationship not to mention">➕</button></h3>${rs.map((r) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${r.o ? `<span class="lnk" data-act="open" data-kind="contact" data-id="${r.o.id}">${h(fullName(r.o))}</span>` : `<b>${h(r.name)}</b>`} — ${h(r.rel)}${r.note ? ` <span style="font-weight:500">(${h(r.note)})</span>` : ''}</div><button class="btn small" data-act="nm-edit" data-id="${c.id}" data-key="${h(r.cid || 'n:' + r.name)}" title="Edit">✏️</button><button class="btn small" data-act="nm-del" data-id="${c.id}" data-key="${h(r.cid || 'n:' + r.name)}" title="Remove">✕</button></div>`).join('')}${(c.noMention || '').trim() ? `<div class="body" style="margin-top:6px">${h(c.noMention)} ${secEdit('contact', c.id, "Don't mention")}</div>` : ''}</div>`; }
+  return `<div class="card nomention"><h3><span class="sp">🤫 Don't mention</span><button class="btn small" data-act="nm-add" data-id="${c.id}" title="Add a person or relationship not to mention">➕</button></h3>${rs.map((r) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${r.o ? `<span class="lnk" data-act="open" data-kind="contact" data-id="${r.o.id}">${h(fullName(r.o))}</span>` : `<b>${h(r.name)}</b> ${NODET}`} — ${h(r.rel)}${r.note ? ` <span style="font-weight:500">(${h(r.note)})</span>` : ''}</div><button class="btn small" data-act="nm-edit" data-id="${c.id}" data-key="${h(r.cid || 'n:' + r.name)}" title="Edit">✏️</button><button class="btn small" data-act="nm-del" data-id="${c.id}" data-key="${h(r.cid || 'n:' + r.name)}" title="Remove">✕</button></div>`).join('')}${(c.noMention || '').trim() ? `<div class="body" style="margin-top:6px">${h(c.noMention)} ${secEdit('contact', c.id, "Don't mention")}</div>` : ''}</div>`; }
 const nmKey = (r) => r.cid || 'n:' + r.name;
 function setNoMention(c, o, name, rel, note, back) { /* o = contact (two-way) or null with a typed name (this person only) */
   const k = o ? o.id : 'n:' + name; c.noMentionRel = (c.noMentionRel || []).filter((r) => nmKey(r) !== k); if (rel) c.noMentionRel.push(o ? { cid: o.id, rel, ...(note ? { note } : {}) } : { name, rel, ...(note ? { note } : {}) }); if (!c.noMentionRel.length) delete c.noMentionRel; touch(c);
@@ -1082,36 +1160,46 @@ function nmSheet(c, cur) { S.nmFor = c.id; S.nmPick = cur && cur.cid ? cur.cid :
     const rv = (id) => { const v = $('#' + id).value; return v === '__custom' ? val(id + '-c') : v; };
     const o = S.nmPick ? D.contacts.find((x) => x.id === S.nmPick) : null; const name = val('nm-q'); if (!o && !name) { toast('Search for the person or type their name'); return false; }
     const rel = rv('nm-rel'); if (!rel) { toast('Choose why not to mention them'); return false; }
-    if (cur && nmKey(cur) !== (o ? o.id : 'n:' + name)) setNoMention(c, cur.cid ? D.contacts.find((x) => x.id === cur.cid) : null, cur.name, null);
+    if (cur && !cur.fresh && nmKey(cur) !== (o ? o.id : 'n:' + name)) setNoMention(c, cur.cid ? D.contacts.find((x) => x.id === cur.cid) : null, cur.name, null);
     setNoMention(c, o, o ? null : name, rel, val('nm-note'), o ? rv('nm-back') : null); NEXT_LOG_LABEL = `Don't mention: ${o ? fullName(o) : name} (${fullName(c)})`; return true; });
 }
 document.addEventListener('input', (e) => { if (e.target.id !== 'nm-q') return; S.nmPick = null; const bw = $('#nm-backwrap'); if (bw) bw.style.display = 'none'; const c = D.contacts.find((x) => x.id === S.nmFor); const pq = parseQuery(e.target.value); const res = pq.inc.length ? D.contacts.filter((x) => x !== c && matchQ(fullName(x).toLowerCase(), pq)).slice(0, 8) : [];
-  $('#nm-res').innerHTML = res.length ? `<div class="results">${res.map((x) => `<div data-act="nm-pick" data-cid="${x.id}"><b>${h(fullName(x))}</b> <span class="hint">${h(bizOf(x).map((b) => b.name).join(', '))}</span></div>`).join('')}</div><div class="hint">Not in the list? Just keep the typed name.</div>` : ''; });
+  $('#nm-res').innerHTML = res.length ? `<div class="results">${res.map((x) => `<div data-act="nm-pick" data-cid="${x.id}"><b>${h(fullName(x))}</b> <span class="hint">${h(bizOf(x).map((b) => b.name).join(', '))}</span></div>`).join('')}</div><div class="hint">Not a contact? Just keep the typed name — it's saved as “no contact details”.</div>` : e.target.value.trim() ? '<div class="hint">Not a contact — it will be saved as “no contact details”.</div>' : ''; });
 document.addEventListener('change', (e) => { const t = e.target; if (!t.id || !/^nm-(rel|back)$/.test(t.id)) return; const ci = $('#' + t.id + '-c'); if (t.value === '__custom') { ci.hidden = false; ci.focus(); } else { ci.hidden = true; if (t.id === 'nm-rel' && NM_BACK[t.value] != null) { const b = $('#nm-back'); if (b && NM_BACK[t.value]) b.value = NM_BACK[t.value]; } } });
 
 /* ---------------- related people (family, friends…) — no effect on businesses or categories ---------------- */
 const REL_TYPES = ['Aunt/Uncle', 'Brother', 'Child', 'Cousin', 'Daughter', 'Father', 'Friend', 'Grandchild', 'Grandparent', 'Husband', 'In-law', 'Mother', 'Neighbour', 'Niece/Nephew', 'Other', 'Other family', 'Parent', 'Partner', 'Sibling', 'Sister', 'Son', 'Wife', 'Works with'];
 const REL_BACK = { Husband: 'Wife', Wife: 'Husband', Partner: 'Partner', Mother: 'Child', Father: 'Child', Parent: 'Child', Son: 'Parent', Daughter: 'Parent', Child: 'Parent', Brother: 'Sibling', Sister: 'Sibling', Sibling: 'Sibling', Grandparent: 'Grandchild', Grandchild: 'Grandparent', 'Aunt/Uncle': 'Niece/Nephew', 'Niece/Nephew': 'Aunt/Uncle', Cousin: 'Cousin', 'In-law': 'In-law', Friend: 'Friend', Neighbour: 'Neighbour', 'Works with': 'Works with', Other: 'Other', 'Other family': 'Other family' };
-function relatedCard(c) { const rs = (c.related || []).map((r) => ({ ...r, o: D.contacts.find((x) => x.id === r.cid) })).filter((r) => r.o).sort((a, b) => alphaCmp(fullName(a.o), fullName(b.o)));
-  return `<div class="card"><h3><span class="sp">👪 Related people</span><button class="btn small" data-act="rel-add" data-id="${c.id}" title="Add a related person">➕</button></h3>${rs.map((r) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1"><span class="lnk" data-act="open" data-kind="contact" data-id="${r.o.id}">${h(fullName(r.o))}</span> <span class="hint">— ${h(r.rel)}${bizOf(r.o).length ? ' · ' + h(bizOf(r.o).map((b) => b.name).join(', ')) : ''}</span></div><button class="btn small" data-act="rel-del" data-id="${c.id}" data-cid="${r.o.id}" title="Remove">✕</button></div>`).join('') || '<div class="hint">None yet — family or friends who aren\'t employees.</div>'}</div>`; }
+const relKey = (r) => r.cid || 'n:' + r.name;
+const NODET = '<span class="nodet">no contact details</span>';
+function relatedCard(c) { const rs = (c.related || []).map((r) => ({ ...r, o: r.cid ? D.contacts.find((x) => x.id === r.cid) : null })).filter((r) => r.o || r.name).sort((a, b) => alphaCmp(a.o ? fullName(a.o) : a.name, b.o ? fullName(b.o) : b.name));
+  return `<div class="card"><h3><span class="sp">👪 Related people</span><button class="btn small" data-act="rel-add" data-id="${c.id}" title="Add a related person">➕</button></h3>${rs.map((r) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${r.o ? `<span class="lnk" data-act="open" data-kind="contact" data-id="${r.o.id}">${h(fullName(r.o))}</span>` : `<b>${h(r.name)}</b>`} <span class="hint">— ${h(r.rel)}${r.o && bizOf(r.o).length ? ' · ' + h(bizOf(r.o).map((b) => b.name).join(', ')) : ''}</span>${r.o ? '' : ' ' + NODET}</div><button class="btn small" data-act="rel-edit" data-id="${c.id}" data-key="${h(relKey(r))}" title="Edit">✏️</button><button class="btn small" data-act="rel-del" data-id="${c.id}" data-key="${h(relKey(r))}" title="Remove">✕</button></div>`).join('') || '<div class="hint">None yet — family or friends who aren\'t employees.</div>'}</div>`; }
+function setRelatedName(c, name, rel) { /* someone who isn't a contact — kept on this person only */
+  c.related = (c.related || []).filter((r) => r.name !== name || r.cid); if (rel) c.related.push({ name, rel }); if (!c.related.length) delete c.related; touch(c); }
 function setRelated(a, b, relB, relA) { /* relB = what b is to a; relA = what a is to b */
   a.related = (a.related || []).filter((r) => r.cid !== b.id); b.related = (b.related || []).filter((r) => r.cid !== a.id);
   if (relB) a.related.push({ cid: b.id, rel: relB }); if (relA) b.related.push({ cid: a.id, rel: relA }); if (!a.related.length) delete a.related; if (!b.related.length) delete b.related; touch(a); touch(b); }
 function relSelect(id, v) { const custom = v && !REL_TYPES.includes(v); return `<select id="${id}" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px"><option value="__custom" ${custom ? 'selected' : ''}>✏️ Custom…</option>${REL_TYPES.map((t) => `<option ${t === v ? 'selected' : ''}>${t}</option>`).join('')}</select><input id="${id}-c" value="${custom ? h(v) : ''}" placeholder="Type the relationship" ${custom ? '' : 'hidden'} style="width:100%;margin-top:4px;padding:9px;border:1px solid var(--line);border-radius:9px">`; }
-function relAddSheet(c, pre) {
-  S.relFor = c.id; S.relPick = pre ? pre.cid : null;
-  openSheet('Related person — ' + fullName(c), `<div class="hint" style="margin-bottom:8px">For family and friends who aren't employees — it doesn't change anyone's category or business.</div>
-    <input id="rel-q" placeholder="🔍 Search for the person" value="${pre ? h(fullName(D.contacts.find((x) => x.id === pre.cid) || { first: '' })) : ''}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><div id="rel-res"></div><div id="rel-form">${pre ? relForm(c, D.contacts.find((x) => x.id === pre.cid), pre.rel) : ''}</div>`, () => {
-    const o = D.contacts.find((x) => x.id === S.relPick); if (!o) { toast('Search and pick the person first'); return false; }
-    const rv = (id) => { const v = $('#' + id).value; return v === '__custom' ? val(id + '-c') : v; };
-    const relB = rv('rel-b'), relA = rv('rel-a'); if (!relB) { toast('Choose how they are related'); return false; }
-    setRelated(c, o, relB, relA); NEXT_LOG_LABEL = `${fullName(o)} added as ${c.first}'s ${relB.toLowerCase()}`; return true; });
+function relAddSheet(c, pre) { /* pre = {cid, rel} or {name, rel} (editing / suggested) */
+  S.relFor = c.id; S.relPick = pre ? (pre.cid || 'n:' + pre.name) : null; S.relWas = pre && (c.related || []).some((r) => relKey(r) === relKey(pre)) ? relKey(pre) : null;
+  const o0 = pre && pre.cid ? D.contacts.find((x) => x.id === pre.cid) : null;
+  openSheet('Related person — ' + fullName(c), `<div class="hint" style="margin-bottom:8px">For family and friends who aren't employees — it doesn't change anyone's category or business. Not a contact? Just type their name.</div>
+    <input id="rel-q" placeholder="🔍 Search contacts — or type the name" value="${h(o0 ? fullName(o0) : pre && pre.name ? pre.name : '')}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px" autocomplete="off"><div id="rel-res"></div><div id="rel-form">${pre ? relForm(c, o0 || { first: pre.name, name: pre.name, nodet: true }, pre.rel) : ''}</div>`, () => {
+    const pk = S.relPick; if (!pk) { toast('Pick the person, or tap "Add … (no contact details)"'); return false; }
+    const rv = (id) => { const el = $('#' + id); if (!el) return ''; const v = el.value; return v === '__custom' ? val(id + '-c') : v; };
+    const relB = rv('rel-b'); if (!relB) { toast('Choose how they are related'); return false; }
+    if (S.relWas && S.relWas !== pk) { if (S.relWas.startsWith('n:')) setRelatedName(c, S.relWas.slice(2), null); else { const ow = D.contacts.find((x) => x.id === S.relWas); if (ow) setRelated(c, ow, null, null); } }
+    if (pk.startsWith('n:')) { const name = pk.slice(2); setRelatedName(c, name, relB); NEXT_LOG_LABEL = `${name} (no contact details) added as ${c.first}'s ${relB.toLowerCase()}`; return true; }
+    const o = D.contacts.find((x) => x.id === pk); if (!o) return false;
+    setRelated(c, o, relB, rv('rel-a')); NEXT_LOG_LABEL = `${fullName(o)} added as ${c.first}'s ${relB.toLowerCase()}`; return true; });
 }
 function relForm(c, o, rel) { rel = rel || 'Other'; const back = REL_BACK[rel] || 'Other';
+  if (o.nodet) return `<div class="card" style="padding:10px;margin-top:8px"><div class="f"><label><b>${h(o.name)}</b> ${NODET} is ${h(c.first || fullName(c))}'s…</label>${relSelect('rel-b', rel)}</div></div>`;
   return `<div class="card" style="padding:10px;margin-top:8px"><div class="f"><label><b>${h(fullName(o))}</b> is ${h(c.first || fullName(c))}'s…</label>${relSelect('rel-b', rel)}</div><div class="f"><label><b>${h(fullName(c))}</b> is ${h(o.first || fullName(o))}'s…</label>${relSelect('rel-a', back)}</div></div>`; }
 document.addEventListener('input', (e) => { if (e.target.id !== 'rel-q') return; const c = D.contacts.find((x) => x.id === S.relFor); const pq = parseQuery(e.target.value); const res = pq.inc.length ? D.contacts.filter((x) => x !== c && matchQ([fullName(x), ...bizOf(x).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 10) : [];
-  $('#rel-res').innerHTML = e.target.value.trim() ? `<div class="results">${res.map((x) => `<div data-act="rel-pick" data-cid="${x.id}"><b>${h(fullName(x))}</b> <span class="hint">${h(bizOf(x).map((b) => b.name).join(', '))}</span></div>`).join('') || '<div class="hint">No matches — add them as a contact first.</div>'}</div>` : ''; });
-document.addEventListener('change', (e) => { const t = e.target; if (!t.id || !/^rel-[ab]$/.test(t.id)) return; const ci = $('#' + t.id + '-c'); if (t.value === '__custom') { ci.hidden = false; ci.focus(); } else { ci.hidden = true; if (t.id === 'rel-b') { const back = REL_BACK[t.value]; if (back) $('#rel-a').value = back; } } });
+  S.relPick = null; const f = $('#rel-form'); if (f) f.innerHTML = ''; const typed = e.target.value.trim();
+  $('#rel-res').innerHTML = typed ? `<div class="results">${res.map((x) => `<div data-act="rel-pick" data-cid="${x.id}"><b>${h(fullName(x))}</b> <span class="hint">${h(bizOf(x).map((b) => b.name).join(', '))}</span></div>`).join('')}<div data-act="rel-pick-name" style="color:var(--green)">➕ Add “<b>${h(typed)}</b>” — not a contact (no contact details)</div></div>` : ''; });
+document.addEventListener('change', (e) => { const t = e.target; if (!t.id || !/^rel-[ab]$/.test(t.id)) return; const ci = $('#' + t.id + '-c'); if (t.value === '__custom') { ci.hidden = false; ci.focus(); } else { ci.hidden = true; if (t.id === 'rel-b') { const back = REL_BACK[t.value]; if (back && $('#rel-a')) $('#rel-a').value = back; } } });
 
 const secEdit = (kind, id, jump, label = '✏️') => `<button class="btn small secedit" data-act="${kind === 'business' ? 'edit-biz' : 'edit-contact'}" data-id="${id}" data-jump="${h(jump)}" title="Edit this section">${label}</button>`;
 function jumpTo(txt) { /* scroll the editor to the section that was tapped */ setTimeout(() => { const t = txt.toLowerCase(); const all = [...document.querySelectorAll('#sheet .form label, #sheet .form .lbl, #sheet .form summary')]; const ltx = (x) => x.textContent.trim().toLowerCase().replace(/^[^a-z0-9]+/, ''); const lb = all.find((x) => ltx(x).startsWith(t)) || all.find((x) => ltx(x).includes(t)); const f = lb && (lb.closest('.f') || lb.closest('details') || lb); if (!f) return; if (f.tagName === 'DETAILS') f.open = true; f.scrollIntoView({ block: 'center' }); f.classList.add('jumpflash'); setTimeout(() => f.classList.remove('jumpflash'), 1600); const inp = f.querySelector('input:not([type=checkbox]):not([type=radio]):not([type=hidden]),textarea,select,[contenteditable]'); if (inp && !/Mobile|Business phone/.test(txt)) inp.focus({ preventScroll: true }); }, 80); }
@@ -1178,27 +1266,44 @@ function bizDetail(b) {
   <div class="actions"><button class="btn primary" data-act="edit-biz" data-id="${b.id}">Edit</button><button class="btn" data-act="add-farm" data-bid="${b.id}">➕ ${locWord(b)}</button>${b.farms.some((f) => f.lat != null) ? `<button class="btn" data-act="route-add-biz" data-bid="${b.id}">➕ All farms to route</button>` : ''}</div>`;
   html += flagLines('business', b.id).replace(/<div class="flagline">/g, '<div class="flagline">');
   if (bizCat(b) === 'inactive') html += inactiveBox(b.inactiveReason, 'business', b.id);
-  if ((b.cats || []).includes('dna')) html += `<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE</div>${dnaReasonBox(b.dnaReason)}`;
+  if ((b.cats || []).includes('dna')) html += `<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE ☠️</div>${dnaReasonBox(b.dnaReason)}`;
+  const M = []; const mark = (k) => M.push([k, html.length]);
+  mark('warn');
   if (b.warnings) html += `<div class="card warn"><h3><span class="sp">⚠ General warnings</span>${secEdit('business', b.id, 'General warnings')}</h3><div class="body">${h(b.warnings)}</div></div>`;
+  mark('biosec');
   html += biosecBanner(b.biosec);
+  mark('side');
   if (b.sideNotes) html += `<div class="card side"><h3><span class="sp">📝 Side notes</span>${secEdit('business', b.id, 'Side notes')}</h3><div class="body">${h(b.sideNotes)}</div></div>`;
+  mark('cat');
   html += `<div class="card"><h3><span class="sp">Contact category</span><button class="btn small" data-act="cat-edit" data-bid="${b.id}">Change…</button></h3>${b.rating || (b.cats || []).length ? `<div class="tagrow">${[...(b.rating ? [b.rating] : []), ...(b.cats || [])].map(tagPill).join('')}</div>` : '<div class="hint">None set.</div>'}${cs.filter((c) => c.ownCats || ownRating(c)).length ? `<div class="hint" style="margin-top:6px">Own categories: ${h(cs.filter((c) => c.ownCats || ownRating(c)).map((c) => c.first).join(', '))}</div>` : ''}</div>`;
+  mark('phone');
   if (!isClientBiz(b) || bizHasDetails(b) || (b.postal || []).length) html += `<div class="card"><h3><span class="sp">Phone and email</span><button class="btn small" data-act="edit-biz" data-id="${b.id}" data-jump="Business phone numbers" title="Edit">✏️</button></h3>${phoneLinks((b.phones || []).map((p) => ({ ...p, label: p.label || 'Phone' })), false, 'call')}${(b.emails || []).map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div><a class="cbtn" href="mailto:${h(e.value)}" title="Send an email" aria-label="Email">📧</a></div>`).join('')}${(b.postal || []).map((p) => `<div class="kv"><div class="k">Address</div><div class="v">${h(p)}</div></div>`).join('')}${bizHasDetails(b) || (b.postal || []).length ? '' : '<div class="hint">No phone or email on the business yet — tap Edit to add them.</div>'}</div>`;
+  mark('info');
+  html += `<div class="card"><h3><span class="sp">General info</span>${secEdit('business', b.id, 'General info')}</h3>${infoView(b)}</div>`;
+  mark('current');
   const pastCs = IDX.bizPast.get(b.id) || [];
-  html += `<div class="card"><h3>Current ${isClientBiz(b) ? 'contacts / employees' : 'contacts'} (${cs.length})</h3>${cs.map((c) => `<div style="display:flex;align-items:center"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${isClientBiz(b) && primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(roleAt(c, b.id))} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div>${isClientBiz(b) ? (primaryOf(b)?.id === c.id ? `<button class="btn small primbtn on" data-act="prim-remove" data-cid="${c.id}" data-bid="${b.id}" title="Remove as primary contact">★ Remove primary</button>` : `<button class="btn small primbtn" data-act="prim-set" data-cid="${c.id}" data-bid="${b.id}" title="Make the primary contact">☆ Make primary</button>`) : ''}<button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="1" title="They no longer work here">Make past</button><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}" title="Unlink from this business">Unlink</button></div>`).join('') || '<div class="hint">No current contacts.</div>'}
+  html += `<div class="card"><h3>Current ${isClientBiz(b) ? 'contacts / employees' : 'contacts'} (${cs.length})</h3>${cs.map((c) => `<div style="display:flex;align-items:center"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}${noDet(c) ? ' ' + NODET : ''}${isClientBiz(b) && primaryOf(b)?.id === c.id ? ' <span class="rb" style="background:var(--ink)">PRIMARY</span>' : ''}</div><div class="hint">${h(roleAt(c, b.id))} ${h((c.mobiles[0] || c.landlines[0] || {}).value || '')}</div></div></div>${isClientBiz(b) ? (primaryOf(b)?.id === c.id ? `<button class="btn small primbtn on" data-act="prim-remove" data-cid="${c.id}" data-bid="${b.id}" title="Remove as primary contact">Remove primary</button>` : `<button class="btn small primbtn" data-act="prim-set" data-cid="${c.id}" data-bid="${b.id}" title="Make the primary contact">☆ Make primary</button>`) : ''}<button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="1" title="They no longer work here">Make past</button><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}" title="Unlink from this business">Unlink</button></div>`).join('') || '<div class="hint">No current contacts.</div>'}
   <input id="biz-linksearch" data-bid="${b.id}" placeholder="➕ Link a contact — search by name or phone" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="biz-linkres"></div>
   <div class="hint" style="margin-top:4px">${isClientBiz(b) && b.primaryRequired === false ? 'Primary contact not required.' : ''}</div></div>`;
+  mark('past');
   html += `<div class="card"><h3>Past ${isClientBiz(b) ? 'contacts / employees' : 'contacts'} (${pastCs.length})</h3><div class="hint" style="margin-bottom:4px">Their category isn't set by this business.</div>${pastCs.map((c) => `<div style="display:flex;align-items:center;opacity:.8"><div style="flex:1" class="biz-link" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, 'av', 120)}<div><div style="font-weight:600">${h(fullName(c))}</div><div class="hint">${(c.links.find((l) => l.bid === b.id) || {}).role ? h(c.links.find((l) => l.bid === b.id).role) + ' · ' : ''}${h(catOf(c) ? tagName(catOf(c)) : '')}${bizOf(c).length ? ' · now at ' + h(bizOf(c).map((x) => x.name).join(', ')) : ''}</div></div></div><button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="0">Make current</button><button class="btn small" data-act="biz-unlink" data-cid="${c.id}" data-bid="${b.id}">Unlink</button></div>`).join('')}<input id="biz-linksearch-past" data-bid="${b.id}" placeholder="➕ Add a past contact — search by name or phone" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="biz-linkres-past"></div></div>`;
+  mark('pic');
   if (isClientBiz(b)) html += `<div class="card"><h3><span class="sp">Property Identification Code (PIC)</span>${secEdit('business', b.id, 'Property Identification')}</h3>${b.pics.map((p) => `<div class="kv"><div class="k">${h(p.label || 'PIC')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
+  mark('pid');
   if (isClientBiz(b)) html += `<div class="card"><h3><span class="sp">Patient IDs</span>${secEdit('business', b.id, 'Patient IDs')}</h3>${b.patientIds.map((p) => `<div class="kv"><div class="k">${h(p.label || 'ID')}</div><div class="v">${h(p.value)}</div></div>`).join('') || '<div class="hint">None recorded.</div>'}</div>`;
+  mark('routes');
   { const rh = bizRoutesHtml(b, false); if (rh) html += `<div class="card"><h3>Saved routes</h3>${rh}</div>`; }
+  mark('farms');
   html += `<div class="card"><h3><span class="sp">${locWord(b, true)}</span><button class="btn small" data-act="add-farm" data-bid="${b.id}">➕ New</button></h3>${b.farms.filter((f) => !(f.owner && f.owner.bid && f.owner.bid !== b.id && IDX.biz.get(f.owner.bid))).map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} owned by this business.</div>`}
     <input id="farm-linksearch" data-bid="${b.id}" placeholder="➕ Link an existing farm or yards (e.g. a lease block) — search name, address or business" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="farm-linkres"></div></div>`;
+  mark('farmsused');
   { const used = b.farms.filter((f) => f.owner && f.owner.bid && f.owner.bid !== b.id && IDX.biz.get(f.owner.bid)); if (used.length) html += `<div class="card"><h3>${locWord(b, true)} used but not owned by this business (${used.length})</h3><div class="hint" style="margin-bottom:4px">Shared yards — the owner's details show here, and any change applies to every business that uses them.</div>${used.map((f) => farmCard(b, f)).join('')}</div>`; }
+  mark('farmspast');
   if (b.pastFarms.length) html += `<details class="card"><summary><h3 style="display:inline">Not current ${locWord(b, true).toLowerCase()} (${b.pastFarms.length})</h3></summary><div class="hint" style="margin:6px 0">Farms this business used to use (e.g. a block they sold or no longer lease).</div>${b.pastFarms.map((f) => farmCard(b, f, false, true)).join('')}</details>`;
-  html += `<div class="card"><h3><span class="sp">General info</span>${secEdit('business', b.id, 'General info')}</h3>${infoView(b)}</div>`;
+  customSecs('business').forEach((cs) => { mark('cs:' + cs.id); html += customCard(b, cs, 'business'); });
+  mark('_end');
   html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="business" data-id="${b.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="business" data-id="${b.id}">🤖 Ask Claude about ${h(b.name)}</button></div>`;
-  return html + '</div>';
+  return layoutApply('business', html, M) + '</div>';
 }
 
 /* ---------------- edit sheets ---------------- */
@@ -1227,7 +1332,7 @@ async function leaveSheet(fromPop) {
 function closeSheet() { const s = $('#sheet'); if (s) s.remove(); if (SHEET && !SHEET.popped) { NAV.ignorePop++; history.back(); } SHEET = null; updateBackBtn(); }
 function repRows(name, rows, fields) {
   // fields: [{k, ph, w, opts}]
-  const row = (r = {}) => `<div class="rep" data-rep="${name}">${fields.map((f) => f.opts ? `<select data-k="${f.k}" style="flex:${f.w || 1}">${f.opts.map((o) => `<option ${o === (r[f.k] || '') ? 'selected' : ''}>${h(o)}</option>`).join('')}${r[f.k] && !f.opts.includes(r[f.k]) ? `<option selected>${h(r[f.k])}</option>` : ''}</select>` : `<input data-k="${f.k}" placeholder="${h(f.ph || '')}" value="${h(r[f.k] || '')}" style="flex:${f.w || 1}" ${f.list ? `list="${f.list}"` : ''}>`).join('')}<button class="x" type="button" data-act="rep-del" title="Remove">×</button></div>`;
+  const row = (r = {}) => `<div class="rep" data-rep="${name}">${fields.map((f) => f.opts ? `<select data-k="${f.k}" style="flex:${f.w || 1}">${f.opts.map((o) => `<option ${o === (r[f.k] || '') ? 'selected' : ''}>${h(o)}</option>`).join('')}${r[f.k] && !f.opts.includes(r[f.k]) ? `<option selected>${h(r[f.k])}</option>` : ''}</select>` : `<input data-k="${f.k}" placeholder="${h(f.ph || '')}" value="${h(r[f.k] || '')}" style="flex:${f.w || 1}" ${f.list ? `list="${f.list}"` : ''} ${f.attrs || ''}>`).join('')}<button class="x" type="button" data-act="rep-del" title="Remove">×</button></div>`;
   return `<div data-repwrap="${name}">${rows.map(row).join('')}</div><button class="btn small" type="button" data-act="rep-add" data-rep="${name}">➕ Add</button><template data-reptpl="${name}">${row()}</template>`;
 }
 function readRep(name) {
@@ -1275,6 +1380,7 @@ function editContact(c) {
   photoOpts.push(['custom', 'Upload my own photo']);
   const body = `${isNew ? '' : `<div class="f"><span class="lbl">This entry is a…</span><div class="seg"><button type="button" class="on" data-act="kind-pick" data-v="person">Person</button><button type="button" data-act="kind-pick" data-v="client">Client business</button><button type="button" data-act="kind-pick" data-v="industry">Industry business</button></div><input type="hidden" id="e-kind" value="person"><div id="e-kindhint" class="hint" style="display:none;margin-top:6px;color:var(--red-ink)"></div></div>`}
   <div class="grid2"><div class="f"><label>First name</label><input id="e-first" value="${h(c.first)}"></div><div class="f"><label>Surname</label><input id="e-last" value="${h(c.last)}"></div></div>
+  <label style="display:flex;gap:8px;align-items:center;margin:-2px 0 8px;font-size:14px"><input type="checkbox" id="e-nodet" ${c.noDetails ? 'checked' : ''}> Name only — we don't have their contact details (don't ask for them in Jobs)</label>
   <div class="grid2"><div class="f"><label>Middle / nickname</label><input id="e-middle" value="${h(c.middle)}"></div><div class="f"><label>Role / position</label><input id="e-role" value="${h(c.role)}"></div></div>
   <div class="f"><label>Businesses</label>${roleDatalist()}<div id="e-links">${[...c.links.filter((l) => !l.past), ...c.links.filter((l) => l.past)].map((l) => linkRow(l.bid, null, l.past, l.role)).join('')}</div><div class="hint">Tick <b>Past</b> for a business they no longer work for — it stays on record but doesn't set their category.</div>
     <input id="e-bizsearch" placeholder="Search to link a business, or type a new business name"><div id="e-bizres"></div>
@@ -1299,7 +1405,8 @@ function editContact(c) {
   <div class="f" id="e-inwrap" style="${catOf(c) === 'inactive' ? '' : 'display:none'}"><label style="color:var(--red-ink)">Inactive — reason (required, shown in a red box at the top)</label>${reasonChips('#e-inreason')}<textarea id="e-inreason" class="warn" style="min-height:60px" placeholder="e.g. inactivated as no longer using our routine services, or client retired and sold farm">${h(c.inactiveReason || '')}</textarea></div>
   <div class="f" id="e-dnawrap" style="${effTags(c).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">☠️ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-dnareason" class="warn" placeholder="e.g. bad debtor, not the client for us, don't feel safe" style="min-height:60px">${h(c.dnaReason || '')}</textarea></div>
   <div class="f"><label style="color:#7a5a00">Side notes (a general caution but not an urgent warning, e.g. don't mention X as they don't talk)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
-  <div class="f"><label style="color:#7a5a00">🤫 Don't mention — other topics (people and relationships are added with ➕ in the yellow Don't mention section)</label><textarea id="e-nomention" class="nomention" placeholder="e.g. Sam and Jeremy are divorced — don't mention the relationship">${h(c.noMention || '')}</textarea></div>
+  ${customFields(c, 'contact')}
+  <div class="f"><label style="color:#7a5a00">🤫 Don't mention — other topics (people and relationships are added with ➕ in the yellow Don't mention section)</label><textarea id="e-nomention" class="nomention">${h(c.noMention || '')}</textarea></div>
   <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${curPc === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
     <input type="file" id="e-photofile" accept="image/*" style="margin-top:6px;${c.photoChoice === 'custom' ? '' : 'display:none'}"><div class="hint">Photos come from the tags automatically. If a contact has two businesses with different ratings, the photo is split and labelled with each business.</div></div>
   <div class="f"><label><input type="checkbox" id="e-star" ${isFav(c) ? 'checked' : ''}> ★ Favourite on this device (shows at the top of your list)</label></div>
@@ -1314,6 +1421,8 @@ function editContact(c) {
     if (kind !== 'person') { const nm = [first, val('e-middle'), last].filter(Boolean).join(' '); const tgt = bizOf(c).find((b) => sameAsBizName({ ...c, first, last, middle: val('e-middle') }, b));
       if (!(await ask(`Change "${nm}" into ${kind === 'client' ? 'a client business' : 'an industry (non-client) business'}?\n\n${tgt ? `Its phone, email, address and notes move onto the existing business "${tgt.name}".` : `A new business called "${nm}" is created with its phone, email, address and notes.`}${bizOf(c).filter((b) => b !== tgt).length ? `\n\nIt will no longer be linked to: ${bizOf(c).filter((b) => b !== tgt).map((b) => b.name).join(', ')}.` : ''}\n\nThe contact itself goes to the trash (restore it from Settings → Trash if needed).`, 'Yes — change it to a business'))) return false; }
     setFav(c, $('#e-star').checked);
+    readCustom(c);
+    if ($('#e-nodet')) { if ($('#e-nodet').checked) c.noDetails = true; else delete c.noDetails; }
     Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), ...readRich('e-info'), warnings: $('#e-warn').value.trim(), sideNotes: $('#e-side').value.trim(), noMention: $('#e-nomention').value.trim(), dnaReason: $('#e-dnareason').value.trim(), inactiveReason: $('#e-inreason').value.trim(), });
     const oldBids = new Set((c.links || []).map((l) => l.bid)); const prevCat = isNew ? '' : catOf(c);
     c.links = [...document.querySelectorAll('#e-links [data-bid]')].map((el) => { const l = { bid: el.dataset.bid }; if (el.querySelector('.lk-past')?.checked) l.past = true; const r = (el.querySelector('.lk-role')?.value || '').trim(); if (r) l.role = r; return l; });
@@ -1373,6 +1482,22 @@ const inactiveReasons = () => (D.settings.inactiveReasons && D.settings.inactive
 function reasonChips(target) { return `<div class="chips" style="margin:4px 0 8px">${inactiveReasons().map((r) => `<button type="button" class="chip" style="padding-right:11px;font-size:13px" onclick="var t=document.querySelector('${target}');if(t){t.value='${r.replace(/'/g, "\\'")}';t.dispatchEvent(new Event('input',{bubbles:true}));}this.parentNode.querySelectorAll('.chip').forEach(function(x){x.classList.remove('on')});this.classList.add('on')">${h(r)}</button>`).join('')}<button type="button" class="chip" style="padding-right:11px;font-size:13px" onclick="var t=document.querySelector('${target}');if(t){t.value='';t.focus();}this.parentNode.querySelectorAll('.chip').forEach(function(x){x.classList.remove('on')});this.classList.add('on')">✏️ Custom reason</button></div>`; }
 function listCard(k, title, list, hint) { return `<div class="card"><h3><span class="sp">${h(title)}</span><button class="btn small" data-act="lst-add" data-k="${k}">➕ Add</button></h3><div class="hint" style="margin-bottom:6px">${hint}</div>
   ${list.map((x, i) => `<div class="kv" style="align-items:center"><span style="width:22px;color:var(--ink3);font-weight:600">${i + 1}</span><div class="v">${h(x)}</div><button class="btn small" data-act="lst-mv" data-k="${k}" data-i="${i}" data-d="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="lst-mv" data-k="${k}" data-i="${i}" data-d="1" ${i < list.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button><button class="btn small secedit" data-act="lst-edit" data-k="${k}" data-i="${i}" title="Rename">✏️</button><button class="btn small" data-act="lst-del" data-k="${k}" data-i="${i}" title="Delete">✕</button></div>`).join('')}</div>`; }
+const SCHEMES = [['classic', 'Classic black', '#141414'], ['green', 'Paddock green', '#2e6b34'], ['blue', 'Ocean blue', '#1d4f91'], ['teal', 'Teal', '#0f6e6e'], ['earth', 'Earth brown', '#6b4423'], ['plum', 'Plum', '#6a2c70'], ['rose', 'Rose', '#a8325e']];
+function layoutCard() { const K = S.layK || 'contact'; const keys = layoutKeys(K); const hid = layoutHidden(K); const css = D.settings.customSecs || [];
+  const sw = (c) => `<span style="display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid var(--line);background:${(SEC_COLORS.find((x) => x[0] === c) || SEC_COLORS[0])[2]};vertical-align:middle"></span>`;
+  return `<div class="card"><h3><span class="sp">🧩 Page layout and custom sections</span></h3>
+  <div class="hint" style="margin-bottom:8px">Change the order of the sections on contact and business pages, hide ones you don't use, and add your own sections. Applies on every device. Warnings, biosecurity, Don't mention and jobs can be moved but not hidden.</div>
+  <div class="chips" style="margin-bottom:8px">${[['contact', 'Contact page', '👤'], ['business', 'Business page', '🏢']].map(([v, l, ic]) => `<button class="chip ${K === v ? 'on' : ''}" data-act="lay-k" data-v="${v}"><span class="ci">${ic}</span>${l}</button>`).join('')}</div>
+  <div class="hint" style="margin-bottom:4px">The name, photo, Inactive / Do not answer boxes always stay at the top.</div>
+  ${keys.map((k, i) => `<div class="kv" style="align-items:center;${hid.has(k) ? 'opacity:.5' : ''}"><span style="width:22px;color:var(--ink3);font-weight:600">${i + 1}</span><div class="v" style="flex:1">${h(layoutLabel(K, k))}${hid.has(k) ? ' <span class="hint">(hidden)</span>' : ''}</div><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="1" ${i < keys.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button>${LAYOUT_LOCKED.has(k) ? '<span style="width:44px;text-align:center" title="Always shown">🔒</span>' : `<button class="btn small" data-act="lay-hide" data-k="${h(k)}" title="${hid.has(k) ? 'Show' : 'Hide'}" style="width:44px">${hid.has(k) ? '🙈' : '👁'}</button>`}</div>`).join('')}
+  <div class="actions" style="margin-top:6px"><button class="btn small" data-act="lay-reset">↺ Back to the standard layout</button></div>
+  <div class="lbl" style="margin-top:14px;display:flex;align-items:center"><span style="flex:1">Your own sections</span><button class="btn small" data-act="cs-add">➕ Add a section</button></div>
+  ${css.length ? css.map((x) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${sw(x.color)} <b>${h(x.name)}</b> <span class="hint">— ${x.for === 'both' ? 'contacts and businesses' : x.for === 'business' ? 'businesses' : 'contacts'}</span></div><button class="btn small secedit" data-act="cs-edit" data-id="${x.id}" title="Edit">✏️</button><button class="btn small" data-act="cs-del" data-id="${x.id}" title="Delete">✕</button></div>`).join('') : '<div class="hint">None yet — e.g. "Dog names", "Gate codes", "Preferred days".</div>'}</div>`; }
+async function customSecForm(cur) { const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
+  const r = await askBox(cur ? 'Edit section' : 'Add a section', `<div class="f"><label>Section name</label><input data-ask="name" value="${h(cur ? cur.name : '')}" placeholder="e.g. Dog names" ${inp}></div>
+    <div class="f"><label>Show it on</label><select data-ask="for" ${inp}>${[['contact', 'Contact pages'], ['business', 'Business pages'], ['both', 'Both']].map(([v, l]) => `<option value="${v}" ${(cur ? cur.for : 'contact') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>Colour</label><select data-ask="color" ${inp}>${SEC_COLORS.map(([v, l]) => `<option value="${v}" ${(cur ? cur.color || '' : '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`, 'Save', false, 'Cancel');
+  const name = (ASK_FORM.name || '').trim(); if (!r || !name) return null; return { id: cur ? cur.id : (D.settings.customSecsGone || {})[name.toLowerCase()] || uid('s'), name, for: ASK_FORM.for || 'contact', color: ASK_FORM.color || '' }; }
 const LIST_GET = { inactiveReasons: () => inactiveReasons(), linkRoles: () => linkRoles() };
 function roleOptions() { const L = linkRoles(); const used = [...new Set(D.contacts.flatMap((c) => c.links.map((l) => l.role).filter(Boolean)))].filter((r) => !L.includes(r)).sort((a, b) => a.localeCompare(b)); return [...L, ...used].slice(0, 80); } /* your list first (Settings → Roles), then others already in use */
 function roleSelect(role) { const opts = roleOptions(); const custom = role && !opts.includes(role); return `<select class="lk-rolesel" style="flex-basis:100%;margin-top:4px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:14.5px"><option value="">Role here — none</option>${opts.map((o) => `<option value="${h(o)}" ${o === role ? 'selected' : ''}>${h(o)}</option>`).join('')}<option value="__custom" ${custom ? 'selected' : ''}>✏️ Custom role…</option></select>`; }
@@ -1399,9 +1524,9 @@ function editBiz(b) {
   <div class="f"><label>Business emails</label>${repRows('bemail', b.emails || [], [{ k: 'value', ph: 'e.g. sales@business.com.au', w: 3 }, { k: 'label', ph: 'Label (optional)', w: 2 }])}</div>
   <div class="f"><label>Business postal / street address</label><textarea id="e-bpostal" style="min-height:50px">${h((b.postal || []).join('\n'))}</textarea></div>
   <div class="f client-only"><label>Primary contact required?</label><select id="e-bpreq"><option value="yes">Yes</option><option value="no" ${b.primaryRequired === false ? 'selected' : ''}>Not required</option></select></div>
-  ${(IDX.bizContacts.get(b.id) || []).length ? `<div class="f client-only"><label>Contacts — tap ★ to make someone the primary contact</label><input type="hidden" id="e-bprimary" value="${primaryOf(b)?.id || ''}"><div id="e-bprimlist">${(IDX.bizContacts.get(b.id) || []).map((c) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${h(fullName(c))}${roleAt(c, b.id) ? ` <span class="hint">· ${h(roleAt(c, b.id))}</span>` : ''}</div><button type="button" class="btn small primbtn ${primaryOf(b)?.id === c.id ? 'on' : ''}" data-act="e-primtoggle" data-cid="${c.id}">${primaryOf(b)?.id === c.id ? '★ Primary — tap to remove' : '☆ Make primary'}</button></div>`).join('')}</div></div>` : ''}
+  ${(IDX.bizContacts.get(b.id) || []).length ? `<div class="f client-only"><label>Contacts — tap ★ to make someone the primary contact</label><input type="hidden" id="e-bprimary" value="${primaryOf(b)?.id || ''}"><div id="e-bprimlist">${(IDX.bizContacts.get(b.id) || []).map((c) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${h(fullName(c))}${roleAt(c, b.id) ? ` <span class="hint">· ${h(roleAt(c, b.id))}</span>` : ''}</div><button type="button" class="btn small primbtn ${primaryOf(b)?.id === c.id ? 'on' : ''}" data-act="e-primtoggle" data-cid="${c.id}">${primaryOf(b)?.id === c.id ? 'Primary — tap to remove' : '☆ Make primary'}</button></div>`).join('')}</div></div>` : ''}
   <div class="f"><span class="lbl">Contact category</span>${catPicker('bcat', bizCat(b), null)}<div class="hint">Contacts set to "Same as business" follow these. Contacts with their own categories keep theirs.</div></div>
-  <div class="f client-only"><label>Property Identification Code (PIC)</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2 }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
+  <div class="f client-only"><label>Property Identification Code (PIC)</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2, attrs: 'class="picin" autocapitalize="characters" autocomplete="off" spellcheck="false"' }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f client-only"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
   <div class="f"><label>General info</label>${richEditor('e-binfo', b)}</div>
   <div class="f"><label style="color:var(--red-ink)">General warnings (red — shown on every linked contact). Farm warnings go on the farm.</label><textarea id="e-bwarn" class="warn">${h(b.warnings)}</textarea></div>
@@ -1409,10 +1534,13 @@ function editBiz(b) {
   <div class="f" id="e-bdnawrap" style="${(b.cats || []).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">☠️ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-bdnareason" class="warn" style="min-height:60px">${h(b.dnaReason || '')}</textarea></div>
   <div class="f"><label style="color:#7a5a00">Side notes (yellow — shown on every linked contact)</label><textarea id="e-bside" class="sidenote">${h(b.sideNotes || '')}</textarea></div>
   <div class="f"><label style="color:#8a3b00">🦠 Biosecurity (shown on this business, its contacts and its farms)</label><textarea id="e-bbio" class="biosec" placeholder="e.g. Ovine footrot · Has pigs — don't visit if you've been near pigs in the last week">${h(b.biosec || '')}</textarea></div>
+  ${customFields(b, 'business')}
   <div class="hint">Farms are added and edited from the business page.</div>
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-biz" data-id="${b.id}" style="color:var(--red)">Delete business</button></div>`}`;
   openSheet(isNew ? 'New business' : 'Edit business', body, async () => {
     const name = val('e-bname'); if (!name) { toast('Enter a business name'); return false; }
+    { const bad = readRep('pic').map((p) => p.value.toUpperCase().replace(/\s+/g, '')).filter((v) => v && !PIC_RX.test(v));
+      if (bad.length && $('#e-btype').value !== 'nonclient' && !(await askBox('Check the PIC', `<p><b>The PIC entered doesn't look correct, please check.</b></p><p>${bad.map((v) => `<b>${h(v)}</b>`).join(', ')}</p><p class="hint">A WA PIC is 4 letters starting with W, then 4 numbers — e.g. WFAY2784.</p>`, 'Save anyway', false, 'Go back and check'))) { const i = [...document.querySelectorAll('#sheet .picin')].find((x) => bad.includes(x.value.toUpperCase().replace(/\s+/g, ''))); if (i) { i.scrollIntoView({ block: 'center' }); i.focus(); } return false; } }
     { const badPic = readRep('pic').map((p) => p.value.toUpperCase().replace(/\s+/g, '')).filter((v) => !PIC_RX.test(v)); if (badPic.length && !(await ask(`${badPic.join(', ')} doesn't look like a PIC.\n\nPICs are W + 3 more letters + 4 numbers (e.g. WFAY2899). Save anyway?`, 'Yes — save anyway'))) return false; }
     const pick = rtVal($('#sheet'), 'bcat'); const newRating = RATING_SET.has(pick) ? pick : null;
     if (!pick) { toast('Choose a category for the business'); return false; }
@@ -1428,6 +1556,7 @@ function editBiz(b) {
       if (!oldBc.includes('inactive') && b.cats.includes('inactive')) { c.flags = c.flags || []; c.flags.push({ type: 'ezyvet', at: Date.now() }); touch(c); }
       if (!oldBc.includes('dna') && b.cats.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); touch(c); }
     });
+    readCustom(b);
     Object.assign(b, { name, rating: newRating, pics: readRep('pic').map((p) => ({ ...p, value: p.value.toUpperCase().replace(/\s+/g, '') })), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim(), sideNotes: $('#e-bside').value.trim(), biosec: $('#e-bbio').value.trim(), dnaReason: $('#e-bdnareason').value.trim(), inactiveReason: $('#e-binreason').value.trim() });
     setBizType(b, pickedType); // keeps the type you chose even if the category says otherwise
     touch(b); if (isNew) D.businesses.push(b);
@@ -1438,7 +1567,7 @@ function editBiz(b) {
 }
 document.addEventListener('change', async (e) => {
   const t = e.target;
-  if (t.dataset && t.dataset.pref) { savePref(t.dataset.pref, t.value); if (t.dataset.pref === 'theme' || t.dataset.pref === 'size') applyUi(); toast('Saved for this device'); return; }
+  if (t.dataset && t.dataset.pref) { savePref(t.dataset.pref, t.value); if (['theme', 'size', 'scheme'].includes(t.dataset.pref)) applyUi(); toast('Saved for this device'); return; }
   if (t.dataset && t.dataset.jobtype) { const off = new Set(PREF.jobsOff || []); t.checked ? off.delete(t.dataset.jobtype) : off.add(t.dataset.jobtype); savePref('jobsOff', [...off]); JOBS_CACHE = null; renderTabs(); toast('Saved for this device'); return; }
   const setShared = async (fn, label) => { fn(D.settings); touch(D.settings); NEXT_LOG_LABEL = label; S.skipConfirm = true; JOBS_CACHE = null; await changed(); toast('Saved'); };
   if (t.dataset && t.dataset.req) { await setShared((st) => { const r = new Set(st.required || REQ_DEF); t.checked ? r.add(t.dataset.req) : r.delete(t.dataset.req); st.required = [...r]; }, `Required information: ${t.dataset.req} ${t.checked ? 'on' : 'off'}`); return; }
@@ -1826,12 +1955,21 @@ async function runBulk(t, op) {
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]'); if (!el) return; const a = el.dataset.act;
   if (a === 'job-sel') { el.checked ? S.jobSel.add(el.dataset.key) : S.jobSel.delete(el.dataset.key); rerenderJobs(); }
-  else if (a === 'job-selall') { e.stopPropagation(); const g = jobs().filter((j) => j.type === el.dataset.type); g.forEach((j) => (el.checked ? S.jobSel.add(j.key) : S.jobSel.delete(j.key))); S.jobOpen[el.dataset.type] = true; rerenderJobs(); }
-  else if (a === 'job-selnone') { jobs().filter((j) => j.type === el.dataset.type).forEach((j) => S.jobSel.delete(j.key)); rerenderJobs(); }
+  else if (a === 'job-selall') { e.stopPropagation(); const g = jobsShown().filter((j) => j.type === el.dataset.type); g.forEach((j) => (el.checked ? S.jobSel.add(j.key) : S.jobSel.delete(j.key))); S.jobOpen[el.dataset.type] = true; rerenderJobs(); }
+  else if (a === 'job-selnone') { jobsShown().filter((j) => j.type === el.dataset.type).forEach((j) => S.jobSel.delete(j.key)); rerenderJobs(); }
   else if (a === 'job-bulk') runBulk(el.dataset.type, el.dataset.op);
 });
 document.addEventListener('toggle', (e) => { const d = e.target; if (d.classList && d.classList.contains('jobgroup')) S.jobOpen[d.dataset.type] = d.open; }, true);
 function rerenderJobs() { if (S.tab !== 'jobs') return; const sc = $('#list').scrollTop; $('#list').innerHTML = renderJobs(); $('#list').scrollTop = sc; }
+function relSugRow(sg) { const A = D.contacts.find((x) => x.id === sg.a), B = D.contacts.find((x) => x.id === sg.b); if (!A || !B) return '';
+  const fa = h(A.first || fullName(A)), fb = h(B.first || fullName(B));
+  const btn = (relB, relA, lbl, green) => `<button class="btn small ${green ? 'greenbtn' : ''}" data-act="rel-sug-set" data-a="${A.id}" data-b="${B.id}" data-relb="${h(relB)}" data-rela="${h(relA)}">${lbl}</button>`;
+  const g = sg.guess; const opts = [];
+  if (g) opts.push(btn(g.relB, g.relA, `✓ ${fb} is ${fa}'s ${h(g.relB.toLowerCase())}`, true));
+  [['Partner', 'Partner', '💑 Partners'], ['Sibling', 'Sibling', '👫 Siblings'], ['Child', 'Parent', `${fa} is ${fb}'s parent`], ['Parent', 'Child', `${fb} is ${fa}'s parent`], ['Other family', 'Other family', 'Other family']]
+    .filter(([rb, ra]) => !g || g.relB !== rb || g.relA !== ra).forEach(([rb, ra, l]) => opts.push(btn(rb, ra, l)));
+  return `<div class="relsug"><div><b class="lnk" data-act="open" data-kind="contact" data-id="${A.id}">${h(fullName(A))}</b> ↔ <b class="lnk" data-act="open" data-kind="contact" data-id="${B.id}">${h(fullName(B))}</b> <span class="hint">— ${h(sg.why)}${g ? ` · general info of ${h(g.src.first || fullName(g.src))} mentions it` : ''}</span></div>
+    <div class="acts">${opts.join('')}<button class="btn small" data-act="rel-sug" data-a="${A.id}" data-b="${B.id}">Choose…</button><button class="btn small" data-act="rel-sug-nm" data-a="${A.id}" data-b="${B.id}">🤫 Don't mention…</button><button class="btn small" data-act="dupe-not" data-key="${h(sg.k)}">✕ Not related</button></div></div>`; }
 function jobItemHtml(j, inline) { // one job with all its buttons — used on the Jobs list and on the contact / business itself
   const t = j.type;
   return `<div class="job ${S.jobSel.has(j.key) ? 'jobsel' : ''}">${inline ? '' : `<input type="checkbox" class="jobcheck" data-act="job-sel" data-key="${h(j.key)}" ${S.jobSel.has(j.key) ? 'checked' : ''} aria-label="Select this job">`}<div class="t">${inline ? '' : `<div class="who"><span class="wholink" data-act="open" data-kind="${j.kind === 'business' ? 'business' : 'contact'}" data-id="${j.id}" title="Open ${j.kind === 'business' ? 'business' : 'contact'}">${h(j.who)}</span></div><div class="note">${h(j.note)}</div>`}${j.suggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${j.suggest.km} km return (${h(j.suggest.why)})</div>` : ''}${j.photoSuggest ? `<div class="note" style="color:#0d5c20;font-weight:600">Suggested: ${h(tagName(j.photoSuggest))} photo</div>` : ''}${j.warnTxt ? `<div class="body" style="background:#fff5f5;border:1px solid #f3c2c2;border-radius:8px;padding:6px 8px;margin:4px 0;font-size:14.5px;white-space:pre-wrap">${h(j.warnTxt)}</div>` : ''}<div class="acts">
@@ -1854,7 +1992,7 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       ${j.linkRev ? `<button class="btn small" data-act="link-past" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" data-v="1">Past employee</button><button class="btn small" data-act="linkrev-undo" data-cid="${j.linkRev.cid}" data-bid="${j.linkRev.bid}" style="color:var(--red)">Undo — remove the link</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkRev.cid}">View contact</button>` : ''}
       ${j.linkSug ? `<button class="btn small greenbtn" data-act="biz-link-pick" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as current employee</button><button class="btn small greenbtn" data-act="link-pick-past" data-cid="${j.linkSug.cid}" data-bid="${j.linkSug.bid}">✓ Link as past employee</button><button class="btn small" data-act="open" data-kind="contact" data-id="${j.linkSug.cid}">View contact</button><button class="btn small" data-act="open" data-kind="business" data-id="${j.linkSug.bid}">View business</button>` : ''}
       ${j.oddbiz ? `<button class="btn small primary" data-act="oddbiz-fix" data-bid="${j.oddbiz}">Sort out this name…</button><button class="btn small" data-act="edit-biz" data-id="${j.oddbiz}">Rename by hand</button>` : ''}
-      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}${t === 'infomove' ? (() => { const c = D.contacts.find((x) => x.id === j.id); const im = j.infoMove; const bs = c ? bizOf(c) : []; return `</div><div class="body" style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin:4px 0;font-size:14px;max-height:160px;overflow:auto;white-space:pre-wrap;width:100%">${h(im.pending ? im.text : im.block)}</div><div class="acts">${im.pending ? bs.map((b) => `<button class="btn small greenbtn" data-act="im-to" data-cid="${j.id}" data-bid="${b.id}">Put on ${h(b.name)}</button>`).join('') + `<button class="btn small" data-act="im-keep" data-cid="${j.id}">Keep on ${h(c ? c.first || fullName(c) : 'person')}</button>` : `<button class="btn small greenbtn" data-act="im-ok" data-cid="${j.id}">✓ Correct business</button>${bs.filter((b) => b.id !== im.bid).map((b) => `<button class="btn small" data-act="im-to" data-cid="${j.id}" data-bid="${b.id}">Move to ${h(b.name)}</button>`).join('')}<button class="btn small" data-act="im-back" data-cid="${j.id}">Put back on ${h(c ? c.first || fullName(c) : 'person')}</button>`}`; })() : ''}${j.relSug ? `<button class="btn small greenbtn" data-act="rel-sug" data-a="${j.relSug.a}" data-b="${j.relSug.b}">👪 Add as related…</button>` : ''}${t === 'relmove' ? `</div><div style="width:100%;margin:4px 0">${j.relProps.map((p) => `<div class="hint" style="margin:2px 0">${h(p.line)}${p.names && p.names.length ? ' → ' + p.names.map((nm) => nm.o ? `<b style="color:var(--green)">✓ ${h(fullName(nm.o))} (${h(p.rel)})</b>` : `<span>${h(nm.text)} — not a contact, stays in general info</span>`).join(', ') : ''}</div>`).join('')}</div><div class="acts">${j.relProps.some((p) => (p.names || []).some((nm) => nm.o)) ? `<button class="btn small greenbtn" data-act="rel-apply" data-cid="${j.id}">✓ Move to Related people</button>` : ''}<button class="btn small" data-act="rel-add" data-id="${j.id}">➕ Add related person…</button>` : ''}${t === 'pincheck' || t === 'pincheckin' ? (() => { const f = IDX.farms.get(j.fid); return f && f.turn ? `</div><div style="width:100%;margin:4px 0">${pinEmbed(f.turn)}</div><div class="acts"><button class="btn small greenbtn" data-act="pc-open" data-fid="${f.id}">🚩 Check turn-off & add yards…</button><button class="btn small" data-act="pc-isyards" data-fid="${f.id}">It's the yards, not a turn-off…</button>` : ''; })() : ''}${t === 'nogps' ? `<button class="btn small greenbtn" data-act="pin-find" data-fid="${j.fid}">🔍 Find the address on the map</button>` : ''}${t === 'noprimary' ? `<button class="btn small" data-act="prim-find" data-bid="${j.id}">🔍 Find a contact…</button><button class="btn small" data-act="np-industry" data-bid="${j.id}">Not a client — industry business</button><button class="btn small" data-act="np-role" data-bid="${j.id}">Not a business — it's a role</button><button class="btn small" data-act="np-multi" data-bid="${j.id}">It's several businesses</button>` : ''}
+      ${j.primSuggest ? `<button class="btn small greenbtn" data-act="prim-set" data-bid="${j.id}" data-cid="${j.primSuggest}">✓ Make ${h(fullName(D.contacts.find((x) => x.id === j.primSuggest) || { first: '' }))} the primary contact</button>` : ''}${t === 'infomove' ? (() => { const c = D.contacts.find((x) => x.id === j.id); const im = j.infoMove; const bs = c ? bizOf(c) : []; return `</div><div class="body" style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin:4px 0;font-size:14px;max-height:160px;overflow:auto;white-space:pre-wrap;width:100%">${h(im.pending ? im.text : im.block)}</div><div class="acts">${im.pending ? bs.map((b) => `<button class="btn small greenbtn" data-act="im-to" data-cid="${j.id}" data-bid="${b.id}">Put on ${h(b.name)}</button>`).join('') + `<button class="btn small" data-act="im-keep" data-cid="${j.id}">Keep on ${h(c ? c.first || fullName(c) : 'person')}</button>` : `<button class="btn small greenbtn" data-act="im-ok" data-cid="${j.id}">✓ Correct business</button>${bs.filter((b) => b.id !== im.bid).map((b) => `<button class="btn small" data-act="im-to" data-cid="${j.id}" data-bid="${b.id}">Move to ${h(b.name)}</button>`).join('')}<button class="btn small" data-act="im-back" data-cid="${j.id}">Put back on ${h(c ? c.first || fullName(c) : 'person')}</button>`}`; })() : ''}${j.relSugs ? `</div><div style="width:100%;margin:4px 0">${j.relSugs.map(relSugRow).join('')}</div><div class="acts">` : ''}${t === 'relmove' ? `</div><div style="width:100%;margin:4px 0">${j.relProps.map((p) => `<div class="hint" style="margin:2px 0">${h(p.line)}${p.names && p.names.length ? ' → ' + p.names.map((nm) => nm.o ? `<b style="color:var(--green)">✓ ${h(fullName(nm.o))} (${h(p.rel)})</b>` : `<b>${h(nm.text)} (${h(p.rel)})</b> ${NODET}`).join(', ') + (p.note ? ` <span style="color:var(--yellow-ink)">· note “${h(p.note)}” stays in general info${/not talk|don.?t (talk|mention)|estranged|divorc|separat|falling out|feud/i.test(p.note) ? ' — maybe 🤫 Don\'t mention instead?' : ''}</span>` : '') : ''}</div>`).join('')}</div><div class="acts">${j.relProps.some((p) => (p.names || []).length) ? `<button class="btn small greenbtn" data-act="rel-apply" data-cid="${j.id}">✓ Move to Related people</button>` : ''}<button class="btn small" data-act="rel-add" data-id="${j.id}">➕ Add related person…</button><button class="btn small" data-act="nm-add" data-id="${j.id}">🤫 Don't mention…</button>` : ''}${t === 'pincheck' || t === 'pincheckin' ? (() => { const f = IDX.farms.get(j.fid); return f && f.turn ? `</div><div style="width:100%;margin:4px 0">${pinEmbed(f.turn)}</div><div class="acts"><button class="btn small greenbtn" data-act="pc-open" data-fid="${f.id}">🚩 Check turn-off & add yards…</button><button class="btn small" data-act="pc-isyards" data-fid="${f.id}">It's the yards, not a turn-off…</button>` : ''; })() : ''}${t === 'nogps' ? `<button class="btn small greenbtn" data-act="pin-find" data-fid="${j.fid}">🔍 Find the address on the map</button>` : ''}${t === 'noprimary' ? `<button class="btn small" data-act="prim-find" data-bid="${j.id}">🔍 Find a contact…</button><button class="btn small" data-act="np-industry" data-bid="${j.id}">Not a client — industry business</button><button class="btn small" data-act="np-role" data-bid="${j.id}">Not a business — it's a role</button><button class="btn small" data-act="np-multi" data-bid="${j.id}">It's several businesses</button>` : ''}
       ${j.type === 'primnolink' ? `<button class="btn small primary" data-act="edit-contact" data-id="${j.id}">Edit contact</button>` : ''}
       ${j.nocat ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.nocat}">Choose categories for the business…</button>` : ''}
       ${j.catdiff ? `<button class="btn small primary" data-act="cat-edit" data-bid="${j.catdiff.bid}">Choose categories…</button>` : ''}
@@ -1866,12 +2004,13 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       <button class="btn small" data-act="job-ai" data-key="${h(j.key)}" title="Ask Claude how to sort this out">🤖 Ask Claude</button>${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${j.okLabel ? '✓ ' + h(j.okLabel) : JOB_TYPES[t].btn || 'Mark resolved - changes not required'}</button>` : ''}</div></div></div>`;
 }
 function renderJobs() {
-  const js = jobs(); const groups = {};
+  const all = jobs(); const nIn = all.filter(jobInactive).length; const js = jobsShown(); const groups = {}; const ja = S.jobAct || 'active';
   js.forEach((j) => (groups[j.type] = groups[j.type] || []).push(j));
   let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('jobs'))} — things to check</h2>
   <div class="hint" style="margin-bottom:10px">Items clear automatically once fixed. Flags also show on the contact or business itself.</div>
-  <div class="actions"><button class="btn primary" data-act="jobs-refresh">⟳ Refresh jobs</button><button class="btn" data-act="check-dist">Check all distances against Google Maps</button></div><div id="check-msg" class="hint"></div>`;
-  if (!js.length) html += `<div class="empty">Nothing needs attention. 🎉</div>`;
+  <div class="actions"><button class="btn primary" data-act="jobs-refresh">⟳ Refresh jobs</button><button class="btn" data-act="check-dist">Check all distances against Google Maps</button></div><div id="check-msg" class="hint"></div>
+  <div class="chips" style="margin:10px 0">${[['active', 'Active clients', '🟢', all.length - nIn], ['inactive', 'Inactive / do not answer', '⚫', nIn], ['all', 'All', '📋', all.length]].map(([v, l, ic, n]) => `<button class="chip ${ja === v ? 'on' : ''}" data-act="jobact" data-v="${v}"><span class="ci">${ic}</span>${l}<span class="cn">${n}</span></button>`).join('')}</div>`;
+  if (!js.length) html += `<div class="empty">${all.length ? 'Nothing in this list. 🎉' : 'Nothing needs attention. 🎉'}</div>`;
   Object.keys(JOB_TYPES).forEach((t) => {
     const g = groups[t]; if (!g) return;
     const isOpen = !!S.jobOpen[t]; // folded unless you open it
@@ -2032,6 +2171,7 @@ function renderSettings() {
     <div class="lbl" style="margin-top:8px">Devices using the app</div>${Object.entries(D.devices || {}).sort((a, b) => (b[1].last || 0) - (a[1].last || 0)).map(([k, v]) => `<div class="kv"><div class="k">${h(v.name || 'Device')}${k === DEVICE ? ' <span class="hint">(this one)</span>' : ''}</div><div class="v">${v.phone ? h(v.phone) + ' · ' : ''}last synced ${v.last ? new Date(v.last).toLocaleString('en-AU') : '—'} · v${h(v.ver || '?')}</div></div>`).join('') || '<div class="hint">Devices appear here after they sync.</div>'}</div>
   <div class="card"><h3>Display <span class="hint">(this device)</span></h3><div class="grid2">
     <div class="f"><label>Appearance</label><select data-pref="theme">${[['auto', 'Match the phone / computer'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<option value="${v}" ${(PREF.theme || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>Colour scheme</label><select data-pref="scheme">${SCHEMES.map(([v, l]) => `<option value="${v}" ${(PREF.scheme || 'classic') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><div style="display:flex;gap:6px;margin-top:6px">${SCHEMES.map(([v, l, c]) => `<button class="schsw ${(PREF.scheme || 'classic') === v ? 'on' : ''}" data-act="scheme" data-v="${v}" title="${l}" style="background:${c}"></button>`).join('')}</div></div>
     <div class="f"><label>Text size</label><select data-pref="size">${[['normal', 'Normal'], ['large', 'Large'], ['xl', 'Extra large']].map(([v, l]) => `<option value="${v}" ${(PREF.size || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></div>
   <div class="card"><h3>Start-up defaults <span class="hint">(this device)</span></h3><div class="grid2">
     <div class="f"><label>Open on</label><select data-pref="tab">${TABS.map(([k]) => `<option value="${k}" ${(PREF.tab || 'contacts') === k ? 'selected' : ''}>${h(lab(k))}</option>`).join('')}</select></div>
@@ -2066,6 +2206,7 @@ function renderSettings() {
   <div class="card"><h3><span class="sp">Pin types</span><button class="btn small" data-act="pintype-add">➕ New pin type</button></h3><div class="hint" style="margin-bottom:6px">The symbols used for farm pins (yards, dairy, office…). Applies on every device.</div>
     ${pinTypes().map((t) => { const n = D.farms.filter((f) => f.pinType === t.id || (f.extra || []).some((x) => x.type === t.id)).length; return `<div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${t.emoji}</span><div class="v">${h(t.name)} <span class="hint">· ${t.yard ? 'yards · ' : ''}${n} pin${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="pintype-edit" data-id="${h(t.id)}">Edit</button>${n ? '' : `<button class="btn small" data-act="pintype-del" data-id="${h(t.id)}">Delete</button>`}</div>`; }).join('')}
     <div class="kv"><span style="font-size:22px;width:34px">${TURN_EMOJI}</span><div class="v">Turn-off from the road <span class="hint">· built in</span></div></div></div>
+  ${layoutCard()}
   ${listCard('inactiveReasons', 'Reasons for inactivating', inactiveReasons(), 'Tap-to-fill choices when someone is made Inactive. Use the arrows to change the order.')}
   ${listCard('linkRoles', 'Roles', linkRoles(), 'Quick choices for someone\'s role at a business (when linking, and in Edit contact). Roles already in use that aren\'t here still appear after these.')}
   <div class="card"><h3>Location types</h3><div class="hint" style="margin-bottom:6px">Choose whether each pin type counts as a yard location or a non-farm location. This decides which toggle it shows under in Locations and Search. Applies on every device.</div>
@@ -2455,7 +2596,7 @@ const GContacts = {
   async run() {
     if (this.running) return; this.running = true;
     const skip = new Set((D.settings.gpush || {}).skip || []);
-    const todo = [...D.contacts, ...D.businesses.filter((b) => bizHasDetails(b) && (!isClientBiz(b) || !(IDX.bizContacts.get(b.id) || []).length)).map(bizPseudo)].filter((c) => !skip.has(catOf(c)) && this.st.done[c.id] !== this.hash(c));
+    const todo = [...D.contacts.filter((c) => !noDet(c)), ...D.businesses.filter((b) => bizHasDetails(b) && (!isClientBiz(b) || !(IDX.bizContacts.get(b.id) || []).length)).map(bizPseudo)].filter((c) => !skip.has(catOf(c)) && this.st.done[c.id] !== this.hash(c));
     let n = 0, fails = 0;
     const msg = (m) => { this.st.msg = m; this.persist(); };
     try {
@@ -3487,9 +3628,13 @@ document.addEventListener('click', async (e) => {
     case 'nm-pick': { const o = D.contacts.find((x) => x.id === d.cid); if (!o) break; S.nmPick = o.id; $('#nm-q').value = fullName(o); $('#nm-res').innerHTML = ''; $('#nm-oname').textContent = fullName(o); $('#nm-backwrap').style.display = ''; break; }
     case 'nm-del': { const c = D.contacts.find((x) => x.id === d.id); const r = c && (c.noMentionRel || []).find((x) => nmKey(x) === d.key); if (!r) break; setNoMention(c, r.cid ? D.contacts.find((x) => x.id === r.cid) : null, r.name, null); NEXT_LOG_LABEL = `Removed from don't mention: ${r.cid ? fullName(D.contacts.find((x) => x.id === r.cid) || { first: '' }) : r.name} (${fullName(c)})`; if (await changed()) toast('Removed'); break; }
     case 'rel-sug': { const c = D.contacts.find((x) => x.id === d.a); if (c) relAddSheet(c, { cid: d.b, rel: 'Other family' }); break; }
+    case 'rel-sug-set': { const a = D.contacts.find((x) => x.id === d.a), b = D.contacts.find((x) => x.id === d.b); if (!a || !b) break; setRelated(a, b, d.relb, d.rela); NEXT_LOG_LABEL = `${fullName(b)} is ${fullName(a)}'s ${d.relb.toLowerCase()}`; if (await changed()) toast('Added to Related people'); break; }
+    case 'rel-sug-nm': { const a = D.contacts.find((x) => x.id === d.a); if (a) nmSheet(a, { cid: d.b, rel: 'Divorced', fresh: true }); break; }
     case 'rel-add': { const c = D.contacts.find((x) => x.id === d.id); if (c) relAddSheet(c); break; }
-    case 'rel-pick': { const c = D.contacts.find((x) => x.id === S.relFor), o = D.contacts.find((x) => x.id === d.cid); if (!c || !o) break; S.relPick = o.id; $('#rel-res').innerHTML = ''; $('#rel-q').value = fullName(o); $('#rel-form').innerHTML = relForm(c, o, (c.related || []).find((r) => r.cid === o.id)?.rel); break; }
-    case 'rel-del': { const c = D.contacts.find((x) => x.id === d.id), o = D.contacts.find((x) => x.id === d.cid); if (!c || !o) break; setRelated(c, o, null, null); NEXT_LOG_LABEL = `Removed related person: ${fullName(o)} (${fullName(c)})`; if (await changed()) toast('Removed'); break; }
+    case 'rel-pick': { const c = D.contacts.find((x) => x.id === S.relFor), o = D.contacts.find((x) => x.id === d.cid); if (!c || !o) break; S.relPick = o.id; $('#rel-res').innerHTML = ''; $('#rel-q').value = fullName(o); $('#rel-form').innerHTML = relForm(c, o, (c.related || []).find((r) => r.cid === o.id)?.rel || S.relSugRel); break; }
+    case 'rel-pick-name': { const c = D.contacts.find((x) => x.id === S.relFor); const name = val('rel-q').replace(/\s+/g, ' '); if (!c || !name) break; S.relPick = 'n:' + name; $('#rel-res').innerHTML = ''; $('#rel-q').value = name; $('#rel-form').innerHTML = relForm(c, { first: name, name, nodet: true }, (c.related || []).find((r) => !r.cid && r.name === name)?.rel); break; }
+    case 'rel-edit': { const c = D.contacts.find((x) => x.id === d.id); const r = c && (c.related || []).find((x) => relKey(x) === d.key); if (r) relAddSheet(c, r); break; }
+    case 'rel-del': { const c = D.contacts.find((x) => x.id === d.id); const r = c && (c.related || []).find((x) => relKey(x) === (d.key || d.cid)); if (!r) break; const o = r.cid ? D.contacts.find((x) => x.id === r.cid) : null; if (o) setRelated(c, o, null, null); else setRelatedName(c, r.name, null); NEXT_LOG_LABEL = `Removed related person: ${o ? fullName(o) : r.name} (${fullName(c)})`; if (await changed()) toast('Removed'); break; }
     case 'map-open': S.backTo = null; S.tab = 'biz'; S.sel = { kind: 'business', id: d.id }; renderAll(); document.body.classList.add('show-detail'); break;
     case 'map-near': { const f = IDX.farms.get(d.fid); if (!f || !FMAP) break; const p0 = f.lat != null ? f : f.turn; FMAP.setView([p0.lat, p0.lng], 12); break; }
     case 'map-all': S.mapSel = null; drawMapPins(); renderMapTab(); break;
@@ -3529,7 +3674,7 @@ document.addEventListener('click', async (e) => {
       if (d.to === 'farm') { const ff = IDX.farms.get(d.fid); const fb = ff && IDX.farmBiz.get(ff.id); if (!ff) break; if ((ff.warning || '').includes(j.warnTxt)) { toast('Already in that farm warning'); break; } ff.seeWarning = true; ff.warning = join(ff.warning, j.warnTxt); touch(ff); }
       NEXT_LOG_LABEL = `Applied warning for ${j.who} as ${d.to === 'general' ? 'general warning' : d.to === 'side' ? 'side note' : 'farm warning'}`;
       if (await changed()) toast('✓ Applied — you can now remove it from general info if you like'); break; }
-    case 'e-primtoggle': { const inp = $('#e-bprimary'); if (!inp) break; inp.value = inp.value === d.cid ? '' : d.cid; document.querySelectorAll('#e-bprimlist .primbtn').forEach((x) => { const on = x.dataset.cid === inp.value; x.classList.toggle('on', on); x.textContent = on ? '★ Primary — tap to remove' : '☆ Make primary'; }); break; }
+    case 'e-primtoggle': { const inp = $('#e-bprimary'); if (!inp) break; inp.value = inp.value === d.cid ? '' : d.cid; document.querySelectorAll('#e-bprimlist .primbtn').forEach((x) => { const on = x.dataset.cid === inp.value; x.classList.toggle('on', on); x.textContent = on ? 'Primary — tap to remove' : '☆ Make primary'; }); break; }
     case 'prim-remove': { const b = IDX.biz.get(d.bid), c = D.contacts.find((x) => x.id === d.cid); if (!b || !c) break; b.primaryContact = null; touch(b); unPrimary(c, b); NEXT_LOG_LABEL = `${fullName(c)} is no longer the primary contact for ${b.name}`; if (await changed()) toast('Primary contact removed'); break; }
     case 'prim-set': { const b = IDX.biz.get(d.bid), c = D.contacts.find((x) => x.id === d.cid); if (!b || !c) break; const was = primaryOf(b); b.primaryContact = c.id; if (was && was !== c) unPrimary(was, b); touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
     case 'ob-add': $('#ob-rows').insertAdjacentHTML('beforeend', obRow({ text: '' }, IDX.biz.get(S.obBid) || { id: '', name: '' }, false)); obRefreshRoles(); break;
@@ -3542,6 +3687,7 @@ document.addEventListener('click', async (e) => {
       hn.style.display = d.v === 'person' ? 'none' : ''; hn.textContent = d.v === 'person' ? '' : `When you tap Save, this contact becomes ${d.v === 'client' ? 'a client business' : 'an industry (non-client) business'} — its phone, email, address and notes move onto the business and the contact goes to the trash.`; break; }
     case 'ice-add': $('#e-icerows').insertAdjacentHTML('beforeend', iceRow(null)); $('#e-icerows .icerow:last-child .ice-who').focus(); break;
     case 'ice-del': el.closest('.icerow').remove(); break;
+    case 'jobact': S.jobAct = d.v; S.jobSel.clear(); rerenderJobs(); break;
     case 'jobs-refresh': el.disabled = true; setTimeout(() => { JOBS_CACHE = null; reindex(); renderAll(); toast('✓ Jobs list refreshed — ' + jobs().length + ' to check'); }, 650); break;
     case 'sheet-save': { if (!SHEET) break; const ok = await SHEET.onSave(); if (ok !== false) { const done = await changed(); if (done) { closeSheet(); toast('Saved'); } } break; }
     case 'rep-add': { const tpl = document.querySelector(`#sheet template[data-reptpl="${d.rep}"]`); document.querySelector(`#sheet [data-repwrap="${d.rep}"]`).insertAdjacentHTML('beforeend', tpl.innerHTML); break; }
@@ -3572,7 +3718,7 @@ document.addEventListener('click', async (e) => {
       if (d.fid) editFarm(IDX.biz.get(d.id), IDX.farms.get(d.fid)); else if (d.kind === 'contact') editContact(D.contacts.find((x) => x.id === d.id));
       break;
     }
-    case 'job-dismiss': { D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); const [type, fid] = d.key.split(':'); if (type === 'signfix') { const f = IDX.farms.get(fid); if (f) { f.flags = f.flags.filter((x) => x.type !== 'signfix'); touch(IDX.farms.get(fid)); } } changed(); break; }
+    case 'job-dismiss': { D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); if (d.key.startsWith('relsuggestg:')) { const jj = jobs().find((x) => x.key === d.key); (jj && jj.relSugs || []).forEach((sg) => { D.dismissed[sg.k] = Date.now(); }); } D._dismissDirty = true; Sync.soon(); const [type, fid] = d.key.split(':'); if (type === 'signfix') { const f = IDX.farms.get(fid); if (f) { f.flags = f.flags.filter((x) => x.type !== 'signfix'); touch(IDX.farms.get(fid)); } } changed(); break; }
     case 'use-km': { d.fids.split(',').forEach((fid) => { const f = IDX.farms.get(fid); if (!f) return; f.kmReturn = +d.km; f.kmStatus = 'verified'; if (f.gMin != null && f.driveMin == null) f.driveMin = f.gMin; f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); touch(IDX.farms.get(fid)); }); if (await changed()) toast('Distance updated'); break; }
     case 'lookup-km': { const fs = d.fids.split(',').map((x) => IDX.farms.get(x)).filter((f) => f && f.lat != null); el.disabled = true; el.textContent = 'Looking up…'; try { const r = await Maps.distances(fs.map(farmRoutePt)); fs.forEach((f, i) => { if (r[i]) { f.gKm = Math.ceil(r[i].km * 2 - 1e-9); f.gMin = Math.round(r[i].min); f.gAt = Date.now(); touch(f); } }); changed(); } catch (err) { toast(err.message); el.disabled = false; el.textContent = 'Get Google Maps suggestion'; } break; }
     case 'pin-diff': D.dismissed = D.dismissed || {}; D.dismissed[d.key] = Date.now(); D._dismissDirty = true; Sync.soon(); changed(); break;
@@ -3607,6 +3753,12 @@ document.addEventListener('click', async (e) => {
         if (l) delete l.past; else { const role = await askLinkRole(c, b, false); if (role === null) { toast('Nothing was changed'); break; } c.links.push(role ? { bid: b.id, role } : { bid: b.id }); } reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); extra = l ? ' (was a past employee — now current)' : ' (linked to the business)'; }
       b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) c.tags.push('pa'); touch(c);
       NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}${extra}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
+    case 'biz-add-nameonly': { const b = IDX.biz.get(d.bid); const inp = $(d.past ? '#biz-linksearch-past' : '#biz-linksearch'); const nm = (inp ? inp.value : '').trim().replace(/\s+/g, ' '); if (!b || !nm) break;
+      const parts = nm.split(' '); const last = parts.length > 1 ? parts.pop() : ''; const first = parts.join(' ').replace(/^./, (x) => x.toUpperCase());
+      const c = { id: uid('c'), first, middle: '', last: last.replace(/^./, (x) => x.toUpperCase()), role: '', links: [], tags: [], emails: [], mobiles: [], landlines: [], postal: [], info: '', warnings: '', starred: false, photoChoice: 'auto', flags: [], noDetails: true, createdAt: Date.now() };
+      const role = await askLinkRole(c, b, !!d.past); if (role === null) { toast('Not added — nothing was changed'); break; }
+      c.links.push({ bid: b.id, ...(d.past ? { past: true } : {}), ...(role ? { role } : {}) }); D.contacts.push(c); reindex(); if (!d.past && bizCat(b)) setOne(c, bizCat(b)); touch(c);
+      NEXT_LOG_LABEL = `Added ${fullName(c)} (no contact details) to ${b.name}${role ? ' as ' + role : ''}`; if (await changed()) toast(fullName(c) + ' added'); else { D.contacts = D.contacts.filter((x) => x !== c); reindex(); } break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
       let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev), [c]); if (!r) { toast('Not linked — nothing was changed'); break; } match = r === 'match'; }
       const role = await askLinkRole(c, b, false); if (role === null) { toast('Not linked — nothing was changed'); break; }
@@ -3684,6 +3836,18 @@ document.addEventListener('click', async (e) => {
     case 'catclass-reset': D.settings.catClass = { p: {}, b: {} }; touch(D.settings); NEXT_LOG_LABEL = 'Categories reset to default client / non-client'; S.skipConfirm = true; JOBS_CACHE = null; await changed(); toast('Reset to default'); break;
     case 'hideinact': S.hideIn[d.v] = el.checked; try { localStorage.setItem('bvt-hideinact2', JSON.stringify(S.hideIn)); } catch (e2) { } d.v === 'b' ? renderBizList() : renderContactList(); break;
     case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); if (await changed()) toast('Homebase saved'); break; }
+    case 'scheme': savePref('scheme', d.v); applyUi(); renderAll(); toast('Colour scheme saved for this device'); break;
+    case 'lay-k': S.layK = d.v; renderAll(); break;
+    case 'lay-mv': case 'lay-hide': case 'lay-reset': { const K = S.layK || 'contact'; const lay = { ...(D.settings.layout || {}) }; const hide = { ...(D.settings.layoutHide || {}) };
+      if (a === 'lay-mv') { const keys = layoutKeys(K); const i = keys.indexOf(d.k), j = i + +d.d; if (i < 0 || j < 0 || j >= keys.length) break; [keys[i], keys[j]] = [keys[j], keys[i]]; lay[K] = keys; }
+      if (a === 'lay-hide') { const hs = new Set(hide[K] || []); hs.has(d.k) ? hs.delete(d.k) : hs.add(d.k); hide[K] = [...hs]; }
+      if (a === 'lay-reset') { if (!(await ask(`Put the ${K} page back to the standard order and show every section?`, 'Yes — reset'))) break; delete lay[K]; delete hide[K]; }
+      D.settings.layout = lay; D.settings.layoutHide = hide; touch(D.settings); NEXT_LOG_LABEL = 'Page layout changed (' + K + ' page)'; S.skipConfirm = true; await changed(); break; }
+    case 'cs-add': case 'cs-edit': { const list = [...(D.settings.customSecs || [])]; const i = list.findIndex((x) => x.id === d.id); const v = await customSecForm(i >= 0 ? list[i] : null); if (!v) break;
+      if (i >= 0) list[i] = v; else list.push(v); D.settings.customSecs = list; touch(D.settings); NEXT_LOG_LABEL = `Custom section ${i >= 0 ? 'changed' : 'added'}: ${v.name}`; S.skipConfirm = true; await changed(); break; }
+    case 'cs-del': { const list = [...(D.settings.customSecs || [])]; const x = list.find((y) => y.id === d.id); if (!x) break; const n = [...D.contacts, ...D.businesses].filter((r) => (r.custom || {})[x.id]).length;
+      if (!(await ask(`Delete the "${x.name}" section?${n ? `\n\n${n} record${n === 1 ? ' has' : 's have'} something written in it — that text will be hidden (it's kept, and comes back if you add the section again with the same name).` : ''}`, 'Yes — delete', true))) break;
+      D.settings.customSecs = list.filter((y) => y !== x); D.settings.customSecsGone = { ...(D.settings.customSecsGone || {}), [x.name.toLowerCase()]: x.id }; touch(D.settings); NEXT_LOG_LABEL = 'Custom section deleted: ' + x.name; S.skipConfirm = true; await changed(); break; }
     case 'lst-mv': case 'lst-del': case 'lst-edit': case 'lst-add': { const k = d.k; const list = [...LIST_GET[k]()]; const i = +d.i; const nm = k === 'linkRoles' ? 'role' : 'reason';
       if (a === 'lst-mv') { const j = i + +d.d; if (j < 0 || j >= list.length) break; [list[i], list[j]] = [list[j], list[i]]; }
       if (a === 'lst-del') { if (!(await ask(`Remove "${list[i]}" from the list?\n\nRecords that already use it keep it.`, 'Yes — remove', true))) break; list.splice(i, 1); }
@@ -3815,7 +3979,7 @@ document.addEventListener('input', (e) => {
   else if (t.id === 'biz-linksearch' || t.id === 'biz-linksearch-past') {
     const past = t.id === 'biz-linksearch-past'; const pq = parseQuery(t.value); const bid = t.dataset.bid; const box = $(past ? '#biz-linkres-past' : '#biz-linkres');
     const res = pq.inc.length ? D.contacts.filter((c) => !c.links.some((l) => l.bid === bid) && matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 10) : [];
-    box.innerHTML = t.value.trim() ? `<div class="results">${res.map((c) => `<div data-act="${past ? 'link-pick-past' : 'biz-link-pick'}" data-cid="${c.id}" data-bid="${bid}"><b>${h(fullName(c))}</b> <span class="hint">${h(bizOf(c).map((b) => b.name).join(', ') || (c.mobiles[0] || {}).value || '')}</span></div>`).join('') || '<div class="hint">No matching contacts.</div>'}</div>` : '';
+    box.innerHTML = t.value.trim() ? `<div class="results">${res.map((c) => `<div data-act="${past ? 'link-pick-past' : 'biz-link-pick'}" data-cid="${c.id}" data-bid="${bid}"><b>${h(fullName(c))}</b> <span class="hint">${h(bizOf(c).map((b) => b.name).join(', ') || (c.mobiles[0] || {}).value || '')}</span></div>`).join('')}${/\d{4}|@/.test(t.value) ? '' : `<div data-act="biz-add-nameonly" data-bid="${bid}" data-past="${past ? 1 : ''}" style="color:var(--green)">➕ Add “<b>${h(t.value.trim())}</b>” — name only (no contact details)</div>`}</div>` : '';
   }
   else if (t.id === 'bq') { S.bq = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderBizList, 120); }
   else if (t.id === 'rs-search' || t.classList.contains('ep-search')) {
