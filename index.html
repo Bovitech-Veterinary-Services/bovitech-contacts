@@ -305,7 +305,8 @@ html[data-theme=dark] .primbtn.on{background:#2b2410;color:#f3d27a;border-color:
 .photopick{display:inline-flex;align-items:center;gap:6px}.photopick img{width:22px;height:22px;border-radius:50%;object-fit:cover}.splitpv{display:inline-flex}.splitpv img{width:22px;height:22px;border-radius:0;object-fit:cover}.splitpv img:first-child{border-radius:11px 0 0 11px;width:11px;object-position:left}.splitpv img:last-child{border-radius:0 11px 11px 0;width:11px;object-position:right}
 .wholink{cursor:pointer}.wholink:hover{text-decoration:underline}
 .secedit{padding:3px 9px;font-size:13px;font-weight:600;flex:none}
-.jumpflash{animation:farmflash 1.6s ease-out;border-radius:10px}
+.jumpflash{animation:jumppulse 2.4s ease-out;border-radius:10px}
+@keyframes jumppulse{0%,34%,68%{background-color:#fff3a6;box-shadow:0 0 0 4px #f5b800}17%,51%,85%{background-color:rgba(255,243,166,.25);box-shadow:0 0 0 2px #f5b800}100%{background-color:transparent;box-shadow:0 0 0 0 transparent}}
 .cbtn{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:34px;padding:0 8px;margin-left:6px;border:1px solid var(--line);border-radius:9px;background:var(--card);text-decoration:none;font-size:17px;flex:none}
 .cbtn.sms{font-size:12px;letter-spacing:-1px}
 .secedit{min-width:34px}

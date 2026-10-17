@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '12.2 (18 Oct 2026)';
+const APP_VERSION = '12.3 (18 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1263,7 +1263,12 @@ document.addEventListener('input', (e) => { if (e.target.id !== 'rel-q') return;
 document.addEventListener('change', (e) => { const t = e.target; if (!t.id || !/^rel-[ab]$/.test(t.id)) return; const ci = $('#' + t.id + '-c'); if (t.value === '__custom') { ci.hidden = false; ci.focus(); } else { ci.hidden = true; if (t.id === 'rel-b') { const back = REL_BACK[t.value] ? backRel(t.value, D.contacts.find((x) => x.id === S.relFor)) : ''; if (back && $('#rel-a')) $('#rel-a').value = back; } } });
 
 const secEdit = (kind, id, jump, label = '✏️') => `<button class="btn small secedit" data-act="${kind === 'business' ? 'edit-biz' : 'edit-contact'}" data-id="${id}" data-jump="${h(jump)}" title="Edit this section">${label}</button>`;
-function jumpTo(txt) { /* scroll the editor to the section that was tapped */ setTimeout(() => { const t = txt.toLowerCase(); const all = [...document.querySelectorAll('#sheet .form label, #sheet .form .lbl, #sheet .form summary')]; const ltx = (x) => x.textContent.trim().toLowerCase().replace(/^[^a-z0-9]+/, ''); const lb = all.find((x) => ltx(x).startsWith(t)) || all.find((x) => ltx(x).includes(t)); const f = lb && (lb.closest('.f') || lb.closest('details') || lb); if (!f) return; if (f.tagName === 'DETAILS') f.open = true; f.scrollIntoView({ block: 'center' }); f.classList.add('jumpflash'); setTimeout(() => f.classList.remove('jumpflash'), 1600); const inp = f.querySelector('input:not([type=checkbox]):not([type=radio]):not([type=hidden]),textarea,select,[contenteditable]'); if (inp && !/Mobile|Business phone/.test(txt)) inp.focus({ preventScroll: true }); }, 80); }
+const JUMP_IDS = { inactive: ['#e-inwrap', '#e-binwrap'], category: ['#e-catcard'] }; // sections found by their exact box rather than by label
+function jumpTo(txt) { /* open the editor at the section that was tapped, and flash it so it's easy to spot */ setTimeout(() => { const t = txt.toLowerCase();
+  let f = (JUMP_IDS[t] || []).map((x) => $('#sheet ' + x)).find((x) => x && x.offsetParent !== null);
+  if (!f) { const all = [...document.querySelectorAll('#sheet .form label, #sheet .form .lbl, #sheet .form summary, #sheet .form h3')]; const ltx = (x) => x.textContent.trim().toLowerCase().replace(/^[^a-z0-9]+/, ''); const lb = all.find((x) => ltx(x).startsWith(t)) || all.find((x) => ltx(x).includes(t)); f = lb && (lb.closest('.f') || lb.closest('details') || lb.closest('.card') || lb); }
+  if (!f) return; if (f.tagName === 'DETAILS') f.open = true; f.scrollIntoView({ block: 'center' }); f.classList.remove('jumpflash'); void f.offsetWidth; f.classList.add('jumpflash'); setTimeout(() => f.classList.remove('jumpflash'), 2600);
+  const inp = f.querySelector('textarea,input:not([type=checkbox]):not([type=radio]):not([type=hidden]),select,[contenteditable]'); if (inp && !/Mobile|Business phone|category/i.test(txt)) { inp.focus({ preventScroll: true }); setTimeout(() => f.scrollIntoView({ block: 'center' }), 400); } }, 120); }
 function tagPill(t) { const src = tagPhotoSrc(t); return `<span class="tag ${src ? '' : 'noimg'}">${src ? `<img src="${src}" alt="">` : ''}${h(tagName(t))}</span>`; }
 /* ---------------- farms: pin types, facilities, safety, reception, photos ---------------- */
 const DEFAULT_PIN_TYPES = [{ id: 'cattle', name: 'Cattle yards', emoji: '🐄', yard: true }, { id: 'sheep', name: 'Sheep yards', emoji: '🐑', yard: true }, { id: 'dairy', name: 'Dairy', emoji: '🥛', yard: true }, { id: 'office', name: 'Main office / house', emoji: '🏡' }, { id: 'depot', name: 'Depot', emoji: '🏬' }, { id: 'feedlot', name: 'Feedlot', emoji: '🌾', yard: true }, { id: 'shed', name: 'Shearing shed', emoji: '✂️', yard: true }, { id: 'saleyard', name: 'Saleyards', emoji: '🔨' }, { id: 'other', name: 'Other', emoji: '📍' }];
@@ -1447,7 +1452,7 @@ function editContact(c) {
   <div class="f"><label>Businesses</label>${roleDatalist()}<div id="e-links">${[...c.links.filter((l) => !l.past), ...c.links.filter((l) => l.past)].map((l) => linkRow(l.bid, null, l.past, l.role)).join('')}</div><div class="hint">Tick <b>Past</b> for a business they no longer work for — it stays on record but doesn't set their category.</div>
     <input id="e-bizsearch" placeholder="Search to link a business, or type a new business name"><div id="e-bizres"></div>
 </div>
-  <div class="card" style="background:#fbfaf7"><h3>Contact category</h3>
+  <div class="card" id="e-catcard" style="background:#fbfaf7"><h3>Contact category</h3>
     ${c.links.length ? `<div class="seg" style="margin-bottom:8px"><button type="button" class="${followsBiz(c) ? 'on' : ''}" data-act="cat-mode" data-v="biz">Same as business</button><button type="button" class="${followsBiz(c) ? '' : 'on'}" data-act="cat-mode" data-v="own">This contact's own</button></div>` : ''}
     <input type="hidden" id="e-catmode" value="${followsBiz(c) ? 'biz' : 'own'}">
     <div id="e-catbiz" style="${followsBiz(c) ? '' : 'display:none'}"><div class="hint">Follows ${h(bizOf(c).map((b) => b.name).join(', '))}: ${h([...bizOf(c).map((b) => b.rating).filter(Boolean).map(tagName), ...bizCatsOf(c).map(tagName)].join(', ') || 'no categories yet')}. Change them on the business.</div></div>
@@ -1599,7 +1604,7 @@ const BOXES = [
   { k: 'warn', l: 'General warnings', sel: '.card.warn', txt: '.card.warn h3,.card.warn .body', sample: '<div class="card warn"><h3><span class="sp">⚠ General warnings</span></h3><div class="body">Dog bites — stay in the ute</div></div>', d: { bg: '#fdeaea', fg: '#a3121c', bd: '#f3b3b6', bold: false } },
   { k: 'side', l: 'Side notes', sel: '.card.side', txt: '.card.side h3,.card.side .body', sample: '<div class="card side"><h3><span class="sp">📝 Side notes</span></h3><div class="body">Prefers a call after 4 pm</div></div>', d: { bg: '#fff6c7', fg: '#6b4f00', bd: '#efd46a', bold: false } },
   { k: 'biosec', l: 'Biosecurity', sel: '.fbiosec', txt: '.fbiosec', sample: '<div class="fbiosec">🦠 <b>Biosecurity:</b> Ovine footrot</div>', d: { bg: '#fff1e6', fg: '#7a3300', bd: '#f5c7a1', bold: false } },
-  { k: 'nomention', l: "Don't mention", sel: '.card.nomention', txt: '.card.nomention h3,.card.nomention .body,.card.nomention .v', sample: '<div class="card nomention"><h3><span class="sp">🤫 Don\'t mention</span></h3><div class="body">Sam and Jeremy are divorced</div></div>', d: { bg: '#fff3a6', fg: '#4a3a00', bd: '#e7c200', bold: true } }];
+  { k: 'nomention', l: "Don't mention", sel: '.card.nomention', txt: '.card.nomention h3,.card.nomention .body,.card.nomention .v', sample: '<div class="card nomention"><h3><span class="sp">🤫 Don\'t mention</span></h3><div class="body">Recently lost their working dog — best not to bring it up</div></div>', d: { bg: '#fff3a6', fg: '#4a3a00', bd: '#e7c200', bold: true } }];
 const BOX_SIZES = [['', 'Normal'], ['13px', 'Small'], ['18px', 'Large'], ['22px', 'Extra large']];
 function boxCss() { const st = D.settings.boxStyles || {}; return BOXES.map((b) => { const o = st[b.k]; if (!o) return ''; const box = [], txt = [];
   if (o.bg) box.push(`background:${o.bg}!important`); if (o.bd) box.push(`border-color:${o.bd}!important`, 'border-style:solid', 'border-width:2px');
