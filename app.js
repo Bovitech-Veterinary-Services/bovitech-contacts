@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.4 (17 Oct 2026)';
+const APP_VERSION = '9.5 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -579,8 +579,8 @@ async function changed() {
       need.forEach((r) => { r[field] = reason; touch(r); });
     }
   }
-  if (!S.skipConfirm && BASE.size && !PENDING_DEL.length && typeof diffTouched === 'function') {
-    const items = diffTouched(false);
+  if (!S.skipConfirm && BASE.size && typeof diffTouched === 'function') {
+    const items = [...diffTouched(false), ...PENDING_DEL];
     if (items.length) {
       const ok = await askBox(NEXT_LOG_LABEL ? 'Confirm: ' + NEXT_LOG_LABEL.replace(/^Jobs: |^Search: /, '') : 'Confirm changes', previewHtml(items), 'Yes — save these changes');
       if (!ok) { S.advSelPending = false; revertTouched(); NEXT_LOG_LABEL = null; JOBS_CACHE = null; reindex(); photoCache.clear(); renderAll(); toast('Cancelled — nothing was changed'); return false; }
@@ -917,6 +917,7 @@ const DEFAULT_PIN_TYPES = [{ id: 'cattle', name: 'Cattle yards', emoji: '🐄', 
 const EMOJI_LIB = [['🐄', 'cow cattle beef dairy'], ['🐂', 'bull ox cattle'], ['🐃', 'buffalo water'], ['🐮', 'cow face cattle'], ['🐑', 'sheep ewe ram lamb wool'], ['🐏', 'ram sheep'], ['🐐', 'goat'], ['🐖', 'pig pork piggery'], ['🐷', 'pig face'], ['🐎', 'horse stud'], ['🐴', 'horse face'], ['🦙', 'alpaca llama'], ['🐔', 'chicken poultry hen'], ['🦆', 'duck'], ['🐕', 'dog working'], ['🐶', 'dog face'], ['🐈', 'cat'], ['🐝', 'bee hive honey'], ['🦘', 'kangaroo roo'], ['🥛', 'milk dairy'], ['🧀', 'cheese dairy'], ['🥩', 'meat beef abattoir'], ['🍖', 'meat bone'], ['🌾', 'grain wheat crop feedlot hay'], ['🌽', 'corn maize'], ['🌱', 'seedling crop'], ['🌳', 'tree shade'], ['🌲', 'pine tree plantation'], ['🍇', 'grapes vineyard winery'], ['🍎', 'apple orchard'], ['🥕', 'carrot vegetables'], ['🏡', 'house home homestead office'], ['🏠', 'house building'], ['🏚️', 'old house shed'], ['🏘️', 'houses town'], ['🏬', 'depot store shop'], ['🏭', 'factory abattoir processor'], ['🏢', 'office building'], ['🏫', 'school'], ['🏥', 'hospital clinic vet'], ['🏛️', 'government office'], ['⛪', 'church'], ['🛖', 'hut shed'], ['⛺', 'tent camp'], ['🚜', 'tractor farm machinery'], ['🚚', 'truck transport delivery'], ['🚛', 'semi truck livestock transport'], ['🚗', 'car'], ['🛻', 'ute pickup'], ['⛽', 'fuel petrol diesel'], ['🅿️', 'parking'], ['🚧', 'roadworks construction'], ['🚩', 'flag turn off marker'], ['🏁', 'finish flag'], ['📍', 'pin location marker'], ['📌', 'pushpin'], ['⭐', 'star important'], ['❗', 'important warning'], ['⚠️', 'warning caution hazard'], ['⛔', 'no entry stop'], ['🔒', 'locked gate'], ['🚪', 'gate door entry'], ['🗝️', 'key'], ['💧', 'water tank dam trough'], ['🚰', 'water tap'], ['🌊', 'water river creek'], ['🔥', 'fire'], ['⚡', 'power electricity'], ['🔌', 'power plug'], ['🔨', 'saleyards auction hammer'], ['⚖️', 'scales weigh'], ['✂️', 'shearing shed scissors'], ['💉', 'vaccine injection vet'], ['🧪', 'lab test'], ['🔬', 'laboratory microscope'], ['🩺', 'vet stethoscope'], ['📦', 'box storage'], ['🧰', 'tools toolbox'], ['🛠️', 'tools workshop'], ['🏗️', 'building construction'], ['🗑️', 'rubbish tip'], ['☎️', 'phone'], ['📶', 'reception signal'], ['🧭', 'compass navigate'], ['🗺️', 'map'], ['⛰️', 'mountain hill'], ['🏞️', 'park national'], ['🏖️', 'beach'], ['❄️', 'cold store freezer'], ['🧊', 'ice cold'], ['🪵', 'wood timber'], ['🧱', 'brick wall'], ['🟢', 'green circle'], ['🔴', 'red circle'], ['🟡', 'yellow circle'], ['🔵', 'blue circle'], ['🟣', 'purple circle'], ['🟠', 'orange circle'], ['⚫', 'black circle'], ['⚪', 'white circle']];
 const PIN_EMOJIS = ['🐄', '🐂', '🐃', '🐑', '🐐', '🐖', '🐎', '🥛', '🏡', '🏠', '🏬', '🏭', '🌾', '🚜', '✂️', '🔨', '⚖️', '💉', '🧪', '🐕', '⛽', '🅿️', '🚚', '💧', '🌳', '⛺', '📦', '📍', '⭐'];
 function emojiGrid(q) { q = (q || '').toLowerCase().trim(); const list = q ? EMOJI_LIB.filter(([e, k]) => k.includes(q) || q.split(/\s+/).every((w) => k.includes(w))) : EMOJI_LIB; return list.length ? list.map(([e, k]) => `<button type="button" data-act="emo-pick" data-e="${e}" title="${h(k)}">${e}</button>`).join('') : '<div class="hint">No symbols match — try another word, or use your keyboard\'s emoji search.</div>'; }
+document.addEventListener('change', async (e) => { const t = e.target; if (!t.dataset || !t.dataset.pinloc) return; const list = pinTypes().map((x) => ({ ...x })); const pt = list.find((x) => x.id === t.dataset.pinloc); if (!pt) return; pt.yard = t.value === 'yard'; D.settings.pinTypes = list; touch(D.settings); NEXT_LOG_LABEL = `${pt.emoji} ${pt.name} is now a ${pt.yard ? 'yard' : 'non-farm'} location`; await changed(); renderAll(); });
 document.addEventListener('input', (e) => { if (e.target.id === 'pt-search') { const g = $('#pt-grid'); if (g) g.innerHTML = emojiGrid(e.target.value); } });
 const isYardType = (id) => !!pinT(id).yard;
 const pinTypes = () => (D.settings.pinTypes && D.settings.pinTypes.length ? D.settings.pinTypes : DEFAULT_PIN_TYPES);
@@ -1845,6 +1846,9 @@ function renderSettings() {
   <div class="card"><h3><span class="sp">Pin types</span><button class="btn small" data-act="pintype-add">+ New pin type</button></h3><div class="hint" style="margin-bottom:6px">The symbols used for farm pins (yards, dairy, office…). Applies on every device.</div>
     ${pinTypes().map((t) => { const n = D.farms.filter((f) => f.pinType === t.id || (f.extra || []).some((x) => x.type === t.id)).length; return `<div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${t.emoji}</span><div class="v">${h(t.name)} <span class="hint">· ${t.yard ? 'yards · ' : ''}${n} pin${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="pintype-edit" data-id="${h(t.id)}">Edit</button>${n ? '' : `<button class="btn small" data-act="pintype-del" data-id="${h(t.id)}">Delete</button>`}</div>`; }).join('')}
     <div class="kv"><span style="font-size:22px;width:34px">${TURN_EMOJI}</span><div class="v">Turn-off from the road <span class="hint">· built in</span></div></div></div>
+  <div class="card"><h3>Location types</h3><div class="hint" style="margin-bottom:6px">Choose whether each pin type counts as a yard location or a non-farm location. This decides which toggle it shows under in Locations and Search. Applies on every device.</div>
+    ${pinTypes().map((t) => `<div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${t.emoji}</span><div class="v">${h(t.name)}</div><select data-pinloc="${h(t.id)}" style="padding:7px 9px;border:1px solid var(--line);border-radius:9px"><option value="yard" ${t.yard ? 'selected' : ''}>Yard location</option><option value="other" ${t.yard ? '' : 'selected'}>Non-farm location</option></select></div>`).join('')}
+    <div class="kv"><span style="font-size:22px;width:34px">${TURN_EMOJI}</span><div class="v">Turn-off pins</div><span class="hint">Always "Turn-off pins"</span></div></div>
   ${syncSettingsCard()}
   <div class="card"><h3>App version</h3><div class="kv"><div class="k">Version</div><div class="v">${APP_VERSION}</div></div>${S.latest ? `<div class="kv"><div class="k">Latest</div><div class="v">${h(S.latest)}${S.latest !== APP_VERSION.split(' ')[0] ? ' — <b style="color:var(--red)">tap ⟳ to update</b>' : ' ✓ up to date'}</div></div>` : ''}<div class="actions"><button class="btn small" data-act="app-refresh">⟳ Close and reopen on the latest version</button></div></div>
   ${renderChangeLog()}
@@ -2119,7 +2123,7 @@ function conflictSheet(cf) {
 function contactToBiz(c, kind) { // "This entry is a business": use the same-named linked business, or create one
   let b = bizOf(c).find((x) => sameAsBizName(c, x));
   const cat = catOf(c) || (kind === 'industry' ? 'industry' : '');
-  if (!b) { b = { id: uid('b'), name: fullName(c), farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; D.businesses.push(b); reindex(); if (cat) setBizCat(b, cat); }
+  if (!b) { b = { id: uid('b'), name: fullName(c), farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; D.businesses.push(b); touch(b); reindex(); if (cat) setBizCat(b, cat); }
   else if (!bizCat(b) && cat) setBizCat(b, cat);
   setBizType(b, kind === 'client' ? 'client' : 'nonclient');
   if (c.dnaReason && !b.dnaReason) b.dnaReason = c.dnaReason; if (c.inactiveReason && !b.inactiveReason) b.inactiveReason = c.inactiveReason;
@@ -2158,7 +2162,7 @@ function oddBizSheet(b, mode) { /* mode: 'role' = the whole name is a role; 'mul
     rows.forEach((r) => { if (r.what === 'rename') { b.name = r.text; touch(b); targets.push(b); }
       else if (r.what === 'existing' || r.what === 'find') { const x = IDX.biz.get(r.ex); if (x) targets.push(x); }
       else if (r.what === 'existing-past' || r.what === 'find-past') { const x = IDX.biz.get(r.ex); if (x) pastTargets.push(x); }
-      else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); targets.push(nb); } });
+      else if (r.what === 'newclient' || r.what === 'newind') { const nb = { id: uid('b'), name: r.text, type: r.what === 'newclient' ? 'client' : 'nonclient', farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null, cats: [], createdAt: Date.now() }; if (nb.type === 'nonclient') { nb.primaryRequired = false; nb.cats = ['industry']; } else if (bizCat(b)) setBizCat(nb, bizCat(b)); touch(nb); D.businesses.push(nb); touch(nb); targets.push(nb); } });
     const roles = rows.filter((r) => r.what === 'role').map((r) => r.text).join(', ');
     reindex();
     ticked.forEach((c) => { const prev = catOf(c); const before = c.links.length; targets.forEach((t) => { const l = c.links.find((x) => x.bid === t.id); if (!l) c.links.push(roles && t !== b ? { bid: t.id, role: roles } : { bid: t.id }); else if (l.past) delete l.past; }); pastTargets.forEach((t) => { if (!c.links.some((x) => x.bid === t.id)) c.links.push({ bid: t.id, past: true }); }); if (!ren.length) c.links = c.links.filter((l) => l.bid !== b.id); if (roles && !targets.length && !pastTargets.length) { if (!(c.role || '').toLowerCase().includes(roles.toLowerCase())) c.role = c.role ? c.role + ', ' + roles : roles; } else if (roles && !c.role) c.role = roles; reindex(); if (prev) setOne(c, prev); touch(c); });
@@ -2261,7 +2265,7 @@ document.addEventListener('click', async (e) => {
 /* ---------------- advanced search ---------------- */
 const ADV_FIELDS = [['name', 'Name'], ['business', 'Business name'], ['role', 'Role / position'], ['phone', 'Phone numbers'], ['email', 'Email'], ['postal', 'Postal address'], ['farm', 'Farm name / address / info'], ['pic', 'Property Identification Code (PIC)'], ['pid', 'Patient ID'], ['info', 'General info'], ['warnings', 'Warnings (general + farm)'], ['side', 'Side notes'], ['tags', 'Tag names']];
 const ADV_MISSING = [['email', 'No email'], ['phone', 'No phone number'], ['mobile', 'No mobile'], ['business', 'No business'], ['pin', 'No farm GPS pin'], ['km', 'A farm with no km'], ['pic', 'No PIC'], ['pid', 'No patient ID'], ['rating', 'No A+ to C category'], ['primary', 'Business has no primary contact']];
-function advDefault() { return { all: '', any: '', none: '', phrase: '', fields: [], tAll: [], tAny: [], tNone: [], warn: '', farmWarn: '', starred: '', multi: '', split: '', flagged: '', isPrimary: '', btype: '', missing: [], kmOp: '', kmVal: '', kmOp2: '', kmVal2: '', minOp: '', minVal: '', minOp2: '', minVal2: '', nearKm: '', near: { type: 'home' }, sort: 'first' }; }
+function advDefault() { return { all: '', any: '', none: '', phrase: '', fields: [], tAll: [], tAny: [], tNone: [], warn: '', farmWarn: '', starred: '', multi: '', split: '', flagged: '', isPrimary: '', btype: '', missing: [], kmOp: '', kmVal: '', kmOp2: '', kmVal2: '', minOp: '', minVal: '', minOp2: '', minVal2: '', nearKm: '', near: { type: 'home' }, sort: 'first', lkind: '', lpin: '', lsafe: '', lrec: '', lcur: 'yes' }; }
 S.adv = advDefault();
 function advFieldText(c, f) {
   const bs = bizOf(c); const farms = bs.flatMap((b) => b.farms);
@@ -2350,6 +2354,77 @@ function advBizMatch(b, A) {
   if (farmTests.length && !b.farms.some((f) => farmTests.every((t) => t(f)))) return false;
   return true;
 }
+
+/* ---------------- Search & Bulk Edit: locations, and search everything ---------------- */
+function locKind(f) { return isYardType(f.pinType) ? 'yard' : 'other'; }
+function advLocMatch(f, A) {
+  const us = farmUsersOf(f.id); if (!us.length) return false; const cur = us.filter((u) => !u.past);
+  if ((A.lcur || 'yes') === 'yes' && !cur.length) return false; if (A.lcur === 'no' && cur.length) return false;
+  const hay = [f.name, f.aka, f.address, f.info, f.warning, f.biosec, (f.access || {}).notes, (f.reception || {}).note, (f.safety || {}).note, pinT(f.pinType).name, ...(f.extra || []).map((x) => (x.name || '') + ' ' + pinT(x.type).name), ...us.map((u) => u.b.name + ' ' + (u.b.biosec || ''))].join(' ').toLowerCase();
+  const wAll = words(A.all), wAny = words(A.any), wNone = words(A.none), ph = (A.phrase || '').trim().toLowerCase();
+  if (wAll.length && !wAll.every((w) => hay.includes(w))) return false; if (wAny.length && !wAny.some((w) => hay.includes(w))) return false;
+  if (wNone.length && wNone.some((w) => hay.includes(w))) return false; if (ph && !hay.includes(ph)) return false;
+  if (A.lkind === 'turn' && !(f.turn && f.turn.lat != null)) return false; if (A.lkind === 'noturn' && f.turn && f.turn.lat != null) return false;
+  if (A.lkind && !['turn', 'noturn'].includes(A.lkind) && locKind(f) !== A.lkind) return false;
+  if (A.lpin && f.pinType !== A.lpin && !(f.extra || []).some((x) => x.type === A.lpin)) return false;
+  if (A.lsafe && ((f.safety || {}).status || 'ok') !== A.lsafe) return false;
+  if (A.lrec && ((f.reception || {}).status || 'unknown') !== A.lrec) return false;
+  if (A.btype && !us.some((u) => (A.btype === 'client') === isClientBiz(u.b))) return false;
+  const yn = (v, cond) => (v === '' ? true : v === 'yes' ? cond : !cond);
+  if (!yn(A.farmWarn, !!f.seeWarning)) return false;
+  for (const m of A.missing || []) { if (m === 'pin' && f.lat != null) return false; if (m === 'km' && f.kmReturn != null) return false; }
+  const cmp = (op, a, c) => (op === '<' ? a < c : op === '≤' ? a <= c : op === '>' ? a > c : op === '≥' ? a >= c : op === '=' ? Math.abs(a - c) < 0.5 : true);
+  for (const [o, v, field] of [['kmOp', 'kmVal', 'kmReturn'], ['kmOp2', 'kmVal2', 'kmReturn'], ['minOp', 'minVal', 'driveMin'], ['minOp2', 'minVal2', 'driveMin']]) if (A[o] && A[v] !== '' && !(f[field] != null && cmp(A[o], f[field], +A[v]))) return false;
+  if (A.nearKm !== '') { const ctr = advCentre(A); if (ctr && !(f.lat != null && hav(ctr, f) <= +A.nearKm)) return false; }
+  return true;
+}
+function advLocResults() { return D.farms.filter((f) => advLocMatch(f, S.adv)).sort((a, b) => alphaCmp(farmLabel(a), farmLabel(b))); }
+function locRowLi(f, sel) { const us = farmUsersOf(f.id); const sf = f.safety || {};
+  return `<li class="item ${sel && S.advLSel.has(f.id) ? 'jobsel' : ''}" data-act="loc-open" data-bid="${(IDX.farmBiz.get(f.id) || us[0].b).id}" data-fid="${f.id}">${sel ? `<input type="checkbox" class="jobcheck" data-act="advl-sel" data-id="${f.id}" ${S.advLSel.has(f.id) ? 'checked' : ''} aria-label="Select">` : ''}<div class="av locav">${pinT(f.pinType).emoji}</div><div class="t"><div class="n">${h(f.name || pinT(f.pinType).name)}${sf.status && sf.status !== 'ok' ? (sf.status === 'stop' ? ' ⛔' : ' ⚠') : ''}${farmBiosecOf(f).length ? ' 🦠' : ''}</div><div class="s">${h(us.map((u) => u.b.name + (u.past ? ' (not current)' : '')).join(', '))} · ${h(pinT(f.pinType).name)}${f.kmReturn != null ? ' · ' + f.kmReturn + ' km' : ''}${f.lat == null ? ' · <b>no pin</b>' : ''}${f.reception && f.reception.status ? ' · 📶 ' + RECEPTION[f.reception.status] : ''}</div></div></li>`; }
+function renderAdvLocResults() {
+  const r = advLocResults(); S.advLSel = S.advLSel || new Set(); const ids = new Set(r.map((f) => f.id)); [...S.advLSel].forEach((id) => { if (!ids.has(id)) S.advLSel.delete(id); });
+  const nSel = S.advLSel.size;
+  let html = `<div class="card"><h3><input type="checkbox" class="jobcheck" data-act="advl-selall" title="Select all results" ${nSel && nSel === r.length ? 'checked' : ''}><span class="sp">${r.length} location${r.length === 1 ? '' : 's'} found${nSel ? ` · ${nSel} selected` : ''}</span></h3>
+  ${nSel ? `<div class="bulkbar" style="border-radius:9px;margin:0 0 8px;justify-content:space-between"><b>${nSel} selected</b><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn primary" data-act="advl-edit" style="font-size:16px">✏️ Edit selected…</button><button class="btn" data-act="advl-map">🗺 Show on map</button><button class="btn" data-act="advl-route">+ Add to route</button><button class="btn" data-act="advl-selnone">Clear selection</button></span></div>` : `<div class="actions" style="margin:0 0 8px"><button class="btn small" data-act="advl-map">🗺 Show all of these on the map</button></div>`}<ul class="list">`;
+  r.slice(0, 300).forEach((f) => { html += locRowLi(f, true); });
+  if (r.length > 300) html += `<li class="empty">Showing the first 300 — narrow the search.</li>`; if (!r.length) html += '<li class="empty">No locations match.</li>';
+  return html + '</ul></div>';
+}
+function renderAdvAllResults() {
+  const ps = advResults(), bs = D.businesses.filter((b) => advBizMatch(b, S.adv)).sort((a, b) => alphaCmp(a.name, b.name)), ls = advLocResults();
+  const sec = (title, n, kind, rows) => `<div class="card"><h3><span class="sp">${title} (${n})</span>${n ? `<button class="btn small" data-act="adv-kind" data-v="${kind}">Bulk edit these →</button>` : ''}</h3><ul class="list">${rows || '<li class="empty">None.</li>'}${n > 40 ? `<li class="empty">…and ${n - 40} more — tap "Bulk edit these" to see them all.</li>` : ''}</ul></div>`;
+  return `<div class="hint" style="margin-bottom:8px">Everything that matches. To bulk edit, tap "Bulk edit these" on a section.</div>
+  ${sec('👤 People', ps.length, 'people', ps.slice(0, 40).map((c) => `<li class="item" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c, '', 120)}<div class="t"><div class="n">${h(fullName(c))}</div><div class="s">${h(bizOf(c).map((b) => b.name).join(', '))}</div></div></li>`).join(''))}
+  ${sec('🏡 Businesses', bs.length, bs.length && bs.every((b) => !isClientBiz(b)) ? 'nonclient' : 'client', bs.slice(0, 40).map(bizRowHtml).join(''))}
+  ${sec('📍 Locations', ls.length, 'loc', ls.slice(0, 40).map((f) => locRowLi(f, false)).join(''))}`;
+}
+function advLocEditSheet() {
+  const list = D.farms.filter((f) => S.advLSel.has(f.id)); if (!list.length) return;
+  const opt = (o, v) => o.map(([k, l]) => `<option value="${h(k)}">${h(l)}</option>`).join('');
+  const body = `<div class="hint" style="margin-bottom:8px">Editing: ${h(list.slice(0, 8).map(farmLabel).join(', '))}${list.length > 8 ? ` and ${list.length - 8} more` : ''}</div>
+  <div class="lbl" style="font-size:15px">1. What do you want to change?</div>
+  <label class="bkop"><input type="radio" name="blop" value="pin"><span><b>Set pin type</b> <select id="bl-pin">${pinTypes().map((t) => `<option value="${h(t.id)}">${t.emoji} ${h(t.name)}</option>`).join('')}</select></span></label>
+  <label class="bkop"><input type="radio" name="blop" value="rec"><span><b>Set mobile reception</b> <select id="bl-rec">${opt(Object.entries(RECEPTION))}</select></span></label>
+  <label class="bkop"><input type="radio" name="blop" value="safe"><span><b>Set safety status</b> <select id="bl-safe">${opt(Object.entries(SAFETY).map(([k, v]) => [k, v.l]))}</select><br><input id="bl-safenote" placeholder="Safety note (optional)" style="margin-top:4px;width:100%"></span></label>
+  <label class="bkop"><input type="radio" name="blop" value="wet"><span><b>Set wet weather access</b> <select id="bl-wet">${opt(Object.entries(WET))}</select></span></label>
+  <label class="bkop"><input type="radio" name="blop" value="bio"><span><b>Add a biosecurity note</b><br><input id="bl-bio" placeholder="e.g. Come clean — wash down" style="margin-top:4px;width:100%"></span></label>`;
+  openSheet(`Edit ${list.length} location${list.length === 1 ? '' : 's'}`, body, () => {
+    const op = ($('#sheet input[name=blop]:checked') || {}).value; if (!op) { toast('Choose what to change'); return false; }
+    const today = new Date().toLocaleDateString('en-AU'), me = devInfo().nick;
+    list.forEach((f) => {
+      if (op === 'pin') f.pinType = $('#bl-pin').value;
+      if (op === 'rec') { const v = $('#bl-rec').value; if (v) f.reception = { ...(f.reception || {}), status: v, at: Date.now(), by: me }; else delete f.reception; }
+      if (op === 'safe') { const v = $('#bl-safe').value, n = val('bl-safenote'); if (v === 'ok' && !n) delete f.safety; else f.safety = { status: v, note: n, date: today, by: me }; }
+      if (op === 'wet') { const v = $('#bl-wet').value; f.access = { ...(f.access || {}), wet: v }; if (!f.access.wet && !f.access.notes) delete f.access; }
+      if (op === 'bio') { const v = val('bl-bio'); if (v && !(f.biosec || '').includes(v)) f.biosec = [f.biosec, v].filter((x) => (x || '').trim()).join('\n'); }
+      touch(f);
+    });
+    NEXT_LOG_LABEL = `Search: ${({ pin: 'set pin type', rec: 'set reception', safe: 'set safety status', wet: 'set wet weather access', bio: 'added biosecurity note' })[op]} (${list.length} locations)`;
+    if (!diffTouched(false).length) { toast('Nothing to change — they already have that'); return false; }
+    S.advLSel.clear(); return true;
+  });
+}
+
 function advBizResults() { const k = S.adv.kind; return D.businesses.filter((b) => (k === 'client') === isClientBiz(b) && advBizMatch(b, S.adv)).sort((a, b) => alphaCmp(a.name, b.name)); }
 function renderAdvBizResults() {
   const r = advBizResults(); S.advBSel = S.advBSel || new Set(); const ids = new Set(r.map((b) => b.id)); [...S.advBSel].forEach((id) => { if (!ids.has(id)) S.advBSel.delete(id); });
@@ -2392,7 +2467,8 @@ function renderAdvanced() {
   const A = S.adv; const nf = A.near.type === 'farm' ? IDX.farms.get(A.near.fid) : null;
   const kind = A.kind || 'people';
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('search'))}</h2>
-  <div class="card"><h3>Search for</h3><div class="seg">${[['people', '👤 People'], ['client', '🐄 Client businesses'], ['nonclient', '🏢 Non-client businesses']].map(([v, l]) => `<button class="${kind === v ? 'on' : ''}" data-act="adv-kind" data-v="${v}">${l}</button>`).join('')}</div></div>
+  <div class="card"><h3>Search for</h3><div class="chips" style="margin-top:0">${[['all', '✦ Search all'], ['people', '👤 People'], ['client', '🏡 Client businesses'], ['nonclient', '🏢 Non-client businesses'], ['loc', '📍 Locations']].map(([v, l]) => `<button class="chip ${kind === v ? 'on' : ''}" data-act="adv-kind" data-v="${v}" style="padding-right:12px">${l}</button>`).join('')}</div></div>
+
   <div class="actions" style="margin:-4px 0 10px"><button class="btn" data-act="area-ai" data-v="search">🤖 Ask Claude about these results</button></div>
   <div class="hint" style="margin:-4px 0 10px">Fill in as many or as few boxes as you like — results must match everything you fill in. Tick results to bulk edit them. Tip: put a phrase in "quotes" to keep words together.</div>
   <div class="card"><h3>Words</h3>
@@ -2402,6 +2478,12 @@ function renderAdvanced() {
     <div class="f"><label>This exact phrase</label><input data-adv="phrase" value="${h(A.phrase)}" placeholder="e.g. no kick gate"></div>
     <div class="f"><span class="lbl">Look for the words in <span class="hint">(none ticked = everywhere)</span></span><div class="checks">${ADV_FIELDS.map(([k, l]) => `<label><input type="checkbox" data-advfield value="${k}" ${A.fields.includes(k) ? 'checked' : ''}>${l}</label>`).join('')}</div></div>
   </div>
+  ${kind === 'loc' || kind === 'all' ? `<details class="card" ${kind === 'loc' || A.lkind || A.lpin || A.lsafe || A.lrec ? 'open' : ''}><summary style="font-weight:700;cursor:pointer">Locations</summary><div class="grid2" style="margin-top:8px">
+    <div class="f"><label>Kind of location</label><select data-adv="lkind">${[['', 'Any'], ['yard', 'Yard locations'], ['other', 'Non-farm locations'], ['turn', 'Has a turn-off pin'], ['noturn', 'No turn-off pin']].map(([v, l]) => `<option value="${v}" ${A.lkind === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>Pin type</label><select data-adv="lpin"><option value="">Any</option>${pinTypes().map((t) => `<option value="${h(t.id)}" ${A.lpin === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select></div>
+    <div class="f"><label>Safety status</label><select data-adv="lsafe"><option value="">Any</option>${Object.entries(SAFETY).map(([k, v]) => `<option value="${k}" ${A.lsafe === k ? 'selected' : ''}>${v.l}</option>`).join('')}</select></div>
+    <div class="f"><label>Mobile reception</label><select data-adv="lrec"><option value="">Any</option>${[['good', 'Good'], ['patchy', 'Patchy'], ['none', 'None'], ['unknown', 'Not known']].map(([k, l]) => `<option value="${k}" ${A.lrec === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="f"><label>Current for a business</label><select data-adv="lcur">${[['yes', 'Current only'], ['no', 'Not current only'], ['any', 'Either']].map(([k, l]) => `<option value="${k}" ${(A.lcur || 'yes') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></details>` : ''}
   <details class="card" ${A.tAll.length || A.tAny.length || A.tNone.length ? 'open' : ''}><summary style="font-weight:700;cursor:pointer">Tags and contact categories</summary>
     ${advTagPicker('tAll', 'Has ALL of these')}${advTagPicker('tAny', 'Has ANY of these')}${advTagPicker('tNone', 'Has NONE of these (exclude)')}
   </details>
@@ -2417,7 +2499,7 @@ function renderAdvanced() {
     ${A.near.type === 'farm' ? `<input id="adv-nearsearch" placeholder="Search clients, businesses or farms" value="${nf ? h(farmLabel(nf)) : ''}" style="margin-top:6px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="adv-nearres"></div>` : ''}</div>
   </details>
   <div class="actions"><button class="btn" data-act="adv-clear">Clear all</button><label class="row2" style="padding:0">Sort <select data-adv="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Category A+ to C'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${A.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
-  <div id="adv-results">${kind === 'people' ? renderAdvResults() : renderAdvBizResults()}</div></div>`;
+  <div id="adv-results">${advResultsHtml()}</div></div>`;
 }
 function renderAdvResults() {
   const r = advResults();
@@ -2502,7 +2584,8 @@ async function advBulkApply(op, list) {
   const items = diffTouched(false); if (!items.length) { toast('Nothing to change — they already have that'); return false; }
   S.advSelPending = true; return true;
 }
-function refreshAdv() { const el = $('#adv-results'); if (el) el.innerHTML = (S.adv.kind || 'people') === 'people' ? renderAdvResults() : renderAdvBizResults(); }
+function advResultsHtml() { const k = S.adv.kind || 'people'; return k === 'people' ? renderAdvResults() : k === 'loc' ? renderAdvLocResults() : k === 'all' ? renderAdvAllResults() : renderAdvBizResults(); }
+function refreshAdv() { const el = $('#adv-results'); if (el) el.innerHTML = advResultsHtml(); }
 document.addEventListener('input', (e) => {
   const t = e.target; if (S.tab !== 'search') return;
   if (t.dataset.adv) { S.adv[t.dataset.adv] = t.value; clearTimeout(t._tm); t._tm = setTimeout(refreshAdv, 150); }
@@ -2526,6 +2609,12 @@ document.addEventListener('click', (e) => {
   else if (a === 'adv-selnone') { S.advSel.clear(); refreshAdv(); }
   else if (a === 'adv-edit') advEditSheet();
   else if (a === 'adv-kind') { S.adv.kind = el.dataset.v; renderAll(); }
+  else if (a === 'advl-sel') { e.stopPropagation(); el.checked ? S.advLSel.add(el.dataset.id) : S.advLSel.delete(el.dataset.id); refreshAdv(); }
+  else if (a === 'advl-selall') { advLocResults().forEach((f) => (el.checked ? S.advLSel.add(f.id) : S.advLSel.delete(f.id))); refreshAdv(); }
+  else if (a === 'advl-selnone') { S.advLSel.clear(); refreshAdv(); }
+  else if (a === 'advl-edit') advLocEditSheet();
+  else if (a === 'advl-map') { const ids = S.advLSel && S.advLSel.size ? [...S.advLSel] : advLocResults().map((f) => f.id); S.mapSel = new Set(ids); S.mapF = { ...(S.mapF || {}), past: S.adv.lcur !== 'yes', q: '', type: '' }; S.mapFit = true; goTab('map'); }
+  else if (a === 'advl-route') { routeAddedBox([...S.advLSel].filter((id) => IDX.farms.get(id) && IDX.farms.get(id).lat != null)); }
   else if (a === 'advb-sel') { e.stopPropagation(); el.checked ? S.advBSel.add(el.dataset.id) : S.advBSel.delete(el.dataset.id); refreshAdv(); }
   else if (a === 'advb-selall') { advBizResults().forEach((b) => (el.checked ? S.advBSel.add(b.id) : S.advBSel.delete(b.id))); refreshAdv(); }
   else if (a === 'advb-selnone') { S.advBSel.clear(); refreshAdv(); }
@@ -2564,7 +2653,7 @@ function restoreTrash(tid) {
   if (t.kind === 'contact') { const c = { ...t.rec, id: uid('c') }; c.links = c.links.filter((l) => IDX.biz.has(l.bid)); touch(c); D.contacts.push(c); S.sel = { kind: 'contact', id: c.id }; S.tab = 'contacts'; }
   if (t.kind === 'business') { const b = { ...t.rec, id: uid('b') }; touch(b); D.businesses.push(b); (t.linked || []).forEach((cid) => { const c = D.contacts.find((x) => x.id === cid); if (c && !c.links.some((l) => l.bid === b.id)) { c.links.push({ bid: b.id }); touch(c); } }); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
   if (t.kind === 'farm') { const b = IDX.biz.get(t.bid); if (!b) { toast('Its business has been deleted — restore the business first'); return; } const f = { ...t.rec, id: uid('f') }; delete f.sharedWith; D.farms.push(f); touch(f); linkFarm(b, f); S.sel = { kind: 'business', id: b.id }; S.tab = 'biz'; }
-  Object.assign(t, { removed: true, rec: null }); D._trashDirty = true; S.skipConfirm = true; changed(); toast('Restored');
+  Object.assign(t, { removed: true, rec: null }); D._trashDirty = true; NEXT_LOG_LABEL = 'Restored from the trash'; changed().then((ok) => { if (ok !== false) toast('Restored'); });
 }
 function trashLabel(t) { const r = t.rec || {}; return t.kind === 'contact' ? fullName(r) : t.kind === 'business' ? r.name : (t.bname || '') + ' — ' + (r.name || r.address || 'farm'); }
 function renderTrash() {
@@ -2839,8 +2928,8 @@ function changeRows(it) {
   return out || '<div class="hint">No visible change</div>';
 }
 function previewHtml(items) {
-  const n = items.length; const what = { contacts: 'contact', businesses: 'business', tags: 'tag', settings: 'setting' };
-  return `<p style="font-size:16px">${n} ${n === 1 ? 'item' : 'items'} will change. Please check, then confirm:</p><div style="max-height:55dvh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:#fff">${items.slice(0, 60).map((it) => `<div style="padding:6px 0;border-top:1px solid #f0ede8"><div style="font-weight:700">${h(it.name || '')} <span class="hint">${what[it.kind] || ''}</span></div>${it.created ? '<div class="hint">New — will be added</div>' : changeRows(it)}</div>`).join('')}${n > 60 ? `<div class="hint" style="padding:6px 0">…and ${n - 60} more</div>` : ''}</div>`;
+  const n = items.length; const what = { contacts: 'contact', businesses: 'business', tags: 'tag', settings: 'setting', farms: 'farm', routes: 'route' };
+  return `<p style="font-size:16px">${n} ${n === 1 ? 'item' : 'items'} will change. Please check, then confirm:</p><div style="max-height:55dvh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:#fff">${items.slice(0, 60).map((it) => `<div style="padding:6px 0;border-top:1px solid #f0ede8"><div style="font-weight:700">${h(it.name || '')} <span class="hint">${what[it.kind] || ''}</span></div>${it.deleted ? '<div class="hint" style="color:var(--red)">Will go to the trash (you can restore it)</div>' : it.created ? '<div class="hint">New — will be added</div>' : changeRows(it)}</div>`).join('')}${n > 60 ? `<div class="hint" style="padding:6px 0">…and ${n - 60} more</div>` : ''}</div>`;
 }
 let CATSNAP = new Map(); const snapCats = () => { CATSNAP = new Map(D.contacts.map((c) => [c.id, catOf(c)])); };
 function baseline() { snapCats(); DISMISS_SNAP = JSON.stringify(D.dismissed || {}); BASE.clear(); KINDS.forEach((k) => D[k].forEach((r) => BASE.set(k + ':' + r.id, stable(plain(r))))); BASE.set('settings', stable(plain(D.settings))); TOUCHED.clear(); PENDING_DEL = []; }
@@ -3147,8 +3236,8 @@ document.addEventListener('click', async (e) => {
       S.svCand = p0; $('#e-svprev').innerHTML = `<div class="card" style="padding:8px;margin-top:8px"><div class="hint">Nearest Street View to the ${tg ? 'turn-off' : 'yards'} — is it useful?</div><img src="${svUrl(p0, 640, 360)}" style="width:100%;border-radius:8px" alt="Street View" onerror="this.parentNode.innerHTML='<div class=hint>No Street View found near here (or the key doesn\'t have Street View Static API turned on).</div>'"><div class="actions" style="margin-top:6px"><button type="button" class="btn small greenbtn" data-act="sv-keep">✓ Keep this photo</button><button type="button" class="btn small" data-act="sv-turn">↻ Look the other way</button></div></div>`; break; }
     case 'sv-turn': { const c = S.svCand; if (!c) break; c.heading = ((c.heading == null ? 0 : c.heading) + 120) % 360; const img = $('#e-svprev img'); if (img) img.src = svUrl(c, 640, 360); break; }
     case 'sv-keep': { const c = S.svCand; if (!c || !SHEET_FARM) break; SHEET_FARM.photos.push({ id: uid('ph'), kind: 'sv', lat: c.lat, lng: c.lng, radius: c.radius, ...(c.heading != null ? { heading: c.heading } : {}), at: Date.now(), by: devInfo().nick }); $('#e-fphotos').innerHTML = farmPhotoEdit({ photos: SHEET_FARM.photos }); $('#e-svprev').innerHTML = '<div class="hint">✓ Added — tap Save to keep it.</div>'; break; }
-    case 'sv-yes': { const f = IDX.farms.get(d.fid); if (!f) break; f.photos = [...(f.photos || []), { id: uid('ph'), kind: 'sv', lat: +d.lat, lng: +d.lng, radius: +d.r, at: Date.now(), by: devInfo().nick }]; touch(f); NEXT_LOG_LABEL = 'Street View photo added for ' + farmLabel(f); S.skipConfirm = true; if (await changed()) toast('📷 Photo kept'); break; }
-    case 'sv-no': { const f = IDX.farms.get(d.fid); if (!f) break; f.svNo = true; touch(f); S.skipConfirm = true; NEXT_LOG_LABEL = 'Street View photo not useful for ' + farmLabel(f); await changed(); break; }
+    case 'sv-yes': { const f = IDX.farms.get(d.fid); if (!f) break; f.photos = [...(f.photos || []), { id: uid('ph'), kind: 'sv', lat: +d.lat, lng: +d.lng, radius: +d.r, at: Date.now(), by: devInfo().nick }]; touch(f); NEXT_LOG_LABEL = 'Street View photo added for ' + farmLabel(f); if (await changed()) toast('📷 Photo kept'); break; }
+    case 'sv-no': { const f = IDX.farms.get(d.fid); if (!f) break; f.svNo = true; touch(f); NEXT_LOG_LABEL = 'Street View photo not useful for ' + farmLabel(f); await changed(); break; }
     case 'rec-here': recHere(); break;
     case 'farm-past': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const l = b.farmLinks.find((x) => x.fid === f.id); if (!l) break; const toPast = !l.past; linkFarm(b, f, toPast); NEXT_LOG_LABEL = `${farmLabel(f)} ${toPast ? 'no longer current' : 'current again'} for ${b.name}`; if (await changed()) toast(toPast ? 'Moved to "Not current"' : 'Current again'); break; }
     case 'farm-link-pick': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const r = await askBox('Link farm', `<p>Link <b>${h(farmLabel(f))}</b> to <b>${h(b.name)}</b>?</p><p class="hint">It becomes a shared farm — any change to it shows for every business that uses it.</p>`, 'Link as current', false, 'Cancel', 'Link as not current'); if (!r) break; linkFarm(b, f, r === 'alt'); NEXT_LOG_LABEL = `Linked ${farmLabel(f)} to ${b.name}${r === 'alt' ? ' (not current)' : ''}`; S.skipConfirm = true; if (await changed()) toast('Farm linked'); break; }
@@ -3248,9 +3337,9 @@ document.addEventListener('click', async (e) => {
       NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}${extra}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
       let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Not linked — nothing was changed'); break; } match = r === 'match'; }
-      c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); S.skipConfirm = true; NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
+      c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
     case 'area-ai': { let cids = [], bids = [], req = '';
-      if (d.v === 'search') { if ((S.adv.kind || 'people') === 'people') { const r = advResults(); const sel = S.advSel && S.advSel.size ? r.filter((c) => S.advSel.has(c.id)) : r; cids = sel.slice(0, 80).map((c) => c.id); req = `About ${S.advSel && S.advSel.size ? 'the ' + sel.length + ' people I selected' : 'my search results (' + r.length + ' people' + (r.length > 80 ? ', first 80 included' : '') + ')'}: `; }
+      if (d.v === 'search') { if (['loc', 'all'].includes(S.adv.kind)) { const r = advLocResults(); bids = [...new Set(r.slice(0, 60).map((f) => (IDX.farmBiz.get(f.id) || {}).id).filter(Boolean))]; req = `About my location search results (${r.length} locations): `; } else if ((S.adv.kind || 'people') === 'people') { const r = advResults(); const sel = S.advSel && S.advSel.size ? r.filter((c) => S.advSel.has(c.id)) : r; cids = sel.slice(0, 80).map((c) => c.id); req = `About ${S.advSel && S.advSel.size ? 'the ' + sel.length + ' people I selected' : 'my search results (' + r.length + ' people' + (r.length > 80 ? ', first 80 included' : '') + ')'}: `; }
         else { const r = advBizResults(); const sel = S.advBSel && S.advBSel.size ? r.filter((b) => S.advBSel.has(b.id)) : r; bids = sel.slice(0, 60).map((b) => b.id); req = `About ${S.advBSel && S.advBSel.size ? 'the ' + sel.length + ' businesses I selected' : 'my search results (' + r.length + ' businesses' + (r.length > 60 ? ', first 60 included' : '') + ')'}: `; } }
       else { const stops = S.route.stops.map((x) => IDX.farms.get(x.fid)).filter(Boolean); bids = [...new Set(stops.map((f) => IDX.farmBiz.get(f.id)?.id).filter(Boolean))]; req = stops.length ? `About my planned route (${routeSummary({ ...routeSnapshot() })}): ` : 'About planning a route: '; }
       S.aiExtra = { cids, bids }; S.aiScope = 'mentioned'; S.aiReq = req; S.aiReply = ''; S.aiResult = '';
@@ -3266,19 +3355,19 @@ document.addEventListener('click', async (e) => {
       if (j.kind === 'contact') cids.add(j.id); else bids.add(j.id); [j.linkSug, j.linkRev, j.bizonly].forEach((x) => { if (x) { if (x.cid) cids.add(x.cid); if (x.bid) bids.add(x.bid); } }); if (j.oddbiz) bids.add(j.oddbiz); if (j.catdiff) bids.add(j.catdiff.bid); if (j.primSuggest) cids.add(j.primSuggest);
       S.aiExtra = { cids: [...cids], bids: [...bids] }; S.aiScope = 'mentioned'; S.aiReq = `Help me sort out this item from the app's Jobs list.\nJob: ${JOB_TYPES[j.type]?.t || j.type}\n${j.who}: ${j.note}${j.warnTxt ? '\n' + j.warnTxt : ''}\nTell me what you'd suggest and why, and include the changes if you're fairly sure.`; S.aiReply = ''; S.aiResult = '';
       S.setOpen = S.setOpen || new Set(); S.setOpen.add('🤖 Ask Claude'); S.tab = 'settings'; S.sel = null; renderAll(); setTimeout(() => { const el = document.querySelector('details.setsec'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 50); toast('Check the request, then tap "Copy for Claude"'); break; }
-    case 'linkrev-undo': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b) break; const prev = catOf(c); c.links = c.links.filter((l) => l.bid !== b.id); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Undid link: ${fullName(c)} → ${b.name}`; S.skipConfirm = true; if (await changed()) toast('Link removed'); break; }
-    case 'primin-fix': { const c = D.contacts.find((x) => x.id === d.cid); if (!c) break; c.tags = c.tags.filter((t2) => t2 !== 'pa'); if (!c.tags.includes('pi')) c.tags.push('pi'); touch(c); NEXT_LOG_LABEL = `${fullName(c)}: Primary (active) → Primary (inactive)`; S.skipConfirm = true; if (await changed()) toast('✓ Changed to Primary (inactive)'); break; }
+    case 'linkrev-undo': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b) break; const prev = catOf(c); c.links = c.links.filter((l) => l.bid !== b.id); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Undid link: ${fullName(c)} → ${b.name}`; if (await changed()) toast('Link removed'); break; }
+    case 'primin-fix': { const c = D.contacts.find((x) => x.id === d.cid); if (!c) break; c.tags = c.tags.filter((t2) => t2 !== 'pa'); if (!c.tags.includes('pi')) c.tags.push('pi'); touch(c); NEXT_LOG_LABEL = `${fullName(c)}: Primary (active) → Primary (inactive)`; if (await changed()) toast('✓ Changed to Primary (inactive)'); break; }
     case 'link-pick-past': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b || c.links.some((l) => l.bid === b.id)) break; const prev = catOf(c);
-      c.links.push({ bid: b.id, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name} as a past employee`; S.skipConfirm = true; if (await changed()) toast(`✓ ${fullName(c)} linked to ${b.name} (past)`); break; }
+      c.links.push({ bid: b.id, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name} as a past employee`; if (await changed()) toast(`✓ ${fullName(c)} linked to ${b.name} (past)`); break; }
     case 'link-past': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b) break; const prev = catOf(c);
       c.links = c.links.map((l) => (l.bid === b.id ? (d.v === '1' ? { bid: b.id, past: true } : { bid: b.id }) : l)); if (d.v === '1' && b.primaryContact === c.id) { b.primaryContact = null; touch(b); }
       reindex(); if (prev) setOne(c, prev); touch(c); // their category stays as it was
-      NEXT_LOG_LABEL = `${fullName(c)} ${d.v === '1' ? 'marked as a past employee of' : 'made a current contact of'} ${b.name}`; S.skipConfirm = true; if (await changed()) toast(d.v === '1' ? `${fullName(c)} moved to past employees` : `${fullName(c)} is current again`); break; }
+      NEXT_LOG_LABEL = `${fullName(c)} ${d.v === '1' ? 'marked as a past employee of' : 'made a current contact of'} ${b.name}`; if (await changed()) toast(d.v === '1' ? `${fullName(c)} moved to past employees` : `${fullName(c)} is current again`); break; }
     case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && await ask(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
     case 'ltype': S.ltype = d.v; renderAll(); break;
     case 'lpast': S.lpast = el.checked; renderLocList(); break;
-    case 'loc-open': S.sel = { kind: 'business', id: d.bid }; S.selFarm = d.fid; renderAll(); setTimeout(() => { const card = document.querySelector(`#detail [data-act=edit-farm][data-fid="${d.fid}"]`); const fc = card && card.closest('.farm'); if (fc) { fc.scrollIntoView({ block: 'center' }); fc.classList.add('flash'); } }, 60); break;
+    case 'loc-open': if (!['loc', 'contacts'].includes(S.tab)) { S.backTo = S.tab; S.tab = 'contacts'; } S.sel = { kind: 'business', id: d.bid }; S.selFarm = d.fid; renderAll(); setTimeout(() => { const card = document.querySelector(`#detail [data-act=edit-farm][data-fid="${d.fid}"]`); const fc = card && card.closest('.farm'); if (fc) { fc.scrollIntoView({ block: 'center' }); fc.classList.add('flash'); } }, 60); break;
     case 'loc-map': { const lt = S.ltype || 'all'; const pq = parseQuery(S.lq || ''); const ids = [...new Set(allPins().filter((p) => (S.lpast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ([p.name, p.type, p.f.address, ...p.us.map((u) => u.b.name)].join(' ').toLowerCase(), pq)).map((p) => p.f.id))]; S.mapSel = new Set(ids); S.mapF = { ...(S.mapF || {}), past: !!S.lpast, q: '', type: '' }; S.mapFit = true; goTab('map'); break; }
     case 'ctype': { const wasB = ['bc', 'bn'].includes(S.ctype || 'all'), isB = ['bc', 'bn'].includes(d.v); if (wasB && !isB) S.q = S.bq || ''; if (!wasB && isB) S.bq = S.q || ''; S.ctype = d.v; renderAll(); $('#list').scrollTop = 0; break; }
     case 'ptype': S.ptype = d.v; renderContactList(); break;
