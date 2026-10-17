@@ -158,6 +158,8 @@ body.show-detail #detail{display:block}
 .flagline{display:flex;gap:8px;align-items:flex-start;background:#fff8e1;border:1px solid #f0d78a;border-radius:9px;padding:8px 10px;margin:6px 0;font-size:14px}
 .biz-link{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #f0ede8;cursor:pointer}
 .biz-link:first-of-type{border-top:0}
+.bcrow{display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;border-top:1px solid #f0ede8;padding:4px 0 8px}.bcrow:first-of-type{border-top:0}.bcrow>.biz-link{flex:1 1 240px;min-width:0;border-top:0}.bcrow>.biz-link>div:last-child{min-width:0;overflow-wrap:anywhere}.bcacts{display:flex;flex-wrap:wrap;gap:6px;flex:0 1 auto}html[data-theme=dark] .bcrow{border-color:var(--line)}
+@media(max-width:600px){.bcacts .btn.small{padding:6px 9px;font-size:13.5px}.bcacts{gap:5px}}
 /* forms */
 .sheet-bg{position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center}
 @media(min-width:700px){.sheet-bg{align-items:center}}
