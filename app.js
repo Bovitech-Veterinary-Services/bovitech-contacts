@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '10.1 (17 Oct 2026)';
+const APP_VERSION = '10.2 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -202,7 +202,7 @@ function photoCandidates(c) {
 }
 function effChoice(c) { /* a chosen photo only counts while the contact still has that category/tag (e.g. chose "A client", business is now B → back to automatic) */
   const pc = c.photoChoice || 'auto'; if (pc === 'auto' || pc === 'custom') return pc === 'custom' && !c.photoData ? 'auto' : pc;
-  const { dr, ptags } = photoCandidates(c); const ok = new Set([...dr, ...ptags]);
+  const { dr, ptags } = photoCandidates(c); const ok = new Set([...dr, ...ptags, ...bizOf(c).map(bizCat).filter((t) => t && tagPhotoSrc(t))]);
   if (pc.startsWith('split:')) { const t = pc.slice(6).split(','); return t.length && t.every((x) => ok.has(x)) ? pc : 'auto'; }
   return ok.has(pc) ? pc : 'auto';
 }
@@ -880,7 +880,22 @@ function iceCard(c) {
 }
 function iceRow(i) { const x = i && D.contacts.find((y) => y.id === i.cid); return `<div class="icerow" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap"><input class="ice-who" list="ice-dl" placeholder="Start typing a contact's name" value="${x ? h(iceLabel(x)) : ''}" style="flex:2;min-width:180px;padding:9px;border:1px solid var(--line);border-radius:9px"><input class="ice-rel" placeholder="Relationship, e.g. Mum" value="${h((i && i.rel) || '')}" style="flex:1;min-width:120px;padding:9px;border:1px solid var(--line);border-radius:9px"><button type="button" class="btn small" data-act="ice-del">✕</button></div>`; }
 // linking a contact to a business whose category differs: match the business, or keep the contact's own?
-async function askLinkCat(names, b, cur) {
+async function askLinkCat(names, b, cur, contacts) { /* contacts: who is being linked — used to ask which photo they show when they keep their own category */
+  const r0 = await askLinkCat0(names, b, cur); if (r0 === 'keep' && contacts && contacts.length && !(await askLinkPhoto(contacts, b))) return null; return r0;
+}
+async function askLinkPhoto(contacts, b) { /* own category kept: which photo? */
+  const bc = bizCat(b); const bsrc = bc && tagPhotoSrc(bc); const owns = [...new Set(contacts.map(catOf).filter((t) => t && tagPhotoSrc(t)))];
+  if (!bsrc || !owns.length) return true;
+  const own1 = owns.length === 1 ? owns[0] : null; const img = (t) => `<img src="${tagPhotoSrc(t)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;vertical-align:middle">`;
+  const opt = (v, html, on) => `<label class="bkop"><input type="radio" name="lp" value="${v}" ${on ? 'checked' : ''} onchange="document.getElementById('lp-val').value=this.value"><span>${html}</span></label>`;
+  const r = await askBox('Which photo?', `<p>${contacts.length > 1 ? `These ${contacts.length} contacts` : `<b>${h(fullName(contacts[0]))}</b>`} will keep ${contacts.length > 1 ? 'their own categories' : 'their own category'}, which is different from <b>${h(b.name)}</b>. Which photo should ${contacts.length > 1 ? 'they' : 'they'} show?</p>
+    <input type="hidden" id="lp-val" data-ask="lp" value="own">
+    ${opt('own', `${own1 ? img(own1) + ' ' : ''}<b>Their own category${own1 ? ': ' + h(tagName(own1)) : ''}</b>`, true)}${opt('biz', `${img(bc)} <b>The business's category: ${h(tagName(bc))}</b>`)}${opt('split', `<span class="splitpv">${own1 ? `<img src="${tagPhotoSrc(own1)}">` : ''}<img src="${bsrc}"></span> <b>Split photo — both</b>`)}`, 'Use this photo', false, 'Cancel');
+  if (!r) return false; const v = ASK_FORM.lp || 'own';
+  contacts.forEach((c) => { const own = catOf(c); if (v === 'own' || !own || !tagPhotoSrc(own)) { if (c.photoChoice && c.photoChoice !== 'auto' && c.photoChoice !== 'custom') { c.photoChoice = 'auto'; touch(c); } return; } c.photoChoice = v === 'biz' ? bc : 'split:' + own + ',' + bc; touch(c); });
+  return true;
+}
+async function askLinkCat0(names, b, cur) {
   return askBox('Different category', `<p style="font-size:16.5px">${names} ${/,| and /.test(names) ? 'have' : 'has'} a different category from <b>${h(b.name)}</b>.</p><div class="grid2" style="margin:8px 0"><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px"><div class="lbl">Contact now</div>${h(cur)}</div><div class="body" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px"><div class="lbl">Business</div>${h(tagName(bizCat(b)))}</div></div><p>Update the contact's category to match the business, or keep it different?</p>`, `Update to match business: ${tagName(bizCat(b))}`, false, "Cancel — don't link", `Keep it different: ${cur}`).then((r) => (r === true ? 'match' : r === 'alt' ? 'keep' : null)); // null = backed out: nothing is linked
 }
 function setIceTags(ids, removedIds = []) { // linked ICE contacts get the ICE tag; people no longer anyone's ICE lose it
@@ -1135,7 +1150,7 @@ function editContact(c) {
     c.tags = [...addl];
     if (mode === 'biz') c.ownCats = false; else { c.ownCats = true; if (rv) c.tags.push(rv); if (curLinks(c).length && rv && rv === curLinks(c).map((l) => IDX.biz.get(l.bid)).filter(Boolean).map(bizCat).find(Boolean)) { c.ownCats = false; c.tags = c.tags.filter((t) => t !== rv); } }
     { const nb = curLinks(c).map((l) => IDX.biz.get(l.bid)).find((b) => b && !oldBids.has(b.id) && bizCat(b)); const mine = mode === 'own' ? rv : prevCat;
-      if (nb && mine && bizCat(nb) !== mine && (mode === 'own' || !oldBids.size)) { reindex(); const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, nb, tagName(mine)); if (!r) { adopt(c, JSON.parse(origRec)); reindex(); toast('Not saved — your edits are still on screen'); return false; } if (r === 'match') setOne(c, bizCat(nb)); else setOne(c, mine); } }
+      if (nb && mine && bizCat(nb) !== mine && (mode === 'own' || !oldBids.size)) { reindex(); const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, nb, tagName(mine), [c]); if (!r) { adopt(c, JSON.parse(origRec)); reindex(); toast('Not saved — your edits are still on screen'); return false; } if (r === 'match') setOne(c, bizCat(nb)); else setOne(c, mine); } }
     c.mobiles = readRep('mob'); c.landlines = readRep('land'); c.emails = readRep('email'); c.postal = readRep('postal').map((p) => p.value);
     if ($('#e-icewrap') && $('#e-icewrap').style.display !== 'none') {
       const byLabel = new Map(D.contacts.filter((x) => x.id !== c.id).map((x) => [iceLabel(x), x])); const byName = new Map(); D.contacts.forEach((x) => { const k = fullName(x).toLowerCase(); byName.set(k, byName.has(k) ? null : x); });
@@ -2597,7 +2612,7 @@ async function advBulkApply(op, list) {
   let biz = null, linkMatch = null;
   if (op === 'link') { const nm = $('#bk-biz').value.trim(); if (!nm) { toast('Type or pick a business name'); return false; } biz = D.businesses.find((b) => b.name.toLowerCase() === nm.toLowerCase()); if (!biz) { if (!(await askBox('New business?', askText(`"${nm}" doesn't exist yet. Create it and link the contacts to it?`), 'Yes — create it'))) return false; biz = newBusiness(nm); } }
   if (op === 'link' && bizCat(biz)) { const diff = list.filter((c) => !c.links.some((l) => l.bid === biz.id) && catOf(c) && catOf(c) !== bizCat(biz));
-    if (diff.length) { const r = await askLinkCat(diff.length > 4 ? `<b>${diff.length} of these contacts</b> (${h(diff.slice(0, 4).map(fullName).join(', '))}…)` : diff.map((c) => `<b>${h(fullName(c))}</b>`).join(diff.length === 2 ? ' and ' : ', '), biz, [...new Set(diff.map((c) => tagName(catOf(c))))].join(' / ')); if (!r) return false; linkMatch = new Set(r === 'match' ? diff.map((c) => c.id) : []); } }
+    if (diff.length) { const r = await askLinkCat(diff.length > 4 ? `<b>${diff.length} of these contacts</b> (${h(diff.slice(0, 4).map(fullName).join(', '))}…)` : diff.map((c) => `<b>${h(fullName(c))}</b>`).join(diff.length === 2 ? ' and ' : ', '), biz, [...new Set(diff.map((c) => tagName(catOf(c))))].join(' / '), diff); if (!r) return false; linkMatch = new Set(r === 'match' ? diff.map((c) => c.id) : []); } }
   if (op === 'trash') {
     if (!(await ask(`Move these ${list.length} contacts to the trash?\n\n${list.slice(0, 15).map(fullName).join(', ')}${list.length > 15 ? ` and ${list.length - 15} more` : ''}\n\nThey can be restored from Settings → Trash.`, 'Yes — move to trash', true))) return false;
     list.forEach((c) => trashContact(c)); S.advSel.clear(); NEXT_LOG_LABEL = `Search: moved ${list.length} contacts to the trash`; return true;
@@ -3370,12 +3385,12 @@ document.addEventListener('click', async (e) => {
     case 'prim-find': { const b = IDX.biz.get(d.bid); if (b) primFindSheet(b); break; }
     case 'pf-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (!c || !b) break; closeSheet();
       const l = c.links.find((x) => x.bid === b.id); let extra = '';
-      if (!l || l.past) { const prev = catOf(c); let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Nothing was changed'); break; } match = r === 'match'; }
+      if (!l || l.past) { const prev = catOf(c); let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev), [c]); if (!r) { toast('Nothing was changed'); break; } match = r === 'match'; }
         if (l) delete l.past; else { const role = await askLinkRole(c, b, false); if (role === null) { toast('Nothing was changed'); break; } c.links.push(role ? { bid: b.id, role } : { bid: b.id }); } reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); extra = l ? ' (was a past employee — now current)' : ' (linked to the business)'; }
       b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) c.tags.push('pa'); touch(c);
       NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}${extra}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
-      let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Not linked — nothing was changed'); break; } match = r === 'match'; }
+      let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev), [c]); if (!r) { toast('Not linked — nothing was changed'); break; } match = r === 'match'; }
       const role = await askLinkRole(c, b, false); if (role === null) { toast('Not linked — nothing was changed'); break; }
       c.links.push(role ? { bid: d.bid, role } : { bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}${role ? ' as ' + role : ''}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
     case 'area-ai': { let cids = [], bids = [], req = '';
