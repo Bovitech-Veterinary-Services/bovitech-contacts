@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '11.5 (17 Oct 2026)';
+const APP_VERSION = '11.6 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -307,13 +307,18 @@ function contactHay(c) {
   bs.forEach((b) => { parts.push(b.name, b.info, b.warnings); b.pics.forEach((p) => parts.push(p.value)); b.patientIds.forEach((p) => parts.push(p.label, p.value)); b.farms.forEach((f) => parts.push(f.name, f.address, f.info)); });
   const s = parts.filter(Boolean).join(' \u0001 ').toLowerCase(); IDX.hay.set(c.id, s); return s;
 }
+const nameOnly = () => S.nameOnly !== false; // "Search in name only" tick box — ticked every time the app opens
+const nameHay = (c) => [fullName(c), c.first, c.middle, c.last].filter(Boolean).join(' ').toLowerCase();
+const bizNameHay = (b) => (b.name || '').toLowerCase();
+const locHay = (p) => (nameOnly() ? [p.name, ...p.us.map((u) => u.b.name)] : [p.name, p.type, p.f.address, p.f.info, ...p.us.map((u) => u.b.name)]).join(' ').toLowerCase();
+const NAMEONLY_BOX = () => `<label style="font-weight:600" title="Untick to also search phone numbers, emails, notes, addresses and everything else"><input type="checkbox" data-act="nameonly" ${nameOnly() ? 'checked' : ''}> Search in name only</label>`;
 function matchQ(hay, pq) { return pq.inc.every((t) => hay.includes(t)) && !pq.exc.some((t) => hay.includes(t)); }
 function filteredContacts() {
   const pq = parseQuery(S.q);
   S.tagF = {}; S.quick = {}; // the tag/flag chips moved to Search & Bulk Edit
   const tf = Object.entries(S.tagF);
   return D.contacts.filter((c) => {
-    if (!matchQ(contactHay(c), pq)) return false;
+    if (!matchQ(nameOnly() ? nameHay(c) : contactHay(c), pq)) return false;
     if (tf.length) { const ts = contactTagSet(c); for (const [t, m] of tf) { if (m === 'inc' && !ts.has(t)) return false; if (m === 'exc' && ts.has(t)) return false; } }
     const q = S.quick;
     if (q.starred && !isFav(c)) return false;
@@ -727,11 +732,11 @@ function renderLocList() {
   const keepFocus = document.activeElement && document.activeElement.id === 'lq';
   const lt = S.ltype || 'all'; const showPast = !!S.lpast; const pq = parseQuery(S.lq || '');
   const pins = allPins(); const cnt = (k) => pins.filter((p) => (showPast || p.cur) && (k === 'all' || p.kind === k)).length;
-  const rows = pins.filter((p) => (showPast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ([p.name, p.type, p.f.address, ...p.us.map((u) => u.b.name)].join(' ').toLowerCase(), pq))
+  const rows = pins.filter((p) => (showPast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ(locHay(p), pq))
     .sort((x, y) => alphaCmp(x.b.name, y.b.name) || alphaCmp(x.name, y.name));
-  let html = `<div class="toolbar"><div class="search"><input id="lq" type="search" placeholder="Search locations, businesses or addresses…" value="${h(S.lq || '')}" autocomplete="off"></div>
+  let html = `<div class="toolbar"><div class="search"><input id="lq" type="search" placeholder="${nameOnly() ? 'Search location or business names…' : 'Search locations, businesses or addresses…'}" value="${h(S.lq || '')}" autocomplete="off"></div>
     <div class="chips">${[['all', 'All pins', '📍'], ['yard', 'Yard pins', '🐄'], ['turn', 'Turn-off pins', TURN_EMOJI], ['other', 'Non-farm locations', '🏬']].map(([v, l, ic]) => `<button class="chip ${lt === v ? 'on' : ''}" data-act="ltype" data-v="${v}"><span class="ci">${ic}</span>${l}<span class="cn">${cnt(v)}</span></button>`).join('')}</div>
-    <div class="row2"><span>${rows.length} pin${rows.length === 1 ? '' : 's'}</span><label style="font-weight:600"><input type="checkbox" data-act="lpast" ${showPast ? 'checked' : ''}> Include not current</label><button class="btn small" data-act="loc-map">🗺 Show these on the map</button></div></div><ul class="list">`;
+    <div class="row2"><span>${rows.length} pin${rows.length === 1 ? '' : 's'}</span>${NAMEONLY_BOX()}<label style="font-weight:600"><input type="checkbox" data-act="lpast" ${showPast ? 'checked' : ''}> Include not current</label><button class="btn small" data-act="loc-map">🗺 Show these on the map</button></div></div><ul class="list">`;
   rows.slice(0, 500).forEach((p) => { const sf = p.f.safety || {};
     html += `<li class="item ${S.sel?.id === p.b.id && S.selFarm === p.f.id ? 'sel' : ''}" data-act="loc-open" data-bid="${p.b.id}" data-fid="${p.f.id}"><div class="av locav">${p.emoji}</div><div class="t"><div class="n">${h(p.name)}${p.cur ? '' : ' <span class="hint">(not current)</span>'}${sf.status && sf.status !== 'ok' ? (sf.status === 'stop' ? ' ⛔' : ' ⚠') : ''}${farmBiosecOf(p.f).length ? ' 🦠' : ''}</div><div class="s">${h(p.us.filter((u) => showPast || !u.past).map((u) => u.b.name).join(', '))} · ${h(p.type)}${p.lat == null ? ' · <b>no GPS pin</b>' : p.kind !== 'turn' && p.f.kmReturn != null ? ' · ' + p.f.kmReturn + ' km' : ''}</div></div>${p.lat != null ? `<a class="btn small" href="${gmapsNav(p)}" target="_blank" rel="noopener" title="Navigate">🧭</a>` : ''}</li>`; });
   if (rows.length > 500) html += '<li class="empty">Showing first 500 — search to narrow it down.</li>';
@@ -846,13 +851,13 @@ function renderContactList() {
   const list = $('#list');
   if (!D.contacts.length && (D.firstRun || !D.sync.fileId)) { list.innerHTML = firstRunHtml(); return; }
   const keepFocus = document.activeElement && document.activeElement.id === 'q';
-  const pt = S.ptype || 'all'; const hideIn = S.hideIn.p !== false; const mix = (S.ctype || 'all') === 'all'; const mixB = mix ? D.businesses.filter((b) => matchQ(bizHay(b), parseQuery(S.q)) && (!hideIn || !['inactive', 'dna'].includes(bizCat(b)))) : null; const all = filteredContacts().filter((c) => !hideIn || !['inactive', 'dna'].includes(catOf(c))); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
+  const pt = S.ptype || 'all'; const hideIn = S.hideIn.p !== false; const mix = (S.ctype || 'all') === 'all'; const mixB = mix ? D.businesses.filter((b) => matchQ(nameOnly() ? bizNameHay(b) : bizHay(b), parseQuery(S.q)) && (!hideIn || !['inactive', 'dna'].includes(bizCat(b)))) : null; const all = filteredContacts().filter((c) => !hideIn || !['inactive', 'dna'].includes(catOf(c))); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
   let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="${(S.ctype || 'all') === 'all' ? 'Search people and businesses…' : 'Search people…'}" title="Tip: use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">➕ New</button></div>
     ${ctypeSeg()}
     <div class="row2"><span>${rows.length} of ${D.contacts.length} people${mixB ? ` · ${mixB.length} business${mixB.length === 1 ? '' : 'es'}` : ''}${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
-    <label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="p" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
+    ${NAMEONLY_BOX()}<label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="p" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
   html += '<ul class="list">';
-  if (!mix && S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(bizHay(b), pq)).slice(0, 15);
+  if (!mix && S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(nameOnly() ? bizNameHay(b) : bizHay(b), pq)).slice(0, 15);
     if (bo.length) { html += `<li class="group-h">Businesses (phone / email on the business)</li>`; bo.forEach((b) => { html += `<li class="item" data-act="open" data-kind="business" data-id="${b.id}"><div class="av" style="display:grid;place-items:center;background:#ece8df;font-size:20px">🏢</div><div class="t"><div class="n">${h(b.name)}</div><div class="s"><b>${isClientBiz(b) ? 'Client business' : 'Industry'}</b> · ${h(((b.phones || [])[0] || (b.emails || [])[0] || {}).value || '')}</div></div></li>`; }); html += `<li class="group-h">People</li>`; } }
   let lastG = null, shown = 0; let starredHdr = false;
   let bq = mixB ? mixB.slice().sort((a, b) => alphaCmp(a.name, b.name)) : []; const alphaSort = ['first', 'last'].includes(S.sort || 'first');
@@ -889,11 +894,11 @@ function renderBizList() {
   const pq = parseQuery(S.bq);
   const bt = S.btype || 'all';
   const hideIn = S.hideIn.b !== false;
-  let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)) && (!hideIn || !['inactive', 'dna'].includes(bizCat(b))));
+  let rows = D.businesses.filter((b) => matchQ(nameOnly() ? bizNameHay(b) : bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)) && (!hideIn || !['inactive', 'dna'].includes(bizCat(b))));
   rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || alphaCmp(a.name, b.name));
   let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses…" title="Tip: use -word to exclude" value="${h(S.bq)}" autocomplete="off"><button class="btn" data-act="go-adv-biz" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-biz">➕ New</button></div>
     ${ctypeSeg()}
-    <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="b" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
+    <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span>${NAMEONLY_BOX()}<label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="b" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
   rows.slice(0, 400).forEach((b) => { html += bizRowHtml(b); });
   if (!rows.length) html += `<li class="empty">No businesses match.</li>`;
   patchList($('#list'), html + '</ul>', 'bq');
@@ -3817,9 +3822,10 @@ document.addEventListener('click', async (e) => {
     case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && await ask(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
     case 'ltype': S.ltype = d.v; renderAll(); break;
+    case 'nameonly': S.nameOnly = el.checked; S.tab === 'loc' ? renderLocList() : ['bc', 'bn'].includes(S.ctype || 'all') ? renderBizList() : renderContactList(); break;
     case 'lpast': S.lpast = el.checked; renderLocList(); break;
     case 'loc-open': if (!['loc', 'contacts'].includes(S.tab)) { S.backTo = S.tab; S.tab = 'contacts'; } S.sel = { kind: 'business', id: d.bid }; S.selFarm = d.fid; renderAll(); setTimeout(() => { const card = document.querySelector(`#detail [data-act=edit-farm][data-fid="${d.fid}"]`); const fc = card && card.closest('.farm'); if (fc) { fc.scrollIntoView({ block: 'center' }); fc.classList.add('flash'); } }, 60); break;
-    case 'loc-map': { const lt = S.ltype || 'all'; const pq = parseQuery(S.lq || ''); const ids = [...new Set(allPins().filter((p) => (S.lpast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ([p.name, p.type, p.f.address, ...p.us.map((u) => u.b.name)].join(' ').toLowerCase(), pq)).map((p) => p.f.id))]; S.mapSel = new Set(ids); S.mapF = { ...(S.mapF || {}), past: !!S.lpast, q: '', type: '' }; S.mapFit = true; goTab('map'); break; }
+    case 'loc-map': { const lt = S.ltype || 'all'; const pq = parseQuery(S.lq || ''); const ids = [...new Set(allPins().filter((p) => (S.lpast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ(locHay(p), pq)).map((p) => p.f.id))]; S.mapSel = new Set(ids); S.mapF = { ...(S.mapF || {}), past: !!S.lpast, q: '', type: '' }; S.mapFit = true; goTab('map'); break; }
     case 'ctype': { const wasB = ['bc', 'bn'].includes(S.ctype || 'all'), isB = ['bc', 'bn'].includes(d.v); if (wasB && !isB) S.q = S.bq || ''; if (!wasB && isB) S.bq = S.q || ''; S.ctype = d.v; renderAll(); $('#list').scrollTop = 0; break; }
     case 'ptype': S.ptype = d.v; renderContactList(); break;
     case 'bclear': e.preventDefault(); S.bq = ''; renderBizList(); break;
