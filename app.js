@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.0 (17 Oct 2026)';
+const APP_VERSION = '9.1 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -21,6 +21,7 @@ const ICONS = {
   contacts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7"/><path d="M17 4a4 4 0 0 1 0 8M22 21c0-3-1.5-5.5-4-6.5"/></svg>',
   biz: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-7h6v7"/></svg>',
   route: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5"/></svg>',
+  loc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
   map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>',
   jobs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
@@ -349,7 +350,7 @@ const REQ_DEF = ['email', 'phone', 'business', 'gps', 'pic', 'pid', 'category'];
 const reqOn = (k) => (D.settings.required || REQ_DEF).includes(k);
 const TPL_CONTACT = '*General info*\n-\n\n*Relationships*\n-\n\n*Preg test info*\n-Frequency:\n-Type:\n-Speed:\n-Comment:\n\n*Bull test info*\n-Frequency:\n-Speed:\n-Power:\n-Comment:\n\n*Book under*\n-\n\n*WARNING*\n-';
 const TPL_BIZ = '*General info*\n-\n\n*Billing*\n-\n\n*WARNING*\n-';
-const TAB_DEFAULTS = { contacts: 'People', biz: 'Businesses', search: 'Search & Bulk Edit', route: 'Plan Route', map: 'Farm Map', jobs: 'Jobs', settings: 'Settings' };
+const TAB_DEFAULTS = { contacts: 'Contacts', loc: 'Locations', biz: 'Businesses', search: 'Search & Bulk Edit', route: 'Plan Route', map: 'Farm Map', jobs: 'Jobs', settings: 'Settings' };
 const lab = (k) => (((D && D.settings) || {}).labels || {})[k] || TAB_DEFAULTS[k];
 /* ---------- business-name helpers: matching names in text, splitting names that hold more than one business ---------- */
 const coreBiz = (n) => (n || '').replace(/\([^)]*\)?/g, ' ').replace(/\b(pty\.?\s*ltd\.?|pty|ltd|limited|atf\b.*|as trustee.*|trading as.*|t\/a\b.*|ta\b .*|& co\b)/gi, ' ').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -419,7 +420,6 @@ function computeJobs() {
       const who = b.name + (f.name ? ' — ' + f.name : '');
       if (f.lat == null) add({ type: 'nogps', kind: 'business', id: b.id, fid: f.id, who, note: 'Address but no GPS pin' + (f.address ? ': ' + f.address : '') });
       if (f.kmReturn == null) add({ type: 'nokm', kind: 'business', id: b.id, fid: f.id, who, note: 'No distance recorded', suggest: f.gKm != null ? { km: f.gKm, fids: [f.id], why: 'Google Maps' } : null, needsLookup: f.gKm == null && f.lat != null ? [f.id] : null });
-      if (f.kmStatus === 'needs-verify') add({ type: 'kmverify', kind: 'business', id: b.id, fid: f.id, who, note: 'Distance requires verification' });
       (f.flags || []).forEach((fl) => { if (['signfix', 'kmcheck'].includes(fl.type)) add({ type: fl.type, kind: 'business', id: b.id, fid: f.id, who, note: fl.note, data: fl, suggest: fl.type === 'kmcheck' ? { km: fl.google, fids: [f.id], why: 'Google Maps, rounded up' } : null }); });
       if (f.lat != null && f.kmReturn != null) { const k = f.lat.toFixed(3) + ',' + f.lng.toFixed(3); if (!byGps.has(k)) byGps.set(k, []); byGps.get(k).push({ b, f }); }
     });
@@ -511,7 +511,6 @@ function computeJobs() {
 const JOB_TYPES = {
   conflict: { t: 'Sync conflicts', manual: false },
   kmcheck: { t: 'Distance more than 1 km different to Google Maps', manual: true },
-  kmverify: { t: 'Distance requires verification', manual: false },
   kmconflict: { t: 'Same farm, different km on different contacts', manual: true },
   dupe: { t: 'Possible duplicates', manual: false },
   nearpin: { t: 'Same GPS pin on two farms — same yards or different?', manual: false },
@@ -548,10 +547,10 @@ function jobs() { if (!JOBS_CACHE) { const off = new Set(PREF.jobsOff || []); JO
 function jobsFor(kind, id) { return jobs().filter((j) => j.id === id && (j.kind === kind || (kind === 'contact' && false))); }
 
 /* ---------------- rendering: shell ---------------- */
-const TABS = [['contacts', 'People'], ['biz', 'Businesses'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['map', 'Farm Map'], ['jobs', 'Jobs'], ['settings', 'Settings']];
+const TABS = [['contacts', 'Contacts'], ['loc', 'Locations'], ['search', 'Search & Bulk Edit'], ['route', 'Plan Route'], ['map', 'Farm Map'], ['jobs', 'Jobs'], ['settings', 'Settings']];
 function renderTabs() {
   const n = jobs().length;
-  $('#tabs').innerHTML = TABS.map(([k]) => { const l = lab(k); return `<button data-act="tab" data-v="${k}" class="${S.tab === k ? 'on' : ''}">${ICONS[k]}<span>${l}${k === 'contacts' ? ` (${D.contacts.length})` : k === 'biz' ? ` (${D.businesses.length})` : ''}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`; }).join('');
+  $('#tabs').innerHTML = TABS.map(([k]) => { const l = lab(k); return `<button data-act="tab" data-v="${k}" class="${S.tab === k || (k === 'contacts' && S.tab === 'biz') ? 'on' : ''}">${ICONS[k]}<span>${l}</span>${k === 'jobs' && n ? `<span class="badge">${n}</span>` : ''}</button>`; }).join('');
 }
 // contacts / businesses that have just become "Do not answer" and have no reason yet
 // contacts / businesses that have just become Do not answer / Inactive and have no reason yet
@@ -601,7 +600,7 @@ function askBox(title, html, okLabel = 'Yes — go ahead', danger = false, noLab
   });
 }
 let ASK_FORM = {};
-function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); ASK_FORM = {}; if (el) el.querySelectorAll('[data-ask]').forEach((x) => (ASK_FORM[x.dataset.ask] = x.value)); const ta = el && el.querySelector('textarea'); if (v === true && ta) v = ta.value.trim() || true; if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
+function closeAsk(v, fromPop) { if (!CONFIRM) return; const r = CONFIRM.res; CONFIRM = null; const el = $('#askbox'); ASK_FORM = {}; if (el) { el.querySelectorAll('[data-ask]').forEach((x) => (ASK_FORM[x.dataset.ask] = x.value)); el.querySelectorAll('[data-askchk]').forEach((x) => (ASK_FORM[x.dataset.askchk] = x.checked)); } const ta = el && el.querySelector('textarea'); if (v === true && ta) v = ta.value.trim() || true; if (el) el.remove(); if (!fromPop) { NAV.ignorePop++; history.back(); } updateBackBtn(); r(v); }
 document.addEventListener('click', (e) => { const el = e.target.closest('[data-act=ask-yes],[data-act=ask-no],[data-act=ask-alt]'); if (!el) return; e.stopPropagation(); closeAsk(el.dataset.act === 'ask-yes' ? true : el.dataset.act === 'ask-alt' ? 'alt' : false); }, true);
 const askText = (t) => `<p style="font-size:16px;line-height:1.45;white-space:pre-wrap">${h(t)}</p>`;
 async function ask(msg, okLabel, danger) { const ok = await askBox('Please confirm', askText(msg), okLabel || 'Yes — go ahead', danger); if (ok) { S.skipConfirm = true; setTimeout(() => (S.skipConfirm = false), 0); } return ok; } // already confirmed → no second pop-up
@@ -634,8 +633,9 @@ function renderAll() {
   renderTabs();
   const main = $('#main');
   main.classList.toggle('single', ['search', 'route', 'map', 'jobs', 'settings'].includes(S.tab));
-  if (S.tab === 'contacts') { renderContactList(); renderDetail(); }
-  else if (S.tab === 'biz') { renderBizList(); renderDetail(); }
+  if (S.tab === 'biz') { S.tab = 'contacts'; S.ctype = S.btype === 'client' ? 'bc' : S.btype === 'nonclient' ? 'bn' : 'all'; } /* businesses now live under Contacts */
+  if (S.tab === 'contacts') { const ct = S.ctype || 'all'; if (ct === 'bc' || ct === 'bn') { S.btype = ct === 'bc' ? 'client' : 'nonclient'; renderBizList(); } else { S.ptype = ct === 'pc' ? 'client' : ct === 'pn' ? 'nonclient' : 'all'; renderContactList(); } renderDetail(); }
+  else if (S.tab === 'loc') { renderLocList(); renderDetail(); }
   else if (S.tab === 'search') { $('#list').innerHTML = renderAdvanced(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'route') { $('#list').innerHTML = renderRoute(); document.body.classList.remove('show-detail'); }
   else if (S.tab === 'map') { renderMapTab(); document.body.classList.remove('show-detail'); }
@@ -645,39 +645,84 @@ function renderAll() {
 }
 
 
+
+/* ---------------- Locations: every pin (yards, turn-offs, other locations) ---------------- */
+function allPins() { /* one row per pin: the farm's main pin, its turn-off and any extra pins */
+  const out = [];
+  D.farms.forEach((f) => { const us = farmUsersOf(f.id); if (!us.length) return; const cur = us.filter((u) => !u.past); const b = (cur[0] || us[0]).b;     const base = { f, b, us, cur: cur.length > 0 };
+    out.push({ ...base, key: f.id, kind: isYardType(f.pinType) ? 'yard' : 'other', emoji: pinT(f.pinType).emoji, type: pinT(f.pinType).name, name: f.name || pinT(f.pinType).name, lat: f.lat, lng: f.lng });
+    if (f.turn && f.turn.lat != null) out.push({ ...base, key: f.id + ':turn', kind: 'turn', emoji: TURN_EMOJI, type: 'Turn-off', name: (f.name || 'Farm') + ' — turn-off', lat: f.turn.lat, lng: f.turn.lng });
+    (f.extra || []).forEach((x) => out.push({ ...base, key: f.id + ':' + x.id, kind: isYardType(x.type) ? 'yard' : 'other', emoji: pinT(x.type).emoji, type: pinT(x.type).name, name: (x.name || pinT(x.type).name) + (f.name ? ' — ' + f.name : ''), lat: x.lat, lng: x.lng }));
+  });
+  return out;
+}
+function renderLocList() {
+  const keepFocus = document.activeElement && document.activeElement.id === 'lq';
+  const lt = S.ltype || 'all'; const showPast = !!S.lpast; const pq = parseQuery(S.lq || '');
+  const pins = allPins(); const cnt = (k) => pins.filter((p) => (showPast || p.cur) && (k === 'all' || p.kind === k)).length;
+  const rows = pins.filter((p) => (showPast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ([p.name, p.type, p.f.address, ...p.us.map((u) => u.b.name)].join(' ').toLowerCase(), pq))
+    .sort((x, y) => alphaCmp(x.b.name, y.b.name) || alphaCmp(x.name, y.name));
+  let html = `<div class="toolbar"><div class="search"><input id="lq" type="search" placeholder="Search locations, businesses or addresses…" value="${h(S.lq || '')}" autocomplete="off"></div>
+    <div class="seg" style="margin-top:8px">${[['all', 'All pins'], ['yard', 'Yard pins'], ['turn', 'Turn-off pins'], ['other', 'Non-farm locations']].map(([v, l]) => `<button class="${lt === v ? 'on' : ''}" data-act="ltype" data-v="${v}">${l} (${cnt(v)})</button>`).join('')}</div>
+    <div class="row2"><span>${rows.length} pin${rows.length === 1 ? '' : 's'}</span><label style="font-weight:600"><input type="checkbox" data-act="lpast" ${showPast ? 'checked' : ''}> Include not current</label><button class="btn small" data-act="loc-map">🗺 Show these on the map</button></div></div><ul class="list">`;
+  rows.slice(0, 500).forEach((p) => { const sf = p.f.safety || {};
+    html += `<li class="item ${S.sel?.id === p.b.id && S.selFarm === p.f.id ? 'sel' : ''}" data-act="loc-open" data-bid="${p.b.id}" data-fid="${p.f.id}"><div class="av locav">${p.emoji}</div><div class="t"><div class="n">${h(p.name)}${p.cur ? '' : ' <span class="hint">(not current)</span>'}${sf.status && sf.status !== 'ok' ? (sf.status === 'stop' ? ' ⛔' : ' ⚠') : ''}${farmBiosecOf(p.f).length ? ' 🦠' : ''}</div><div class="s">${h(p.us.filter((u) => showPast || !u.past).map((u) => u.b.name).join(', '))} · ${h(p.type)}${p.lat == null ? ' · <b>no GPS pin</b>' : p.kind !== 'turn' && p.f.kmReturn != null ? ' · ' + p.f.kmReturn + ' km' : ''}</div></div>${p.lat != null ? `<a class="btn small" href="${gmapsNav(p)}" target="_blank" rel="noopener" title="Navigate">🧭</a>` : ''}</li>`; });
+  if (rows.length > 500) html += '<li class="empty">Showing first 500 — search to narrow it down.</li>';
+  if (!rows.length) html += '<li class="empty">No locations match.</li>';
+  $('#list').innerHTML = html + '</ul>';
+  if (keepFocus) { const q = $('#lq'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+}
+document.addEventListener('input', (e) => { if (e.target.id === 'lq') { S.lq = e.target.value; clearTimeout(e.target._tm); e.target._tm = setTimeout(renderLocList, 120); } });
+
 /* ---------------- farm map (Leaflet + OpenStreetMap; needs internet for the map tiles) ---------------- */
 let FMAP = null, FMAP_LAYER = null, LEAFLET_P = null;
 function loadLeaflet() { if (window.L) return Promise.resolve(); if (LEAFLET_P) return LEAFLET_P;
   LEAFLET_P = new Promise((res, rej) => { const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'vendor/leaflet/leaflet.css'; document.head.appendChild(css); const sc = document.createElement('script'); sc.src = 'vendor/leaflet/leaflet.js'; sc.onload = () => res(); sc.onerror = () => { LEAFLET_P = null; rej(new Error('Map could not load')); }; document.head.appendChild(sc); }); return LEAFLET_P; }
 function mapFarms() { const fl = S.mapF || (S.mapF = { cat: '', type: '', past: false, q: '' }); const q = (fl.q || '').toLowerCase().trim();
-  return D.farms.filter((f) => { const us = farmUsersOf(f.id); const cur = us.filter((u) => !u.past); if (!us.length) return false; if (!fl.past && !cur.length) return false;
+  const only = S.mapSel && S.mapSel.size ? S.mapSel : null;
+  return D.farms.filter((f) => { if (only && !only.has(f.id)) return false; const us = farmUsersOf(f.id); const cur = us.filter((u) => !u.past); if (!us.length) return false; if (!fl.past && !cur.length) return false;
     if (fl.type && f.pinType !== fl.type && !(f.extra || []).some((x) => x.type === fl.type)) return false;
     const bs = (fl.past ? us : cur).map((u) => u.b);
     if (fl.cat === 'client' && !bs.some(isClientBiz)) return false; if (fl.cat === 'nonclient' && !bs.some((b) => !isClientBiz(b))) return false;
     if (fl.cat && !['client', 'nonclient'].includes(fl.cat) && !bs.some((b) => bizCat(b) === fl.cat)) return false;
     if (q && ![f.name, f.address, ...bs.map((b) => b.name)].join(' ').toLowerCase().includes(q)) return false;
     return f.lat != null || (f.turn && f.turn.lat != null) || (f.extra || []).some((x) => x.lat != null); }); }
+function mapPickSheet() {
+  S.mapPickSel = new Set(S.mapSel || []);
+  openSheet('Choose farms to show', `<div class="hint" style="margin-bottom:6px">Tick the farms you want on the map, then tap <b>Show on map</b>. Search by farm, business or address.</div>
+    <input id="mp-q" placeholder="🔍 Search farms or businesses" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px">
+    <div class="actions" style="margin:6px 0"><span class="hint" id="mp-n">${S.mapPickSel.size} chosen</span><button type="button" class="btn small" data-act="mp-clear">Clear all</button></div>
+    <div id="mp-list" class="checks" style="flex-direction:column;align-items:stretch">${mapPickList('')}</div>`, () => true, '<button class="btn primary" data-act="mp-done">Show on map</button>');
+  $('#sheet-save').style.display = 'none'; setTimeout(() => $('#mp-q') && $('#mp-q').focus(), 50);
+}
+function mapPickList(q) { const pq = parseQuery(q || ''); const fs = D.farms.filter((f) => farmUsersOf(f.id).length && (f.lat != null || (f.turn && f.turn.lat != null)) && matchQ([f.name, f.address, ...farmUsersOf(f.id).map((u) => u.b.name)].join(' ').toLowerCase(), pq));
+  fs.sort((a, b) => (S.mapPickSel.has(b.id) - S.mapPickSel.has(a.id)) || alphaCmp(farmLabel(a), farmLabel(b)));
+  return fs.slice(0, 150).map((f) => `<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="mp-c" value="${f.id}" ${S.mapPickSel.has(f.id) ? 'checked' : ''}><span>${pinT(f.pinType).emoji} <b>${h(farmUsersOf(f.id).map((u) => u.b.name).join(', '))}</b>${f.name ? ' — ' + h(f.name) : ''}<br><span class="hint">${h(f.address || '')}</span></span></label>`).join('') + (fs.length > 150 ? '<div class="hint">Showing 150 — search to narrow it down.</div>' : '') || '<div class="hint">No farms match.</div>'; }
+document.addEventListener('input', (e) => { if (e.target.id === 'mp-q') { const l = $('#mp-list'); if (l) l.innerHTML = mapPickList(e.target.value); } });
+document.addEventListener('change', (e) => { if (!e.target.classList || !e.target.classList.contains('mp-c')) return; if (e.target.checked) S.mapPickSel.add(e.target.value); else S.mapPickSel.delete(e.target.value); const n = $('#mp-n'); if (n) n.textContent = S.mapPickSel.size + ' chosen'; });
 function renderMapTab() {
   const fl = S.mapF || (S.mapF = { cat: '', type: '', past: false, q: '' }); const cats = [...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)];
   const n = mapFarms().length;
   if (!$('#fmap') || !FMAP) {
     $('#list').innerHTML = `<div class="d-wrap" style="max-width:none;padding-bottom:8px"><h2 class="sec-h" style="font-size:26px;margin-bottom:6px">${h(lab('map'))}</h2>
-      <div class="mapbar"><input id="map-q" value="${h(fl.q || '')}" placeholder="Search farm or business"><select data-mapf="cat"><option value="">All businesses</option><option value="client">Client businesses</option><option value="nonclient">Non-client businesses</option>${cats.map((c) => `<option value="${h(c)}">${h(tagName(c))}</option>`).join('')}</select><select data-mapf="type"><option value="">All pin types</option>${pinTypes().map((t) => `<option value="${h(t.id)}">${t.emoji} ${h(t.name)}</option>`).join('')}</select><label class="hint" style="display:flex;align-items:center;gap:4px"><input type="checkbox" data-mapf="past"> Include not current</label><button class="btn small" data-act="map-me">◎ Near me</button><span class="hint" id="map-n"></span></div>
+      <div class="mapbar"><input id="map-q" value="${h(fl.q || '')}" placeholder="Search farm or business"><select data-mapf="cat"><option value="">All businesses</option><option value="client">Client businesses</option><option value="nonclient">Non-client businesses</option>${cats.map((c) => `<option value="${h(c)}">${h(tagName(c))}</option>`).join('')}</select><select data-mapf="type"><option value="">All pin types</option>${pinTypes().map((t) => `<option value="${h(t.id)}">${t.emoji} ${h(t.name)}</option>`).join('')}</select><label class="hint" style="display:flex;align-items:center;gap:4px"><input type="checkbox" data-mapf="past"> Include not current</label><button class="btn small" data-act="map-me">◎ Near me</button><button class="btn small" data-act="map-pick">☑ Choose farms…</button><span id="map-only"></span><span class="hint" id="map-n"></span></div>
       <div id="fmap"></div><div class="hint" style="margin-top:4px">Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. Needs internet for the map itself. Zoom in to see turn-offs and extra pins.</div></div>`;
     document.querySelectorAll('[data-mapf]').forEach((x) => { const k = x.dataset.mapf; if (x.type === 'checkbox') x.checked = !!fl[k]; else x.value = fl[k] || ''; });
     FMAP = null; buildMap();
   } else { drawMapPins(); }
-  const mn = $('#map-n'); if (mn) mn.textContent = `${n} farm${n === 1 ? '' : 's'}`;
+  const mn = $('#map-n'); if (mn) mn.textContent = `${n} farm${n === 1 ? '' : 's'}`; mapOnlyBadge();
 }
+function mapOnlyBadge() { const el = $('#map-only'); if (!el) return; el.innerHTML = S.mapSel && S.mapSel.size ? `<span class="pill" style="background:var(--ink);color:#fff">Only ${S.mapSel.size} chosen farm${S.mapSel.size === 1 ? '' : 's'}</span> <button class="btn small" data-act="map-all">Show all</button>` : ''; }
+function mapFit() { if (!FMAP) return; const pts = mapFarms().map((f) => (f.lat != null ? [f.lat, f.lng] : f.turn && f.turn.lat != null ? [f.turn.lat, f.turn.lng] : null)).filter(Boolean); if (pts.length) FMAP.fitBounds(pts, { maxZoom: 14, padding: [30, 30] }); }
 async function buildMap() {
   try { await loadLeaflet(); } catch (e) { const el = $('#fmap'); if (el) el.innerHTML = `<div class="empty">${h(e.message)} — check the internet connection.</div>`; return; }
   const el = $('#fmap'); if (!el || S.tab !== 'map') return;
   const home = D.settings.home || { lat: -34.97, lng: 117.99 }; const v = S.mapView || { c: [home.lat, home.lng], z: 9 };
   FMAP = L.map(el, { zoomControl: true }).setView(v.c, v.z);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(FMAP);
-  FMAP.on('moveend zoomend', () => { S.mapView = { c: [FMAP.getCenter().lat, FMAP.getCenter().lng], z: FMAP.getZoom() }; if (FMAP._lastZ !== FMAP.getZoom()) { FMAP._lastZ = FMAP.getZoom(); drawMapPins(); } });
+  const thisMap = FMAP; FMAP.on('moveend zoomend', () => { if (FMAP !== thisMap) return; S.mapView = { c: [FMAP.getCenter().lat, FMAP.getCenter().lng], z: FMAP.getZoom() }; if (FMAP._lastZ !== FMAP.getZoom()) { FMAP._lastZ = FMAP.getZoom(); drawMapPins(); } });
   if (home.lat != null) L.marker([home.lat, home.lng], { icon: L.divIcon({ className: '', html: '<div class="mpin home" title="Homebase">🏥</div>', iconSize: [34, 34], iconAnchor: [17, 17] }) }).addTo(FMAP).bindPopup('<b>Bovitech homebase</b>');
-  FMAP._lastZ = FMAP.getZoom(); drawMapPins();
+  FMAP._lastZ = FMAP.getZoom(); drawMapPins(); if (S.mapFit) { S.mapFit = false; mapFit(); }
 }
 function drawMapPins() {
   if (!FMAP || !window.L) return; if (FMAP_LAYER) FMAP_LAYER.remove(); FMAP_LAYER = L.layerGroup().addTo(FMAP);
@@ -724,20 +769,28 @@ function tagChips() {
   return quick.map(([k, l]) => `<button class="chip quick ${S.quick[k] ? 'inc' : ''}" data-act="quick" data-v="${k}">${l}</button>`).join('') +
     tags.map((t) => `<button class="chip ${S.tagF[t.id] || ''}" data-act="tagf" data-v="${t.id}" title="Tap: include · tap again: exclude · again: off">${h(t.name)}</button>`).join('');
 }
+const CTYPES = [['all', 'All'], ['pc', 'Client people'], ['pn', 'Non-client people'], ['bc', 'Client businesses'], ['bn', 'Non-client businesses']];
+function ctypeSeg() { const ct = S.ctype || 'all'; const n = { all: D.contacts.length + D.businesses.length, pc: D.contacts.filter(isClientPerson).length, pn: D.contacts.filter((c) => !isClientPerson(c)).length, bc: D.businesses.filter(isClientBiz).length, bn: D.businesses.filter((b) => !isClientBiz(b)).length };
+  return `<div class="seg ctseg" style="margin-top:8px">${CTYPES.map(([v, l]) => `<button class="${ct === v ? 'on' : ''}" data-act="ctype" data-v="${v}">${l} (${n[v]})</button>`).join('')}</div>`; }
+function bizRowHtml(b) { const cs = IDX.bizContacts.get(b.id) || []; const flagged = jobs().some((j) => j.kind === 'business' && j.id === b.id);
+  return `<li class="item ${S.sel?.id === b.id ? 'sel' : ''}" data-act="open" data-kind="business" data-id="${b.id}">${contactPhotoImg(bizPseudo(b))}<div class="t"><div class="n">${b.rating ? rbadge(b.rating) : ''}${h(b.name)}</div><div class="s">${isClientBiz(b) ? '' : '<b>Industry</b> · '}${cs.length} contact${cs.length === 1 ? '' : 's'} · ${b.farms.length} ${isClientBiz(b) ? 'farm' + (b.farms.length === 1 ? '' : 's') : 'location' + (b.farms.length === 1 ? '' : 's')}${cs.length ? ' · ' + h(cs.map((c) => c.first).join(', ')) : ''}</div></div>${flagged ? `<span style="color:var(--red)" title="Needs attention">${ICONS.flag}</span>` : ''}${b.warnings ? '<span class="wdot"></span>' : ''}</li>`; }
 function renderContactList() {
   const list = $('#list');
   if (!D.contacts.length && (D.firstRun || !D.sync.fileId)) { list.innerHTML = firstRunHtml(); return; }
   const keepFocus = document.activeElement && document.activeElement.id === 'q';
-  const pt = S.ptype || 'all'; const hideIn = S.hideIn.p !== false; const all = filteredContacts().filter((c) => !hideIn || !['inactive', 'dna'].includes(catOf(c))); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
-  let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="Search people…" title="Tip: use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">+ New</button></div>
-    <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client people'], ['nonclient', 'Non-client people']].map(([v, l]) => `<button class="${pt === v ? 'on' : ''}" data-act="ptype" data-v="${v}">${l} (${v === 'all' ? D.contacts.length : D.contacts.filter((c) => (v === 'client') === isClientPerson(c)).length})</button>`).join('')}</div>
-    <div class="row2"><span>${rows.length} of ${D.contacts.length} people${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
+  const pt = S.ptype || 'all'; const hideIn = S.hideIn.p !== false; const mix = (S.ctype || 'all') === 'all'; const mixB = mix ? D.businesses.filter((b) => matchQ(bizHay(b), parseQuery(S.q)) && (!hideIn || !['inactive', 'dna'].includes(bizCat(b)))) : null; const all = filteredContacts().filter((c) => !hideIn || !['inactive', 'dna'].includes(catOf(c))); const rows = sortContacts(pt === 'all' ? all : all.filter((c) => (pt === 'client') === isClientPerson(c)));
+  let html = `<div class="toolbar"><div class="search"><input id="q" type="search" placeholder="${(S.ctype || 'all') === 'all' ? 'Search people and businesses…' : 'Search people…'}" title="Tip: use -word to exclude" value="${h(S.q)}" autocomplete="off"><button class="btn" data-act="go-adv" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-contact">+ New</button></div>
+    ${ctypeSeg()}
+    <div class="row2"><span>${rows.length} of ${D.contacts.length} people${mixB ? ` · ${mixB.length} business${mixB.length === 1 ? '' : 'es'}` : ''}${S.q ? ' · <a href="#" data-act="clear">clear</a>' : ''}</span>
     <label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="p" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="sort">${[['first', 'First name'], ['last', 'Surname'], ['business', 'Business'], ['rating', 'Rating'], ['tag', 'Tag']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`;
   html += '<ul class="list">';
-  if (S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(bizHay(b), pq)).slice(0, 15);
+  if (!mix && S.q.trim()) { const pq = parseQuery(S.q); const bo = D.businesses.filter((b) => bizHasDetails(b) && matchQ(bizHay(b), pq)).slice(0, 15);
     if (bo.length) { html += `<li class="group-h">Businesses (phone / email on the business)</li>`; bo.forEach((b) => { html += `<li class="item" data-act="open" data-kind="business" data-id="${b.id}"><div class="av" style="display:grid;place-items:center;background:#ece8df;font-size:20px">🏢</div><div class="t"><div class="n">${h(b.name)}</div><div class="s"><b>${isClientBiz(b) ? 'Client business' : 'Industry'}</b> · ${h(((b.phones || [])[0] || (b.emails || [])[0] || {}).value || '')}</div></div></li>`; }); html += `<li class="group-h">People</li>`; } }
   let lastG = null, shown = 0; let starredHdr = false;
-  for (const { c, g } of rows) {
+  let bq = mixB ? mixB.slice().sort((a, b) => alphaCmp(a.name, b.name)) : []; const alphaSort = ['first', 'last'].includes(S.sort || 'first');
+  const flushB = (n) => { while (bq.length && (n == null || alphaCmp(bq[0].name, n) <= 0)) { if (shown <= 400) html += bizRowHtml(bq[0]); shown++; bq.shift(); } };
+  for (const { c, g, n: nmKey } of rows) {
+    if (mix && alphaSort && !c.starred) flushB(nmKey);
     if (shown > 400) { html += `<li class="empty">Showing first 400 — refine your search to see more.</li>`; break; }
     if (c.starred && !starredHdr) { html += `<li class="group-h">★ Starred</li>`; starredHdr = true; }
     if (!c.starred && g !== null && g !== lastG) { html += `<li class="group-h">${h(g)}</li>`; lastG = g; }
@@ -747,7 +800,8 @@ function renderContactList() {
     html += `<li class="item ${S.sel?.id === c.id ? 'sel' : ''}" data-act="open" data-kind="contact" data-id="${c.id}">${contactPhotoImg(c)}<div class="t"><div class="n">${c.starred ? '<span class="star">★</span> ' : ''}${h(fullName(c))}</div><div class="s">${sub}</div></div>${hasWarning(c) ? '<span class="wdot" title="Has warnings"></span>' : ''}</li>`;
     shown++;
   }
-  if (!rows.length) html += `<li class="empty">No people match.</li>`;
+  if (mix && bq.length) { if (!alphaSort) html += `<li class="group-h">Businesses</li>`; flushB(null); }
+  if (!rows.length && !(mixB && mixB.length)) html += `<li class="empty">No matches.</li>`;
   html += '</ul>';
   list.innerHTML = html;
   if (keepFocus) { const q = $('#q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
@@ -770,13 +824,9 @@ function renderBizList() {
   let rows = D.businesses.filter((b) => matchQ(bizHay(b), pq) && (bt === 'all' || (bt === 'client') === isClientBiz(b)) && (!hideIn || !['inactive', 'dna'].includes(bizCat(b))));
   rows.sort((a, b) => (S.bsort === 'rating' ? (RATINGS.indexOf(a.rating) + 10) % 14 - (RATINGS.indexOf(b.rating) + 10) % 14 : 0) || alphaCmp(a.name, b.name));
   let html = `<div class="toolbar"><div class="search"><input id="bq" type="search" placeholder="Search businesses…" title="Tip: use -word to exclude" value="${h(S.bq)}" autocomplete="off"><button class="btn" data-act="go-adv-biz" title="Advanced search">Advanced</button><button class="btn primary" data-act="new-biz">+ New</button></div>
-    <div class="seg" style="margin-top:8px">${[['all', 'All'], ['client', 'Client businesses'], ['nonclient', 'Non-client businesses']].map(([v, l]) => `<button class="${bt === v ? 'on' : ''}" data-act="btype" data-v="${v}">${l} (${D.businesses.filter((b) => v === 'all' || (v === 'client') === isClientBiz(b)).length})</button>`).join('')}</div>
+    ${ctypeSeg()}
     <div class="row2"><span>${rows.length} of ${D.businesses.length} businesses${S.bq ? ' · <a href="#" data-act="bclear">clear</a>' : ''}</span><label style="font-weight:600"><input type="checkbox" data-act="hideinact" data-v="b" ${hideIn ? 'checked' : ''}> Hide inactive/blocked</label><label>Sort <select data-act="bsort"><option value="name">Name</option><option value="rating" ${S.bsort === 'rating' ? 'selected' : ''}>Rating</option></select></label></div></div><ul class="list">`;
-  rows.slice(0, 400).forEach((b) => {
-    const cs = IDX.bizContacts.get(b.id) || [];
-    const flagged = jobs().some((j) => j.kind === 'business' && j.id === b.id);
-    html += `<li class="item ${S.sel?.id === b.id ? 'sel' : ''}" data-act="open" data-kind="business" data-id="${b.id}">${contactPhotoImg(bizPseudo(b))}<div class="t"><div class="n">${b.rating ? rbadge(b.rating) : ''}${h(b.name)}</div><div class="s">${isClientBiz(b) ? '' : '<b>Industry</b> · '}${cs.length} contact${cs.length === 1 ? '' : 's'} · ${b.farms.length} ${isClientBiz(b) ? 'farm' + (b.farms.length === 1 ? '' : 's') : 'location' + (b.farms.length === 1 ? '' : 's')}${cs.length ? ' · ' + h(cs.map((c) => c.first).join(', ')) : ''}</div></div>${flagged ? `<span style="color:var(--red)" title="Needs attention">${ICONS.flag}</span>` : ''}${b.warnings ? '<span class="wdot"></span>' : ''}</li>`;
-  });
+  rows.slice(0, 400).forEach((b) => { html += bizRowHtml(b); });
   if (!rows.length) html += `<li class="empty">No businesses match.</li>`;
   $('#list').innerHTML = html + '</ul>';
   if (keepFocus) { const q = $('#bq'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
@@ -786,7 +836,7 @@ function renderBizList() {
 function renderDetail() {
   const el = $('#detail');
   el.classList.remove('dna');
-  if (!S.sel) { el.innerHTML = `<div class="empty" style="padding-top:80px">Select a ${S.tab === 'biz' ? 'business' : 'contact'} to see details.</div>`; document.body.classList.remove('show-detail'); return; }
+  if (!S.sel) { el.innerHTML = `<div class="empty" style="padding-top:80px">Select a ${S.tab === 'loc' ? 'location' : 'contact or business'} to see details.</div>`; document.body.classList.remove('show-detail'); return; }
   if (S.sel.kind === 'contact') { const c = D.contacts.find((x) => x.id === S.sel.id); if (!c) { S.sel = null; return renderDetail(); } el.classList.toggle('dna', effTags(c).includes('dna')); el.innerHTML = contactDetail(c); }
   else { const b = IDX.biz.get(S.sel.id); if (!b) { S.sel = null; return renderDetail(); } el.classList.toggle('dna', (b.cats || []).includes('dna')); el.innerHTML = bizDetail(b); }
   document.body.classList.add('show-detail');
@@ -862,8 +912,12 @@ function contactDetail(c) {
 }
 function tagPill(t) { const src = tagPhotoSrc(t); return `<span class="tag ${src ? '' : 'noimg'}">${src ? `<img src="${src}" alt="">` : ''}${h(tagName(t))}</span>`; }
 /* ---------------- farms: pin types, facilities, safety, reception, photos ---------------- */
-const DEFAULT_PIN_TYPES = [{ id: 'cattle', name: 'Cattle yards', emoji: '🐄' }, { id: 'sheep', name: 'Sheep yards', emoji: '🐑' }, { id: 'dairy', name: 'Dairy', emoji: '🥛' }, { id: 'office', name: 'Main office / house', emoji: '🏡' }, { id: 'depot', name: 'Depot', emoji: '🏬' }, { id: 'feedlot', name: 'Feedlot', emoji: '🌾' }, { id: 'shed', name: 'Shearing shed', emoji: '✂️' }, { id: 'saleyard', name: 'Saleyards', emoji: '🔨' }, { id: 'other', name: 'Other', emoji: '📍' }];
+const DEFAULT_PIN_TYPES = [{ id: 'cattle', name: 'Cattle yards', emoji: '🐄', yard: true }, { id: 'sheep', name: 'Sheep yards', emoji: '🐑', yard: true }, { id: 'dairy', name: 'Dairy', emoji: '🥛', yard: true }, { id: 'office', name: 'Main office / house', emoji: '🏡' }, { id: 'depot', name: 'Depot', emoji: '🏬' }, { id: 'feedlot', name: 'Feedlot', emoji: '🌾', yard: true }, { id: 'shed', name: 'Shearing shed', emoji: '✂️', yard: true }, { id: 'saleyard', name: 'Saleyards', emoji: '🔨' }, { id: 'other', name: 'Other', emoji: '📍' }];
+const EMOJI_LIB = [['🐄', 'cow cattle beef dairy'], ['🐂', 'bull ox cattle'], ['🐃', 'buffalo water'], ['🐮', 'cow face cattle'], ['🐑', 'sheep ewe ram lamb wool'], ['🐏', 'ram sheep'], ['🐐', 'goat'], ['🐖', 'pig pork piggery'], ['🐷', 'pig face'], ['🐎', 'horse stud'], ['🐴', 'horse face'], ['🦙', 'alpaca llama'], ['🐔', 'chicken poultry hen'], ['🦆', 'duck'], ['🐕', 'dog working'], ['🐶', 'dog face'], ['🐈', 'cat'], ['🐝', 'bee hive honey'], ['🦘', 'kangaroo roo'], ['🥛', 'milk dairy'], ['🧀', 'cheese dairy'], ['🥩', 'meat beef abattoir'], ['🍖', 'meat bone'], ['🌾', 'grain wheat crop feedlot hay'], ['🌽', 'corn maize'], ['🌱', 'seedling crop'], ['🌳', 'tree shade'], ['🌲', 'pine tree plantation'], ['🍇', 'grapes vineyard winery'], ['🍎', 'apple orchard'], ['🥕', 'carrot vegetables'], ['🏡', 'house home homestead office'], ['🏠', 'house building'], ['🏚️', 'old house shed'], ['🏘️', 'houses town'], ['🏬', 'depot store shop'], ['🏭', 'factory abattoir processor'], ['🏢', 'office building'], ['🏫', 'school'], ['🏥', 'hospital clinic vet'], ['🏛️', 'government office'], ['⛪', 'church'], ['🛖', 'hut shed'], ['⛺', 'tent camp'], ['🚜', 'tractor farm machinery'], ['🚚', 'truck transport delivery'], ['🚛', 'semi truck livestock transport'], ['🚗', 'car'], ['🛻', 'ute pickup'], ['⛽', 'fuel petrol diesel'], ['🅿️', 'parking'], ['🚧', 'roadworks construction'], ['🚩', 'flag turn off marker'], ['🏁', 'finish flag'], ['📍', 'pin location marker'], ['📌', 'pushpin'], ['⭐', 'star important'], ['❗', 'important warning'], ['⚠️', 'warning caution hazard'], ['⛔', 'no entry stop'], ['🔒', 'locked gate'], ['🚪', 'gate door entry'], ['🗝️', 'key'], ['💧', 'water tank dam trough'], ['🚰', 'water tap'], ['🌊', 'water river creek'], ['🔥', 'fire'], ['⚡', 'power electricity'], ['🔌', 'power plug'], ['🔨', 'saleyards auction hammer'], ['⚖️', 'scales weigh'], ['✂️', 'shearing shed scissors'], ['💉', 'vaccine injection vet'], ['🧪', 'lab test'], ['🔬', 'laboratory microscope'], ['🩺', 'vet stethoscope'], ['📦', 'box storage'], ['🧰', 'tools toolbox'], ['🛠️', 'tools workshop'], ['🏗️', 'building construction'], ['🗑️', 'rubbish tip'], ['☎️', 'phone'], ['📶', 'reception signal'], ['🧭', 'compass navigate'], ['🗺️', 'map'], ['⛰️', 'mountain hill'], ['🏞️', 'park national'], ['🏖️', 'beach'], ['❄️', 'cold store freezer'], ['🧊', 'ice cold'], ['🪵', 'wood timber'], ['🧱', 'brick wall'], ['🟢', 'green circle'], ['🔴', 'red circle'], ['🟡', 'yellow circle'], ['🔵', 'blue circle'], ['🟣', 'purple circle'], ['🟠', 'orange circle'], ['⚫', 'black circle'], ['⚪', 'white circle']];
 const PIN_EMOJIS = ['🐄', '🐂', '🐃', '🐑', '🐐', '🐖', '🐎', '🥛', '🏡', '🏠', '🏬', '🏭', '🌾', '🚜', '✂️', '🔨', '⚖️', '💉', '🧪', '🐕', '⛽', '🅿️', '🚚', '💧', '🌳', '⛺', '📦', '📍', '⭐'];
+function emojiGrid(q) { q = (q || '').toLowerCase().trim(); const list = q ? EMOJI_LIB.filter(([e, k]) => k.includes(q) || q.split(/\s+/).every((w) => k.includes(w))) : EMOJI_LIB; return list.length ? list.map(([e, k]) => `<button type="button" data-act="emo-pick" data-e="${e}" title="${h(k)}">${e}</button>`).join('') : '<div class="hint">No symbols match — try another word, or use your keyboard\'s emoji search.</div>'; }
+document.addEventListener('input', (e) => { if (e.target.id === 'pt-search') { const g = $('#pt-grid'); if (g) g.innerHTML = emojiGrid(e.target.value); } });
+const isYardType = (id) => !!pinT(id).yard;
 const pinTypes = () => (D.settings.pinTypes && D.settings.pinTypes.length ? D.settings.pinTypes : DEFAULT_PIN_TYPES);
 const pinT = (id) => pinTypes().find((t) => t.id === id) || { id: id || 'other', name: id ? id : 'Pin', emoji: '📍' };
 const TURN_EMOJI = '🚩';
@@ -1263,7 +1317,7 @@ function editFarm(b, f) {
   $('#e-ftype').addEventListener('change', (e) => { $('#e-ftypeemo').textContent = pinT(e.target.value).emoji; });
   const showVerify = () => {
     SHEET.verifyNeeded = true;
-    $('#e-verify').innerHTML = `<div class="verifybox"><b>Distance requires verification before saving.</b><div class="hint" style="color:var(--yellow-ink)">A GPS pin is new or has changed. Check the km and drive time above (use “Calculate with Google Maps” or check manually), then tick:</div><label style="display:flex;gap:8px;margin-top:6px;font-weight:600"><input type="checkbox" id="e-verified"> I have checked the distance and drive time</label></div>`;
+    $('#e-verify').innerHTML = `<div class="verifybox"><b>Distance requires verification before saving.</b><div class="hint" style="color:var(--yellow-ink)">A GPS pin or the distance has changed. Check the km and drive time above (use “Calculate with Google Maps” or check manually), then tick:</div><label style="display:flex;gap:8px;margin-top:6px;font-weight:600"><input type="checkbox" id="e-verified"> I have checked the distance and drive time</label></div>`;
     $('#e-fkm').style.background = $('#e-fmin').style.background = 'var(--yellow-bg)';
   };
   $('#e-fgps').addEventListener('input', () => {
@@ -1277,6 +1331,7 @@ function editFarm(b, f) {
     if (g && `${g.lat}, ${g.lng}` !== startTurn && !SHEET.verifyNeeded) showVerify();
   });
   $('#e-fphotofile').addEventListener('change', async (e) => { const file = e.target.files[0]; if (!file) return; const data = await fileToDataUrl(file, 900); SHEET_FARM.photos.push({ id: uid('ph'), kind: 'upload', data, at: Date.now(), by: devInfo().nick }); $('#e-fphotos').innerHTML = farmPhotoEdit({ photos: SHEET_FARM.photos }); e.target.value = ''; });
+  ['e-fkm', 'e-fmin'].forEach((id) => $('#' + id).addEventListener('input', () => { if (!SHEET.verifyNeeded) showVerify(); }));
   if (f.kmStatus === 'needs-verify') showVerify();
   SHEET.calc = async () => {
     const g = parseGps(val('e-fturn')) || parseGps(val('e-fgps')); const hint = $('#e-calchint');
@@ -1287,6 +1342,15 @@ function editFarm(b, f) {
   };
 }
 let SHEET_FARM = null;
+async function verifyKmBox(f) { /* a new or moved pin: confirm the distance there and then */
+  let g = null, err = ''; if (Maps.key() && navigator.onLine) { try { g = (await Maps.distances([farmRoutePt(f)]))[0] || null; } catch (e) { err = e.message; } }
+  const gk = g ? Math.ceil(g.km * 2 - 1e-9) : null, gm = g ? Math.round(g.min) : null; const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
+  const r = await askBox('Check the distance', `<p><b>${h(farmLabel(f))}</b></p>${g ? `<p>Google Maps: <b>${(g.km * 2).toFixed(1)} km return</b> (rounded up to ${gk} km), ${fmtMin(g.min)} each way. <a href="${gmapsRoute(farmRoutePt(f))}" target="_blank" rel="noopener">🗺 View route</a></p>` : `<p class="hint">${err ? h(err) : Maps.key() ? 'Offline — enter the distance yourself.' : 'No Google Maps key — enter the distance yourself.'}</p>`}
+    <div class="grid2"><div class="f"><span class="lbl">km return</span><input data-ask="km" type="number" step="0.1" value="${f.kmReturn ?? gk ?? ''}" ${inp}></div><div class="f"><span class="lbl">Drive time each way (min)</span><input data-ask="min" type="number" value="${f.driveMin != null ? Math.round(f.driveMin) : gm ?? ''}" ${inp}></div></div>
+    ${f.kmReturn != null && gk != null && Math.abs(f.kmReturn - gk) > 1 ? `<div class="hint" style="color:var(--yellow-ink)">The recorded distance (${f.kmReturn} km) differs from Google's — change it above if needed.</div>` : ''}`, 'Distance checked — save', false, 'Cancel');
+  if (!r) return false; const km = (ASK_FORM.km || '').trim(), mn = (ASK_FORM.min || '').trim();
+  f.kmReturn = km === '' ? null : +km; f.driveMin = mn === '' ? null : +mn; f.kmStatus = f.kmReturn == null ? 'missing' : 'verified'; if (g) { f.gKm = gk; f.gMin = gm; f.gAt = Date.now(); } f.flags = (f.flags || []).filter((x) => x.type !== 'kmcheck'); return true;
+}
 async function recHere() { /* uses the phone's location + a quick download to judge reception at the yards */
   const hint = $('#e-rechint'); if (!hint) return; hint.textContent = 'Checking…';
   const g = parseGps(val('e-fgps')) || parseGps(val('e-fturn'));
@@ -1778,7 +1842,7 @@ function renderSettings() {
   <div class="card"><h3>Homebase</h3><div class="f"><label>Address</label><input id="s-homeaddr" value="${h(st.home.address)}"></div><div class="f"><label>GPS</label><input id="s-homegps" value="${st.home.lat}, ${st.home.lng}"></div><button class="btn small" data-act="save-home">Save homebase</button></div>
   <div class="card"><h3>Google Maps</h3><div class="f"><label>API key</label><input id="s-mapskey" value="${h(st.mapsKey || '')}" placeholder="Paste key starting with AIza…"></div><button class="btn small" data-act="save-key">Save key</button><div class="hint">Used to calculate km and drive time, check distances, plan the most efficient route, find pins from addresses and show Street View photos. In Google Cloud, turn on <b>Routes API</b>, <b>Geocoding API</b> and <b>Street View Static API</b> for this key.</div></div>
   <div class="card"><h3><span class="sp">Pin types</span><button class="btn small" data-act="pintype-add">+ New pin type</button></h3><div class="hint" style="margin-bottom:6px">The symbols used for farm pins (yards, dairy, office…). Applies on every device.</div>
-    ${pinTypes().map((t) => { const n = D.farms.filter((f) => f.pinType === t.id || (f.extra || []).some((x) => x.type === t.id)).length; return `<div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${t.emoji}</span><div class="v">${h(t.name)} <span class="hint">· ${n} pin${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="pintype-edit" data-id="${h(t.id)}">Edit</button>${n ? '' : `<button class="btn small" data-act="pintype-del" data-id="${h(t.id)}">Delete</button>`}</div>`; }).join('')}
+    ${pinTypes().map((t) => { const n = D.farms.filter((f) => f.pinType === t.id || (f.extra || []).some((x) => x.type === t.id)).length; return `<div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${t.emoji}</span><div class="v">${h(t.name)} <span class="hint">· ${t.yard ? 'yards · ' : ''}${n} pin${n === 1 ? '' : 's'}</span></div><button class="btn small" data-act="pintype-edit" data-id="${h(t.id)}">Edit</button>${n ? '' : `<button class="btn small" data-act="pintype-del" data-id="${h(t.id)}">Delete</button>`}</div>`; }).join('')}
     <div class="kv"><span style="font-size:22px;width:34px">${TURN_EMOJI}</span><div class="v">Turn-off from the road <span class="hint">· built in</span></div></div></div>
   ${syncSettingsCard()}
   <div class="card"><h3>App version</h3><div class="kv"><div class="k">Version</div><div class="v">${APP_VERSION}</div></div>${S.latest ? `<div class="kv"><div class="k">Latest</div><div class="v">${h(S.latest)}${S.latest !== APP_VERSION.split(' ')[0] ? ' — <b style="color:var(--red)">tap ⟳ to update</b>' : ' ✓ up to date'}</div></div>` : ''}<div class="actions"><button class="btn small" data-act="app-refresh">⟳ Close and reopen on the latest version</button></div></div>
@@ -3015,6 +3079,9 @@ function migrate() {
     D.contacts.filter((c) => /^sean hunter$/i.test(fullName(c).trim()) || /^flavel$/i.test((c.last || '').trim()) || /\bflavel\b/i.test(fullName(c))).forEach((c) => bizOf(c).forEach((b) => add(b, pigs)));
     D.businesses.filter((b) => /\bflavel/i.test(b.name)).forEach((b) => add(b, pigs));
     D.settings.biosec1 = true; touch(D.settings); ch = true; }
+  if (!D.settings.pinfix1) { D.farms.forEach((f) => { const us = farmUsersOf(f.id); if (us.length && us.every((u) => !isClientBiz(u.b)) && f.pinType === 'cattle' && !/yard|cattle|sheep|feedlot|dairy|shed|stock/i.test(f.name || '')) { f.pinType = /office|home|house|head/i.test(f.name || '') ? 'office' : /depot|store|warehouse/i.test(f.name || '') ? 'depot' : /sale/i.test(f.name || '') ? 'saleyard' : 'other'; touch(f); } }); D.settings.pinfix1 = true; touch(D.settings); ch = true; } /* non-client locations aren't cattle yards unless they say so */
+  if (!D.settings.kmv1) { D.farms.forEach((f) => { if (f.kmStatus === 'needs-verify') { f.kmStatus = 'verified'; touch(f); } }); D.settings.kmv1 = true; touch(D.settings); ch = true; } /* all checked by hand — the distance is now confirmed when it's entered */
+  if (!D.settings.labels2) { const L = D.settings.labels || {}; if (L.contacts === 'People') { delete L.contacts; D.settings.labels = L; } D.settings.labels2 = true; touch(D.settings); ch = true; }
   if (!D.settings.typeLock1) { D.businesses.forEach((b) => { const cat = bizCat(b); if (b.type === 'nonclient' && cat && catClass('b', cat) !== 'n' && !b.typeLocked) { b.typeLocked = true; touch(b); } }); D.settings.typeLock1 = true; touch(D.settings); ch = true; }
   if (!D.settings.iceV1) { // link the existing "X's ICE (relationship: Y)" contacts to the staff member
     const tg = D.tags.find((t) => t.id === 'ice'); if (tg) { if (tg.name !== 'ICE contact') { tg.name = 'ICE contact'; touch(tg); } } else { D.tags.push({ id: 'ice', name: 'ICE contact', group: 'additional', photo: null }); touch(D.tags[D.tags.length - 1]); }
@@ -3038,11 +3105,10 @@ document.addEventListener('click', async (e) => {
   if (el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.type !== 'checkbox')) return;
   if (el.tagName === 'A' && a !== 'clear') return;
   switch (a) {
-    case 'tab': if (d.v !== 'map' && FMAP) { FMAP.remove(); FMAP = null; FMAP_LAYER = null; } S.backTo = null; S.tab = d.v; S.sel = null; if (d.v === 'contacts') S.q = ''; if (d.v === 'biz') S.bq = ''; /* every menu starts afresh */ document.body.classList.remove('show-detail'); renderAll(); $('#list').scrollTop = 0; break;
+    case 'tab': if (d.v !== 'map' && FMAP) { FMAP.remove(); FMAP = null; FMAP_LAYER = null; } S.backTo = null; S.tab = d.v; S.sel = null; if (d.v === 'contacts') { S.q = ''; S.bq = ''; } if (d.v === 'loc') S.lq = ''; /* every menu starts afresh */ document.body.classList.remove('show-detail'); renderAll(); $('#list').scrollTop = 0; break;
     case 'open': {
-      if (d.kind === 'business' && S.tab === 'contacts') S.tab = 'biz';
-      if (d.kind === 'contact' && S.tab === 'biz') S.tab = 'contacts';
-      if (!['contacts', 'biz'].includes(S.tab)) { S.backTo = S.tab; S.tab = d.kind === 'business' ? 'biz' : 'contacts'; }
+      if (S.tab === 'biz') S.tab = 'contacts';
+      if (!['contacts', 'loc'].includes(S.tab)) { S.backTo = S.tab; S.tab = 'contacts'; }
       S.sel = { kind: d.kind, id: d.id }; renderAll(); $('#detail').scrollTop = 0; break;
     }
     case 'back': case 'nav-back': navBack(); break;
@@ -3057,6 +3123,10 @@ document.addEventListener('click', async (e) => {
     case 'add-farm': editFarm(IDX.biz.get(d.bid), null); break;
     case 'map-open': S.backTo = null; S.tab = 'biz'; S.sel = { kind: 'business', id: d.id }; renderAll(); document.body.classList.add('show-detail'); break;
     case 'map-near': { const f = IDX.farms.get(d.fid); if (!f || !FMAP) break; const p0 = f.lat != null ? f : f.turn; FMAP.setView([p0.lat, p0.lng], 12); break; }
+    case 'map-all': S.mapSel = null; drawMapPins(); renderMapTab(); break;
+    case 'map-pick': mapPickSheet(); break;
+    case 'mp-done': { const ids = [...S.mapPickSel]; closeSheet(); S.mapSel = ids.length ? new Set(ids) : null; if (S.tab === 'map') { drawMapPins(); renderMapTab(); mapFit(); } break; }
+    case 'mp-clear': S.mapPickSel = new Set(); document.querySelectorAll('#mp-list .mp-c').forEach((x) => (x.checked = false)); $('#mp-n').textContent = '0 chosen'; break;
     case 'map-me': { if (!navigator.geolocation) { toast("This device can't share its location"); break; } toast('Finding you…'); navigator.geolocation.getCurrentPosition((pos) => { if (!FMAP) return; const ll = [pos.coords.latitude, pos.coords.longitude]; FMAP.setView(ll, 12); if (FMAP._me) FMAP._me.remove(); FMAP._me = L.circleMarker(ll, { radius: 8, color: '#1a73e8', fillColor: '#1a73e8', fillOpacity: 0.8 }).addTo(FMAP).bindPopup('You are here'); }, () => toast("Couldn't get your location"), { enableHighAccuracy: true, timeout: 10000 }); break; }
     case 'xpin-add': $('#e-xpins').insertAdjacentHTML('beforeend', extraPinRow()); break;
     case 'xpin-del': el.closest('.xpin').remove(); break;
@@ -3156,8 +3226,9 @@ document.addEventListener('click', async (e) => {
     case 'pin-use': { const p = S.pinCand, el = $('#e-fgps'); if (!p || !el) break; el.value = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`; el.dispatchEvent(new Event('input', { bubbles: true })); $('#pin-prev').innerHTML = ''; $('#pin-res').innerHTML = '✓ Pin added to GPS location — check the km below, then Save.'; break; }
     case 'pin-pick': if (S.pinRes && S.pinRes[+d.i]) pinPreview(S.pinRes[+d.i]); break;
     case 'pin-confirm': { const f = IDX.farms.get(S.pinFid), p = S.pinCand, b = f && IDX.farmBiz.get(f.id); if (!f || !p || !b) break; closeSheet();
-      f.lat = +p.lat.toFixed(6); f.lng = +p.lng.toFixed(6); if (f.kmReturn != null) f.kmStatus = 'needs-verify'; touch(f);
-      NEXT_LOG_LABEL = `GPS pin added for ${b.name}${f.name ? ' (' + f.name + ')' : ''} from address search`; if (await changed()) toast('✓ Pin created' + (f.kmReturn != null ? ' — check the km on the Jobs list' : '')); break; }
+      const was = { lat: f.lat, lng: f.lng, kmReturn: f.kmReturn, driveMin: f.driveMin, kmStatus: f.kmStatus }; f.lat = +p.lat.toFixed(6); f.lng = +p.lng.toFixed(6);
+      if (!(await verifyKmBox(f))) { Object.assign(f, was); toast('Pin not added — nothing was changed'); break; } touch(f);
+      NEXT_LOG_LABEL = `GPS pin added for ${b.name}${f.name ? ' (' + f.name + ')' : ''} from address search`; if (await changed()) toast('✓ Pin created'); break; }
     case 'prim-find': { const b = IDX.biz.get(d.bid); if (b) primFindSheet(b); break; }
     case 'pf-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (!c || !b) break; closeSheet();
       const l = c.links.find((x) => x.bid === b.id); let extra = '';
@@ -3195,6 +3266,11 @@ document.addEventListener('click', async (e) => {
       NEXT_LOG_LABEL = `${fullName(c)} ${d.v === '1' ? 'marked as a past employee of' : 'made a current contact of'} ${b.name}`; S.skipConfirm = true; if (await changed()) toast(d.v === '1' ? `${fullName(c)} moved to past employees` : `${fullName(c)} is current again`); break; }
     case 'biz-unlink': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && await ask(`Unlink ${fullName(c)} from ${b.name}? The contact is not deleted.`)) { c.links = c.links.filter((l) => l.bid !== d.bid); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } touch(c); changed(); } break; }
     case 'btype': S.btype = d.v; renderBizList(); break;
+    case 'ltype': S.ltype = d.v; renderLocList(); break;
+    case 'lpast': S.lpast = el.checked; renderLocList(); break;
+    case 'loc-open': S.sel = { kind: 'business', id: d.bid }; S.selFarm = d.fid; renderAll(); setTimeout(() => { const card = document.querySelector(`#detail [data-act=edit-farm][data-fid="${d.fid}"]`); const fc = card && card.closest('.farm'); if (fc) { fc.scrollIntoView({ block: 'center' }); fc.classList.add('flash'); } }, 60); break;
+    case 'loc-map': { const lt = S.ltype || 'all'; const pq = parseQuery(S.lq || ''); const ids = [...new Set(allPins().filter((p) => (S.lpast || p.cur) && (lt === 'all' || p.kind === lt) && matchQ([p.name, p.type, p.f.address, ...p.us.map((u) => u.b.name)].join(' ').toLowerCase(), pq)).map((p) => p.f.id))]; S.mapSel = new Set(ids); S.mapF = { ...(S.mapF || {}), past: !!S.lpast, q: '', type: '' }; S.mapFit = true; goTab('map'); break; }
+    case 'ctype': { const wasB = ['bc', 'bn'].includes(S.ctype || 'all'), isB = ['bc', 'bn'].includes(d.v); if (wasB && !isB) S.q = S.bq || ''; if (!wasB && isB) S.bq = S.q || ''; S.ctype = d.v; renderAll(); $('#list').scrollTop = 0; break; }
     case 'ptype': S.ptype = d.v; renderContactList(); break;
     case 'bclear': e.preventDefault(); S.bq = ''; renderBizList(); break;
     case 'cat-all': { const bz = IDX.biz.get(d.bid); const cs = IDX.bizContacts.get(d.bid) || []; let n = 0;
@@ -3235,11 +3311,17 @@ document.addEventListener('click', async (e) => {
     case 'catclass-reset': D.settings.catClass = { p: {}, b: {} }; touch(D.settings); NEXT_LOG_LABEL = 'Categories reset to default client / non-client'; S.skipConfirm = true; JOBS_CACHE = null; await changed(); toast('Reset to default'); break;
     case 'hideinact': S.hideIn[d.v] = el.checked; try { localStorage.setItem('bvt-hideinact2', JSON.stringify(S.hideIn)); } catch (e2) { } d.v === 'b' ? renderBizList() : renderContactList(); break;
     case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); if (await changed()) toast('Homebase saved'); break; }
-    case 'pintype-add': case 'pintype-edit': { const cur = a === 'pintype-edit' ? pinT(d.id) : { id: '', name: '', emoji: '📍' };
-      const r = await askBox(a === 'pintype-add' ? 'New pin type' : 'Edit pin type', `<div class="f"><span class="lbl">Name</span><input data-ask="name" value="${h(cur.name)}" placeholder="e.g. Calf shed" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"></div><div class="f"><span class="lbl">Symbol</span><input data-ask="emoji" id="pt-emoji" value="${h(cur.emoji)}" style="width:80px;font-size:22px;padding:6px;text-align:center;border:1px solid var(--line);border-radius:9px"><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${PIN_EMOJIS.map((e) => `<button type="button" class="btn small" style="font-size:20px;padding:3px 7px" onclick="document.getElementById('pt-emoji').value='${e}'">${e}</button>`).join('')}</div><div class="hint">Tap a symbol, or type any emoji.</div></div>`, 'Save', false, 'Cancel');
-      if (!r) break; const nm = (ASK_FORM.name || '').trim(), em = (ASK_FORM.emoji || '').trim() || '📍'; if (!nm) { toast('Give the pin type a name'); break; }
-      const list = pinTypes().map((t) => ({ ...t })); if (a === 'pintype-add') list.push({ id: nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36).slice(-3), name: nm, emoji: em }); else { const t = list.find((x) => x.id === d.id); if (t) { t.name = nm; t.emoji = em; } }
+    case 'pintype-add': case 'pintype-edit': { const cur = a === 'pintype-edit' ? pinT(d.id) : { id: '', name: '', emoji: '📍', yard: false };
+      const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
+      const r = await askBox(a === 'pintype-add' ? 'New pin type' : 'Edit pin type', `<div class="f"><span class="lbl">Name</span><input data-ask="name" value="${h(cur.name)}" placeholder="e.g. Calf shed" ${inp}></div>
+        <div class="f"><span class="lbl">Symbol</span><div style="display:flex;gap:8px;align-items:center"><input data-ask="emoji" id="pt-emoji" value="${h(cur.emoji)}" style="width:70px;font-size:26px;padding:4px;text-align:center;border:1px solid var(--line);border-radius:9px"><input id="pt-search" placeholder="🔍 Search symbols — e.g. pig, truck, water, gate" ${inp}></div>
+        <div id="pt-grid" class="emogrid">${emojiGrid('')}</div>
+        <div class="hint">Tap a symbol to use it. Can't find one? Tap the symbol box and use your keyboard's emoji button (on Android the 😊 key, which has its own search; on Windows press the Windows key + full stop).</div></div>
+        <label class="checks"><label><input type="checkbox" data-askchk="yard" ${cur.yard ? 'checked' : ''}> This is a type of yards (shows under "Yard pins" in Locations)</label></label>`, 'Save', false, 'Cancel');
+      if (!r) break; const nm = (ASK_FORM.name || '').trim(), em = (ASK_FORM.emoji || '').trim() || '📍', yd = !!ASK_FORM.yard; if (!nm) { toast('Give the pin type a name'); break; }
+      const list = pinTypes().map((t) => ({ ...t })); if (a === 'pintype-add') list.push({ id: nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36).slice(-3), name: nm, emoji: em, yard: yd }); else { const t = list.find((x) => x.id === d.id); if (t) { t.name = nm; t.emoji = em; t.yard = yd; } }
       D.settings.pinTypes = list; touch(D.settings); NEXT_LOG_LABEL = (a === 'pintype-add' ? 'New pin type: ' : 'Pin type changed: ') + em + ' ' + nm; S.skipConfirm = true; await changed(); break; }
+    case 'emo-pick': { const x = $('#pt-emoji'); if (x) x.value = d.e; document.querySelectorAll('#pt-grid button').forEach((bb) => bb.classList.toggle('on', bb.dataset.e === d.e)); break; }
     case 'pintype-del': { const t = pinT(d.id); if (!(await ask(`Delete the pin type "${t.name}"?`, 'Yes — delete', true))) break; D.settings.pinTypes = pinTypes().filter((x) => x.id !== d.id); touch(D.settings); await changed(); break; }
     case 'save-key': D.settings.mapsKey = val('s-mapskey'); touch(D.settings); if (await changed()) toast('Key saved'); break;
     case 'export': { const blob = new Blob([JSON.stringify(D)], { type: 'application/json' }); const u = URL.createObjectURL(blob); const l = document.createElement('a'); l.href = u; l.download = `bovitech-contacts-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(l); l.click(); l.remove(); break; }
