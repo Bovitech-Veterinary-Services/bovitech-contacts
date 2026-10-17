@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '11.2 (17 Oct 2026)';
+const APP_VERSION = '11.3 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1185,7 +1185,7 @@ const REL_BACK = { Husband: 'Wife', Wife: 'Husband', Partner: 'Partner', Mother:
 const relKey = (r) => r.cid || 'n:' + r.name;
 const NODET = '<span class="nodet">no contact details</span>';
 function relatedCard(c) { const rs = (c.related || []).map((r) => ({ ...r, o: r.cid ? D.contacts.find((x) => x.id === r.cid) : null })).filter((r) => r.o || r.name).sort((a, b) => alphaCmp(a.o ? fullName(a.o) : a.name, b.o ? fullName(b.o) : b.name));
-  return `<div class="card"><h3><span class="sp">👪 Related people</span><button class="btn small" data-act="rel-add" data-id="${c.id}" title="Add a related person">➕</button></h3>${rs.map((r) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${r.o ? `<span class="lnk" data-act="open" data-kind="contact" data-id="${r.o.id}">${h(fullName(r.o))}</span>` : `<b>${h(r.name)}</b>`} <span class="hint">— ${h(r.rel)}${r.o && bizOf(r.o).length ? ' · ' + h(bizOf(r.o).map((b) => b.name).join(', ')) : ''}</span>${r.o ? '' : ' ' + NODET}</div><button class="btn small" data-act="rel-edit" data-id="${c.id}" data-key="${h(relKey(r))}" title="Edit">✏️</button><button class="btn small" data-act="rel-del" data-id="${c.id}" data-key="${h(relKey(r))}" title="Remove">✕</button></div>`).join('') || '<div class="hint">None yet — family or friends who aren\'t employees.</div>'}</div>`; }
+  return `<div class="card"><h3><span class="sp">👪 Related people</span><button class="btn small" data-act="rel-add" data-id="${c.id}" title="Add a related person">➕</button></h3>${rs.map((r) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${r.o ? `<span class="lnk" data-act="open" data-kind="contact" data-id="${r.o.id}">${h(fullName(r.o))}</span>` : `<span class="lnk nolnk">${h(r.name)}</span>`} <span class="hint">— ${h(r.rel)}${r.o && bizOf(r.o).length ? ' · ' + h(bizOf(r.o).map((b) => b.name).join(', ')) : ''}</span>${r.o ? '' : ' ' + NODET}</div><button class="btn small" data-act="rel-edit" data-id="${c.id}" data-key="${h(relKey(r))}" title="Edit">✏️</button><button class="btn small" data-act="rel-del" data-id="${c.id}" data-key="${h(relKey(r))}" title="Remove">✕</button></div>`).join('') || '<div class="hint">None yet — family or friends who aren\'t employees.</div>'}</div>`; }
 function setRelatedName(c, name, rel) { /* someone who isn't a contact — kept on this person only */
   c.related = (c.related || []).filter((r) => r.name !== name || r.cid); if (rel) c.related.push({ name, rel }); if (!c.related.length) delete c.related; touch(c); }
 function setRelated(a, b, relB, relA) { /* relB = what b is to a; relA = what a is to b */
