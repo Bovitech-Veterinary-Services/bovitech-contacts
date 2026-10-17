@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '11.9 (18 Oct 2026)';
+const APP_VERSION = '12.0 (18 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -979,13 +979,31 @@ function secInfo(kind, k) { /* {emoji, name, color, rich, custom} for a section,
   if (k.startsWith('cs:')) { const cs = (D.settings.customSecs || []).find((x) => 'cs:' + x.id === k); return cs ? { emoji: cs.emoji || '', name: cs.name, color: cs.color || '', rich: !!cs.rich, custom: cs } : { emoji: '', name: k }; }
   const def = secSplit((LAYOUT_SECS[kind].find((x) => x[0] === k) || [, k])[1]); const o = secOver(kind, k) || {}; return { emoji: o.emoji != null ? o.emoji : def.emoji, name: o.name || def.name, color: o.color || '', def }; }
 function layoutLabel(kind, k) { const x = secInfo(kind, k); return (x.emoji ? x.emoji + ' ' : (x.custom ? '✨ ' : '')) + x.name; }
-function layoutHidden(kind) { return new Set(((D.settings.layoutHide || {})[kind] || []).filter((k) => !LAYOUT_LOCKED.has(k))); }
-function layoutApply(kind, html, M) { if (!M.length) return html; const parts = {}; M.forEach(([k, at], i) => { if (k === '_end') return; parts[k] = (parts[k] || '') + html.slice(at, M[i + 1] ? M[i + 1][1] : html.length); });
-  const endAt = (M.find((x) => x[0] === '_end') || [, html.length])[1]; const hid = layoutHidden(kind);
+/* how each section shows: '' = always, 'empty' = hide only when it has nothing in it, 'fold' = folded up (tap the heading to open). Nothing with info in it is ever hidden. */
+function layoutModes(kind) { const m = { ...(((D.settings.layoutMode || {})[kind]) || {}) }; ((D.settings.layoutHide || {})[kind] || []).forEach((k) => { if (!(k in m)) m[k] = 'empty'; }); LAYOUT_LOCKED.forEach((k) => delete m[k]); return m; } // old "hidden" sections became "hide when empty"
+const LAY_ADDBOX = new Set(['current', 'past', 'farms', 'related', 'nomention']); // sections that hold a ➕ box
+function secEmpty(kind, k, rec, part) {
+  if (k.startsWith('cs:')) return !((rec.custom || {})[k.slice(3)] || '').trim();
+  const tpl = (t) => !(t || '').trim() || tplOnly(t);
+  if (kind === 'contact') { const c = rec; switch (k) {
+    case 'ice': return !(c.ice || []).length; case 'side': return !(c.sideNotes || '').trim() && !bizOf(c).some((b) => (b.sideNotes || '').trim());
+    case 'contact': return !c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length; case 'related': return !(c.related || []).length;
+    case 'tags': return !effTags(c).filter((t) => !RATING_SET.has(t)).length; case 'info': return tpl(c.info); case 'biz': return !bizOf(c).length; case 'pastbiz': return !pastBizOf(c).length; } }
+  else { const b = rec; switch (k) {
+    case 'side': return !(b.sideNotes || '').trim(); case 'cat': return !bizCat(b); case 'phone': return !bizHasDetails(b) && !(b.postal || []).length; case 'info': return tpl(b.info);
+    case 'current': return !(IDX.bizContacts.get(b.id) || []).length; case 'past': return !(IDX.bizPast.get(b.id) || []).length; case 'pic': return !b.pics.length; case 'pid': return !b.patientIds.length; case 'farms': return !b.farms.length; } }
+  return !(part || '').trim(); }
+S.foldOpen = new Set();
+document.addEventListener('toggle', (e) => { const d = e.target; if (d && d.classList && d.classList.contains('secfold')) { if (d.open) S.foldOpen.add(d.dataset.fk); else S.foldOpen.delete(d.dataset.fk); } }, true);
+function layoutApply(kind, html, M, rec) { if (!M.length) return html; const parts = {}; M.forEach(([k, at], i) => { if (k === '_end') return; parts[k] = (parts[k] || '') + html.slice(at, M[i + 1] ? M[i + 1][1] : html.length); });
+  const endAt = (M.find((x) => x[0] === '_end') || [, html.length])[1]; const modes = layoutModes(kind);
   Object.keys(parts).forEach((k) => { const o = secOver(kind, k); if (!o || k.startsWith('cs:')) return; let x = parts[k];
     if ((o.name || o.emoji != null) && !NO_RENAME.has(k)) { const si = secInfo(kind, k); x = x.replace(/(<h[23][^>]*>\s*(?:<span class="sp">)?)([^<]*?)(\s*\(\d+\))?(?=\s*<)/, (m0, a, txt, cnt) => a + h((si.emoji ? si.emoji + ' ' : '') + si.name) + (cnt || '')); }
     if (o.color) x = x.replace('<div class="card"', `<div class="card cs-${o.color}"`); parts[k] = x; });
-  return html.slice(0, M[0][1]) + layoutKeys(kind).filter((k) => !hid.has(k)).map((k) => parts[k] || '').join('') + html.slice(endAt); }
+  const show = (k) => { const x = parts[k] || ''; const m = modes[k]; if (!m || !x.trim()) return x; const empty = secEmpty(kind, k, rec, x); if (m === 'empty') return empty ? '' : x;
+    const fk = kind + ':' + k; const cnt = (x.match(/<h[23][^>]*>[\s\S]*?\((\d+)\)/) || [])[1];
+    return `<details class="secfold" data-fk="${h(fk)}" ${S.foldOpen.has(fk) ? 'open' : ''}><summary><span>${h(layoutLabel(kind, k))}</span>${cnt ? ` <span class="hint">(${cnt})</span>` : ''}${empty ? ' <span class="hint">· empty</span>' : ''}</summary>${x}</details>`; };
+  return html.slice(0, M[0][1]) + layoutKeys(kind).map(show).join('') + html.slice(endAt); }
 function customCard(rec, cs, kind) { const v = ((rec.custom || {})[cs.id] || '').trim(); const vh = (rec.customHtml || {})[cs.id];
   return `<div class="card ${cs.color ? 'cs-' + cs.color : ''}"><h3><span class="sp">${cs.emoji ? cs.emoji + ' ' : ''}${h(cs.name)}</span>${secEdit(kind, rec.id, cs.name)}</h3>${cs.rich && vh ? `<div class="rich">${cleanHtml(vh)}</div>` : v ? `<div class="body">${h(v)}</div>` : '<div class="hint">Nothing recorded.</div>'}</div>`; }
 function customFields(rec, kind) { return customSecs(kind).map((cs) => cs.rich
@@ -1048,7 +1066,7 @@ function contactDetail(c) {
   customSecs('contact').forEach((cs) => { mark('cs:' + cs.id); html += customCard(c, cs, 'contact'); });
   mark('_end');
   html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="contact" data-id="${c.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="contact" data-id="${c.id}">🤖 Ask Claude about ${h(c.first || fullName(c))}</button></div>`;
-  return layoutApply('contact', html, M) + '</div>';
+  return layoutApply('contact', html, M, c) + '</div>';
 }
 
 
@@ -1339,7 +1357,7 @@ function bizDetail(b) {
   customSecs('business').forEach((cs) => { mark('cs:' + cs.id); html += customCard(b, cs, 'business'); });
   mark('_end');
   html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="business" data-id="${b.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="business" data-id="${b.id}">🤖 Ask Claude about ${h(b.name)}</button></div>`;
-  return layoutApply('business', html, M) + '</div>';
+  return layoutApply('business', html, M, b) + '</div>';
 }
 
 /* ---------------- edit sheets ---------------- */
@@ -1519,13 +1537,13 @@ function reasonChips(target) { return `<div class="chips" style="margin:4px 0 8p
 function listCard(k, title, list, hint) { return `<div class="card"><h3><span class="sp">${h(title)}</span><button class="btn small" data-act="lst-add" data-k="${k}">➕ Add</button></h3><div class="hint" style="margin-bottom:6px">${hint} Hold ⠿ and drag to reorder.</div>
   <div data-dnd="list:${k}">${list.map((x, i) => `<div class="kv dragrow" data-dk="${i}" style="align-items:center"><span class="draghandle" title="Hold and drag">⠿</span><div class="v">${h(x)}</div><button class="btn small" data-act="lst-mv" data-k="${k}" data-i="${i}" data-d="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="lst-mv" data-k="${k}" data-i="${i}" data-d="1" ${i < list.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button><button class="btn small secedit" data-act="lst-edit" data-k="${k}" data-i="${i}" title="Rename">✏️</button><button class="btn small" data-act="lst-del" data-k="${k}" data-i="${i}" title="Delete">✕</button></div>`).join('')}</div></div>`; }
 const SCHEMES = [['classic', 'Classic black', '#141414'], ['green', 'Paddock green', '#2e6b34'], ['blue', 'Ocean blue', '#1d4f91'], ['teal', 'Teal', '#0f6e6e'], ['earth', 'Earth brown', '#6b4423'], ['plum', 'Plum', '#6a2c70'], ['rose', 'Rose', '#a8325e']];
-function layoutCard() { const K = S.layK || 'contact'; const keys = layoutKeys(K); const hid = layoutHidden(K); const css = D.settings.customSecs || [];
+function layoutCard() { const K = S.layK || 'contact'; const keys = layoutKeys(K); const modes = layoutModes(K); const css = D.settings.customSecs || [];
   const sw = (c) => `<span style="display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid var(--line);background:${(SEC_COLORS.find((x) => x[0] === c) || SEC_COLORS[0])[2]};vertical-align:middle"></span>`;
   return `<div class="card"><h3><span class="sp">🧩 Page layout and custom sections</span></h3>
-  <div class="hint" style="margin-bottom:8px">Hold <b>⠿</b> and drag to change the order of the sections on contact and business pages (or use the arrows). <b>Edit</b> changes a section's name, symbol and colour. Hide sections you don't use. Applies on every device. Warnings, biosecurity, Don't mention and jobs can be moved but not hidden.</div>
+  <div class="hint" style="margin-bottom:8px">Hold <b>⠿</b> and drag to change the order of the sections on contact and business pages (or use the arrows). <b>Edit</b> changes a section's name, symbol and colour. For each section choose <b>Always show</b>, <b>Hide when empty</b> (it appears as soon as something is in it) or <b>Fold up</b> (shows as one line — tap to open). Applies on every device. Warnings, biosecurity, Don't mention and jobs always show.</div>
   <div class="chips" style="margin-bottom:8px">${[['contact', 'Contact page', '👤'], ['business', 'Business page', '🏢']].map(([v, l, ic]) => `<button class="chip ${K === v ? 'on' : ''}" data-act="lay-k" data-v="${v}"><span class="ci">${ic}</span>${l}</button>`).join('')}</div>
   <div class="hint" style="margin-bottom:4px">The name, photo, Inactive / Do not answer boxes always stay at the top.</div>
-  <div data-dnd="layout">${keys.map((k, i) => { const si = secInfo(K, k); return `<div class="kv dragrow" data-dk="${h(k)}" style="align-items:center;${hid.has(k) ? 'opacity:.5' : ''}"><span class="draghandle" title="Hold and drag">⠿</span><div class="v" style="flex:1">${h(layoutLabel(K, k))}${si.color ? ' ' + sw(si.color) : ''}${hid.has(k) ? ' <span class="hint">(hidden)</span>' : ''}</div><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="1" ${i < keys.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button>${NO_RENAME.has(k) ? '<span style="width:46px"></span>' : `<button class="btn small" data-act="${k.startsWith('cs:') ? 'cs-edit' : 'sec-edit'}" data-k="${h(k)}" data-id="${h(k.slice(3))}">Edit</button>`}${LAYOUT_LOCKED.has(k) ? '<span style="width:44px;text-align:center" title="Always shown">🔒</span>' : `<button class="btn small" data-act="lay-hide" data-k="${h(k)}" title="${hid.has(k) ? 'Show' : 'Hide'}" style="width:44px">${hid.has(k) ? '🙈' : '👁'}</button>`}</div>`; }).join('')}</div>
+  <div data-dnd="layout">${keys.map((k, i) => { const si = secInfo(K, k); return `<div class="kv dragrow" data-dk="${h(k)}" style="align-items:center;flex-wrap:wrap"><span class="draghandle" title="Hold and drag">⠿</span><div class="v laylbl">${h(layoutLabel(K, k))}${si.color ? ' ' + sw(si.color) : ''}</div><div class="laybtns"><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn small" data-act="lay-mv" data-k="${h(k)}" data-d="1" ${i < keys.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button>${NO_RENAME.has(k) ? '<span style="width:46px"></span>' : `<button class="btn small" data-act="${k.startsWith('cs:') ? 'cs-edit' : 'sec-edit'}" data-k="${h(k)}" data-id="${h(k.slice(3))}">Edit</button>`}${LAYOUT_LOCKED.has(k) ? '<span class="laymode" title="Safety sections always show">🔒 Always shown</span>' : `<select class="laymode" data-laymode="${h(k)}" aria-label="How this section shows"><option value="" ${!modes[k] ? 'selected' : ''}>Always show</option><option value="empty" ${modes[k] === 'empty' ? 'selected' : ''}>Hide when empty${LAY_ADDBOX.has(k) ? ' (➕ box too)' : ''}</option><option value="fold" ${modes[k] === 'fold' ? 'selected' : ''}>Fold up</option></select>`}</div></div>`; }).join('')}</div>
   <div class="actions" style="margin-top:6px"><button class="btn small" data-act="lay-reset">↺ Back to the standard layout</button></div>
   <div class="lbl" style="margin-top:14px;display:flex;align-items:center"><span style="flex:1">Your own sections</span><button class="btn small" data-act="cs-add">➕ Add a section</button></div>
   ${css.length ? css.map((x) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${sw(x.color)} ${x.emoji ? x.emoji + ' ' : ''}<b>${h(x.name)}</b> <span class="hint">— ${x.for === 'both' ? 'contacts and businesses' : x.for === 'business' ? 'businesses' : 'contacts'}${x.rich ? ' · formatting on' : ''}</span></div><button class="btn small" data-act="cs-edit" data-id="${x.id}">Edit</button><button class="btn small" data-act="cs-del" data-id="${x.id}" title="Delete">✕</button></div>`).join('') : '<div class="hint">None yet — e.g. "Dog names", "Gate codes", "Preferred days".</div>'}</div>`; }
@@ -1561,6 +1579,10 @@ const dndEnd = async () => { if (!DND) return; const d = DND; DND = null; d.row.
   else if (kind.startsWith('list:')) { const k = kind.slice(5); const list = [...LIST_GET[k]()]; D.settings[k] = order.map((i) => list[+i]); NEXT_LOG_LABEL = (k === 'linkRoles' ? 'Roles' : 'Reasons for inactivating') + ' list reordered'; }
   else return; touch(D.settings); S.skipConfirm = true; await changed(); };
 document.addEventListener('pointerup', dndEnd); document.addEventListener('pointercancel', dndEnd);
+document.addEventListener('change', async (e) => { const k = e.target.dataset && e.target.dataset.laymode; if (k == null) return; const K = S.layK || 'contact';
+  const all = { ...(D.settings.layoutMode || {}) }; const mine = { ...layoutModes(K) }; if (e.target.value) mine[k] = e.target.value; else delete mine[k]; all[K] = mine; D.settings.layoutMode = all;
+  const hide = { ...(D.settings.layoutHide || {}) }; delete hide[K]; D.settings.layoutHide = hide; // the old on/off hide list is folded into the new setting
+  touch(D.settings); NEXT_LOG_LABEL = `${layoutLabel(K, k)}: ${({ '': 'always show', empty: 'hide when empty', fold: 'fold up' })[e.target.value]} (${K} page)`; S.skipConfirm = true; await changed(); });
 const LIST_GET = { inactiveReasons: () => inactiveReasons(), linkRoles: () => linkRoles() };
 function roleOptions() { const L = linkRoles(); const used = [...new Set(D.contacts.flatMap((c) => c.links.map((l) => l.role).filter(Boolean)))].filter((r) => !L.includes(r)).sort((a, b) => a.localeCompare(b)); return [...L, ...used].slice(0, 80); } /* your list first (Settings → Roles), then others already in use */
 function roleSelect(role) { const opts = roleOptions(); const custom = role && !opts.includes(role); return `<select class="lk-rolesel" style="flex-basis:100%;margin-top:4px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:14.5px"><option value="">Role here — none</option>${opts.map((o) => `<option value="${h(o)}" ${o === role ? 'selected' : ''}>${h(o)}</option>`).join('')}<option value="__custom" ${custom ? 'selected' : ''}>✏️ Custom role…</option></select>`; }
@@ -3954,10 +3976,9 @@ document.addEventListener('click', async (e) => {
     case 'save-home': { const g = parseGps(val('s-homegps')); if (!g) { toast('GPS not recognised'); break; } Object.assign(D.settings.home, { address: val('s-homeaddr'), lat: g.lat, lng: g.lng }); touch(D.settings); if (await changed()) toast('Homebase saved'); break; }
     case 'scheme': savePref('scheme', d.v); applyUi(); renderAll(); toast('Colour scheme saved for this device'); break;
     case 'lay-k': S.layK = d.v; renderAll(); break;
-    case 'lay-mv': case 'lay-hide': case 'lay-reset': { const K = S.layK || 'contact'; const lay = { ...(D.settings.layout || {}) }; const hide = { ...(D.settings.layoutHide || {}) };
+    case 'lay-mv': case 'lay-reset': { const K = S.layK || 'contact'; const lay = { ...(D.settings.layout || {}) }; const hide = { ...(D.settings.layoutHide || {}) };
       if (a === 'lay-mv') { const keys = layoutKeys(K); const i = keys.indexOf(d.k), j = i + +d.d; if (i < 0 || j < 0 || j >= keys.length) break; [keys[i], keys[j]] = [keys[j], keys[i]]; lay[K] = keys; }
-      if (a === 'lay-hide') { const hs = new Set(hide[K] || []); hs.has(d.k) ? hs.delete(d.k) : hs.add(d.k); hide[K] = [...hs]; }
-      if (a === 'lay-reset') { if (!(await ask(`Put the ${K} page back to the standard order and show every section?`, 'Yes — reset'))) break; delete lay[K]; delete hide[K]; }
+      if (a === 'lay-reset') { if (!(await ask(`Put the ${K} page back to the standard order, with every section always shown?`, 'Yes — reset'))) break; delete lay[K]; delete hide[K]; const lm = { ...(D.settings.layoutMode || {}) }; delete lm[K]; D.settings.layoutMode = lm; }
       D.settings.layout = lay; D.settings.layoutHide = hide; touch(D.settings); NEXT_LOG_LABEL = 'Page layout changed (' + K + ' page)'; S.skipConfirm = true; await changed(); break; }
     case 'sec-edit': await secNameForm(S.layK || 'contact', d.k); break;
     case 'cs-add': case 'cs-edit': { const list = [...(D.settings.customSecs || [])]; const i = list.findIndex((x) => x.id === d.id); const v = await customSecForm(i >= 0 ? list[i] : null); if (!v) break;

@@ -338,6 +338,22 @@ html[data-scheme] nav.tabs button.on{color:var(--acc)}
 .draghandle{width:26px;flex:none;text-align:center;font-size:20px;line-height:1;color:var(--ink3);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;padding:6px 0}
 .dragrow.dragging{background:var(--yellow-bg);box-shadow:0 4px 14px rgba(0,0,0,.18);border-radius:8px;position:relative;z-index:2}
 body.dragging-on{user-select:none;-webkit-user-select:none;cursor:grabbing}
+details.secfold{margin-bottom:12px}
+details.secfold>summary{list-style:none;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px;font:700 14px/1.3 var(--font);text-transform:uppercase;letter-spacing:.4px;color:var(--ink2);display:flex;align-items:center;gap:6px}
+details.secfold>summary::-webkit-details-marker{display:none}
+details.secfold>summary::after{content:'▸';margin-left:auto;color:var(--ink3)}
+details.secfold[open]>summary{border-radius:var(--r) var(--r) 0 0;border-bottom:0}
+details.secfold[open]>summary::after{content:'▾'}
+details.secfold[open]>:not(summary){border-top-left-radius:0;border-top-right-radius:0;margin-bottom:0}
+details.secfold .hint{text-transform:none;letter-spacing:0;font-weight:500}
+.laymode{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:13.5px;color:var(--ink)}
+span.laymode{border:0;color:var(--ink3);padding:6px 4px}
+[data-dnd=layout] .dragrow{flex-wrap:wrap;row-gap:4px}
+.laylbl{flex:1 1 150px;min-width:140px}
+.laybtns{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-left:auto}
+@media(max-width:600px){.laybtns{margin-left:32px;width:calc(100% - 32px)}.laybtns .laymode{flex:1;min-width:0}}
+details.secfold>.card>h3>.sp{display:none}
+details.secfold>.card>h3{justify-content:flex-end;margin:-4px 0 0;min-height:0}
 </style>
 </head>
 <body>
