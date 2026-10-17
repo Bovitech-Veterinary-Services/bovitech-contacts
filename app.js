@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.9 (17 Oct 2026)';
+const APP_VERSION = '10.0 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -334,9 +334,9 @@ function primaryOf(b) {
 const isClientBiz = (b) => { if (b.typeLocked) return b.type !== 'nonclient'; const cat = bizCat(b); return cat ? catClass('b', cat) !== 'n' : b.type !== 'nonclient'; }; // a type chosen on the business wins; otherwise its category decides (Settings → Categories)
 function makeIndustry(b) { const cat = bizCat(b); if (!cat || catClass('b', cat) !== 'n') setBizCat(b, 'industry'); setBizType(b, 'nonclient'); }
 const LINK_ROLES = ['Business owner', 'Staff', 'Family member'];
-async function askLinkRole(c, b, past) { /* → role text ('' = none) or null when backed out */
+async function askLinkRole(c, b, past, many) { /* → role text ('' = none) or null when backed out; many = number of links in a bulk action */
   const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px;margin-top:8px"';
-  const r = await askBox('Role at ' + b.name, `<p>What is <b>${h(fullName(c))}</b>'s role at <b>${h(b.name)}</b>${past ? ' (past)' : ''}?</p>
+  const r = await askBox(many ? 'Role for these links' : 'Role at ' + b.name, `<p>${many ? `What role should the ${many} people have at the businesses they're being linked to${past ? ' (as past employees)' : ''}? You can change any of them later.` : `What is <b>${h(fullName(c))}</b>'s role at <b>${h(b.name)}</b>${past ? ' (past)' : ''}?`}</p>
     <div class="chips" id="lr-chips">${LINK_ROLES.map((x) => `<button type="button" class="chip" style="padding-right:12px" onclick="document.querySelectorAll('#lr-chips .chip').forEach(function(e){e.classList.remove('on')});this.classList.add('on');document.getElementById('lr-val').value='${x}'">${x === 'Business owner' ? '👑' : x === 'Staff' ? '🧑‍🌾' : '👪'} ${x}</button>`).join('')}<button type="button" class="chip" style="padding-right:12px" onclick="document.querySelectorAll('#lr-chips .chip').forEach(function(e){e.classList.remove('on')});this.classList.add('on');var v=document.getElementById('lr-val');v.value='';v.focus()">✏️ Custom role</button></div>
     <input id="lr-val" data-ask="role" placeholder="Or type a role, e.g. Farm manager, Stockman, Bookkeeper" ${inp}>`, 'Save role', false, 'Cancel', 'No role');
   if (!r) return null; return r === 'alt' ? '' : (ASK_FORM.role || '').trim();
@@ -912,7 +912,6 @@ function contactDetail(c) {
   if (tags.length) html += `<div class="card"><h3>Categories and tags</h3><div class="tagrow">${tags.map(tagPill).join('')}</div>${followsBiz(c) && effCats(c).length ? '<div class="hint" style="margin-top:6px">Categories follow the business</div>' : c.ownCats && bs.length ? '<div class="hint" style="margin-top:6px">This contact has its own categories (different to the business)</div>' : ''}</div>`;
   html += `<div class="card"><h3>General info</h3>${infoView(c)}</div>`;
   html += `<h2 class="sec-h" style="font-size:20px;margin:18px 0 8px;display:flex;align-items:center;gap:8px">🔗 Linked ${bs.length === 1 ? 'business' : 'businesses'} <span class="count" style="font-size:14px;background:var(--ink);color:#fff;border-radius:99px;padding:1px 9px">${bs.length}</span></h2>${bs.length ? '' : `<div class="card"><div class="hint">Not linked to a business yet — tap Edit to link one.</div></div>`}`;
-  { const pb = pastBizOf(c); if (pb.length) html += `<div class="card" style="opacity:.85"><h3>Past businesses (${pb.length})</h3>${pb.map((b) => `<div style="display:flex;align-items:center;gap:6px;margin:4px 0"><span class="biz-link sp" data-act="open" data-kind="business" data-id="${b.id}" style="flex:1">${h(b.name)}</span><button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="0">Make current</button></div>`).join('')}</div>`; }
   bs.forEach((b) => {
     html += `<div class="card" style="border-left:5px solid var(--ink3)"><h3>${b.rating ? rbadge(b.rating) : ''}<span class="sp">${h(b.name)}${isClientBiz(b) ? '' : ' <span class="hint">(industry)</span>'}</span><button class="btn small" data-act="open" data-kind="business" data-id="${b.id}">Open business</button></h3>`;
     { const lr = (c.links.find((l) => l.bid === b.id) || {}).role; if (lr) html += `<div class="kv"><div class="k">Role here</div><div class="v">${h(lr)}</div></div>`; }
@@ -922,6 +921,7 @@ function contactDetail(c) {
     html += bizRoutesHtml(b);
     html += '</div>';
   });
+  { const pb = pastBizOf(c); if (pb.length) html += `<div class="card" style="opacity:.85"><h3>Past businesses (${pb.length})</h3>${pb.map((b) => `<div style="display:flex;align-items:center;gap:6px;margin:4px 0"><span class="biz-link sp" data-act="open" data-kind="business" data-id="${b.id}" style="flex:1">${h(b.name)}</span><button class="btn small" data-act="link-past" data-cid="${c.id}" data-bid="${b.id}" data-v="0">Make current</button></div>`).join('')}</div>`; }
   html += `<div class="actions" style="margin:16px 0 8px"><button class="btn" data-act="merge-start" data-kind="contact" data-id="${c.id}">⇄ Merge with…</button></div><div class="actions" style="margin:0 0 8px"><button class="btn" data-act="rec-ai" data-kind="contact" data-id="${c.id}">🤖 Ask Claude about ${h(c.first || fullName(c))}</button></div>`;
   return html + '</div>';
 }
@@ -1085,7 +1085,7 @@ function editContact(c) {
   const body = `${isNew ? '' : `<div class="f"><span class="lbl">This entry is a…</span><div class="seg"><button type="button" class="on" data-act="kind-pick" data-v="person">Person</button><button type="button" data-act="kind-pick" data-v="client">Client business</button><button type="button" data-act="kind-pick" data-v="industry">Industry business</button></div><input type="hidden" id="e-kind" value="person"><div id="e-kindhint" class="hint" style="display:none;margin-top:6px;color:var(--red-ink)"></div></div>`}
   <div class="grid2"><div class="f"><label>First name</label><input id="e-first" value="${h(c.first)}"></div><div class="f"><label>Surname</label><input id="e-last" value="${h(c.last)}"></div></div>
   <div class="grid2"><div class="f"><label>Middle / nickname</label><input id="e-middle" value="${h(c.middle)}"></div><div class="f"><label>Role / position</label><input id="e-role" value="${h(c.role)}"></div></div>
-  <div class="f"><label>Businesses</label>${roleDatalist()}<div id="e-links">${c.links.map((l) => linkRow(l.bid, null, l.past, l.role)).join('')}</div><div class="hint">Tick <b>Past</b> for a business they no longer work for — it stays on record but doesn't set their category.</div>
+  <div class="f"><label>Businesses</label>${roleDatalist()}<div id="e-links">${[...c.links.filter((l) => !l.past), ...c.links.filter((l) => l.past)].map((l) => linkRow(l.bid, null, l.past, l.role)).join('')}</div><div class="hint">Tick <b>Past</b> for a business they no longer work for — it stays on record but doesn't set their category.</div>
     <input id="e-bizsearch" placeholder="Search to link a business, or type a new business name"><div id="e-bizres"></div>
 </div>
   <div class="card" style="background:#fbfaf7"><h3>Contact category</h3>
@@ -1590,6 +1590,8 @@ async function runBulk(t, op) {
   const label = op === 'setcat' ? 'Set category to ' + tagName(jbCat) : bulkOps(t, sel).find((o) => o.op === op)?.label || op;
   
   D.dismissed = D.dismissed || {};
+  let linkRole = '';
+  if (op === 'linkall' || op === 'linkallpast') { const j0 = sel.find((j) => j.linkSug); const c0 = j0 && D.contacts.find((x) => x.id === j0.linkSug.cid), b0 = j0 && IDX.biz.get(j0.linkSug.bid); const r = sel.length === 1 && c0 && b0 ? await askLinkRole(c0, b0, op === 'linkallpast') : await askLinkRole(null, null, op === 'linkallpast', sel.length); if (r === null) { toast('Nothing was changed'); return; } linkRole = r; }
   sel.forEach((j) => {
     if (op === 'dismiss') {
       D.dismissed[j.key] = Date.now(); D._dismissDirty = true;
@@ -1611,8 +1613,8 @@ async function runBulk(t, op) {
     else if (op === 'sheepreg') { const c = D.contacts.find((x) => x.id === j.id); if (c) { setCats(c, [...effCats(c).filter((x) => x !== 'sheepocc' && x !== 'sheep'), 'sheepreg']); c.flags = (c.flags || []).filter((x) => x.type !== 'sheepconfirm'); } }
     else if (op === 'priminall' && j.primin) { const c = D.contacts.find((x) => x.id === j.primin); if (c) { c.tags = c.tags.filter((t2) => t2 !== 'pa'); if (!c.tags.includes('pi')) c.tags.push('pi'); touch(c); } }
     else if ((op === 'lrpast' || op === 'lrundo') && j.linkRev) { const c = D.contacts.find((x) => x.id === j.linkRev.cid); if (c) { const prev = catOf(c); c.links = op === 'lrundo' ? c.links.filter((l) => l.bid !== j.linkRev.bid) : c.links.map((l) => (l.bid === j.linkRev.bid ? { bid: l.bid, past: true } : l)); reindex(); if (prev) setOne(c, prev); touch(c); } }
-    else if (op === 'linkallpast' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push({ bid: j.linkSug.bid, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); } }
-    else if (op === 'linkall' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push({ bid: j.linkSug.bid }); reindex(); if (prev) setOne(c, prev); touch(c); } }
+    else if (op === 'linkallpast' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push(linkRole ? { bid: j.linkSug.bid, past: true, role: linkRole } : { bid: j.linkSug.bid, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); } }
+    else if (op === 'linkall' && j.linkSug) { const c = D.contacts.find((x) => x.id === j.linkSug.cid); if (c && !c.links.some((l) => l.bid === j.linkSug.bid)) { const prev = catOf(c); c.links.push(linkRole ? { bid: j.linkSug.bid, role: linkRole } : { bid: j.linkSug.bid }); reindex(); if (prev) setOne(c, prev); touch(c); } }
     else if (op === 'primall' && j.primSuggest) { const b = IDX.biz.get(j.id), c = D.contacts.find((x) => x.id === j.primSuggest); if (b && c) { b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) { c.tags.push('pa'); touch(c); } } }
     else if (op === 'bizonlyall' && j.bizonly) { const c = D.contacts.find((x) => x.id === j.bizonly.cid), b = IDX.biz.get(j.bizonly.bid); if (c && b) convertBizOnly(c, b); }
     else if (op === 'noprimreq' || op === 'nonclient') { const b = IDX.biz.get(j.id); if (b) { b.primaryRequired = false; if (op === 'nonclient') makeIndustry(b); touch(b); } }
