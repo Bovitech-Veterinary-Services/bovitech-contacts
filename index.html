@@ -132,8 +132,9 @@ body.show-detail #detail{display:block}
 .f textarea.sidenote{background:#fffbe3;border-color:#efd46a;color:#6b4f00}
 #detail.dna{background:#f7c9cc}
 #detail.dna .card{border-color:#e9a3a8}
-.inactivebox{background:var(--red);color:#fff;border-radius:12px;padding:10px 14px;margin:6px 0 12px;box-shadow:0 2px 8px rgba(215,31,43,.3)}
-.inactivebox .body{color:#fff}
+.inactivebox{background:#111;color:#ff3b3b;font-weight:800;border-radius:12px;padding:10px 14px;margin:6px 0 12px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.inactivebox .body{color:#ff4d4d;font-weight:700}
+.inactivebox .secedit{background:#2a2a2a;border-color:#444}
 .dnareason{background:#fff;border:2px solid var(--red);border-radius:12px;padding:10px 14px;margin:-2px 0 12px;color:var(--red-ink)}
 .checks label.rt{border-color:#b9d7bd;background:#f3f8f3}
 .checks.big label{padding:8px 12px;font-size:15.5px}
@@ -266,7 +267,7 @@ html[data-theme=dark] textarea.biosec{background:#2d1c10}
 .mapbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
 .mapbar input,.mapbar select{padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:15px;min-width:0}
 .mapbar #map-q{flex:1 1 180px}
-#fmap{height:calc(100dvh - 250px);min-height:340px;border-radius:12px;border:1px solid var(--line);background:#e8e4dc}
+#fmap{position:relative;z-index:0;height:calc(100dvh - 250px);min-height:340px;border-radius:12px;border:1px solid var(--line);background:#e8e4dc}
 .mpin{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fff;border:2px solid #333;border-radius:50%;font-size:17px;box-shadow:0 1px 4px rgba(0,0,0,.35);line-height:1}
 .mpin.mstop{border-color:#d71f2b;background:#fdecec}.mpin.mcaution{border-color:#e7b008;background:#fff6db}.mpin.bio{border-color:#e07a2e}
 .mpin.turn{border-radius:6px;font-size:14px}.mpin.home{border-color:#141414;font-size:18px}
@@ -298,6 +299,14 @@ html[data-theme=dark] .primbtn.on{background:#2b2410;color:#f3d27a;border-color:
 .wholink{cursor:pointer}.wholink:hover{text-decoration:underline}
 .secedit{padding:3px 9px;font-size:13px;font-weight:600;flex:none}
 .jumpflash{animation:farmflash 1.6s ease-out;border-radius:10px}
+.cbtn{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:34px;padding:0 8px;margin-left:6px;border:1px solid var(--line);border-radius:9px;background:var(--card);text-decoration:none;font-size:17px;flex:none}
+.cbtn.sms{font-size:12px;letter-spacing:-1px}
+.secedit{min-width:34px}
+.card.nomention{background:#fff3a6;border:2px solid #e7c200}
+.card.nomention h3{color:#6b5300}
+.card.nomention .body{font-weight:700;color:#4a3a00}
+textarea.nomention{background:#fff7c2;border-color:#e7c200}
+html[data-theme=dark] .card.nomention{background:#3a3200;border-color:#8a7400}html[data-theme=dark] .card.nomention .body,html[data-theme=dark] .card.nomention h3{color:#ffe680}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;z-index:99;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .sec-h{font-family:var(--cond);font-size:20px;margin:16px 0 8px}
 </style>
