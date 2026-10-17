@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.1 (17 Oct 2026)';
+const APP_VERSION = '9.2 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -3475,10 +3475,10 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (CONF
   D = await Store.get('data');
   if (!D) { D = await loadSeed(); D.dismissed = D.dismissed || {}; await Store.set('data', D); }
   D.sync = D.sync || {}; D.deleted = D.deleted || []; D.conflicts = D.conflicts || []; D.trash = D.trash || []; D.routes = D.routes || []; D.farms = D.farms || [];
-  reindex(); baseline(); migrate(); logChanges('Automatic update'); save();
+  reindex(); baseline(); try { migrate(); } catch (err) { console.error('migrate', err); } logChanges('Automatic update'); save();
   if (PREF.tab) S.tab = PREF.tab; if (PREF.sort) S.sort = PREF.sort; if (PREF.bsort) S.bsort = PREF.bsort; if (PREF.ptype) S.ptype = PREF.ptype; if (PREF.btype) S.btype = PREF.btype;
   applyUi(); reindex(); net(); renderAll();
-  updHi(); detectDevice(); if (window.hideSplash) window.hideSplash();
+  updHi(); detectDevice(); window.APP_READY = true; if (window.hideSplash) window.hideSplash();
   Sync.start(); Backup.schedule(); setTimeout(askDeviceName, 600);
   checkLatest();
   { const b = document.querySelector('header [data-act=app-refresh]'); if (b) b.innerHTML = `⟳ v${APP_VERSION.split(' ')[0]}`; }
