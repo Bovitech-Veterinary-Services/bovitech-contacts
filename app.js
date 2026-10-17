@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '9.8 (17 Oct 2026)';
+const APP_VERSION = '9.9 (17 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -333,6 +333,14 @@ function primaryOf(b) {
 }
 const isClientBiz = (b) => { if (b.typeLocked) return b.type !== 'nonclient'; const cat = bizCat(b); return cat ? catClass('b', cat) !== 'n' : b.type !== 'nonclient'; }; // a type chosen on the business wins; otherwise its category decides (Settings → Categories)
 function makeIndustry(b) { const cat = bizCat(b); if (!cat || catClass('b', cat) !== 'n') setBizCat(b, 'industry'); setBizType(b, 'nonclient'); }
+const LINK_ROLES = ['Business owner', 'Staff', 'Family member'];
+async function askLinkRole(c, b, past) { /* → role text ('' = none) or null when backed out */
+  const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px;margin-top:8px"';
+  const r = await askBox('Role at ' + b.name, `<p>What is <b>${h(fullName(c))}</b>'s role at <b>${h(b.name)}</b>${past ? ' (past)' : ''}?</p>
+    <div class="chips" id="lr-chips">${LINK_ROLES.map((x) => `<button type="button" class="chip" style="padding-right:12px" onclick="document.querySelectorAll('#lr-chips .chip').forEach(function(e){e.classList.remove('on')});this.classList.add('on');document.getElementById('lr-val').value='${x}'">${x === 'Business owner' ? '👑' : x === 'Staff' ? '🧑‍🌾' : '👪'} ${x}</button>`).join('')}<button type="button" class="chip" style="padding-right:12px" onclick="document.querySelectorAll('#lr-chips .chip').forEach(function(e){e.classList.remove('on')});this.classList.add('on');var v=document.getElementById('lr-val');v.value='';v.focus()">✏️ Custom role</button></div>
+    <input id="lr-val" data-ask="role" placeholder="Or type a role, e.g. Farm manager, Stockman, Bookkeeper" ${inp}>`, 'Save role', false, 'Cancel', 'No role');
+  if (!r) return null; return r === 'alt' ? '' : (ASK_FORM.role || '').trim();
+}
 function unPrimary(c, b) { /* c is no longer primary at b: drop the Primary tag unless they're still primary somewhere else */ if (!c) return; reindex(); if (D.businesses.some((x) => x !== b && primaryOf(x) === c)) return; if (c.tags.some((t) => t === 'pa' || t === 'pi')) { c.tags = c.tags.filter((t) => t !== 'pa' && t !== 'pi'); touch(c); } }
 function setBizType(b, v) { b.type = v === 'nonclient' ? 'nonclient' : 'client'; const cat = bizCat(b); b.typeLocked = !!cat && (b.type === 'client') !== (catClass('b', cat) !== 'n'); if (b.type === 'nonclient') { b.primaryRequired = false; b.primaryContact = null; } touch(b); } // category decides (Settings → Categories); no category → the business type
 const NONCLIENT_CATS = new Set(['industry', 'bvs', 'bfriends', 'phone', 'prac']); // default; changeable in Settings → Categories
@@ -597,7 +605,7 @@ function askBox(title, html, okLabel = 'Yes — go ahead', danger = false, noLab
     const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'askbox'; bg.style.zIndex = 80;
     bg.innerHTML = `<div class="sheet" style="max-width:620px"><div class="sheet-h"><button class="btn" data-act="ask-no">‹ Back</button><h2>${h(title)}</h2></div><div class="form">${html}
       <div class="actions" style="margin-top:16px"><button class="btn ${danger ? 'red' : 'primary'}" data-act="ask-yes" style="font-size:17px;padding:11px 16px">${h(okLabel)}</button>${altLabel ? `<button class="btn primary" data-act="ask-alt" style="font-size:17px;padding:11px 16px">${h(altLabel)}</button>` : ''}<button class="btn" data-act="ask-no">${h(noLabel)}</button></div>${jobCtxBtn()}</div></div>`;
-    document.body.appendChild(bg); CONFIRM = { res }; try { history.pushState({ ask: 1 }, ''); } catch (e) { } updateBackBtn();
+    document.body.appendChild(bg); CONFIRM = { res }; try { safePush({ ask: 1 }); } catch (e) { } updateBackBtn();
   });
 }
 let ASK_FORM = {};
@@ -609,12 +617,17 @@ function updateBackBtn() { const b = $('#hdr-back'); if (b) b.style.display = CO
 
 /* ---------------- back navigation (in-app Back button + phone/browser back) ---------------- */
 const NAV = { last: null, stack: [], restoring: false, ignorePop: 0 };
+/* a pop-up closing goes "back" in the browser history; that happens a moment later, so a pop-up opened straight after
+   must wait for it — otherwise the next Back can leave the app */
+const PUSHQ = [];
+function flushPush(force) { if (NAV.ignorePop > 0 && !force) return; if (force) NAV.ignorePop = 0; while (PUSHQ.length) { try { history.pushState(PUSHQ.shift(), ''); } catch (e) { } } }
+function safePush(st) { if (NAV.ignorePop > 0) { PUSHQ.push(st); setTimeout(() => { if (PUSHQ.length) flushPush(true); }, 700); return; } try { history.pushState(st, ''); } catch (e) { } }
 const navKey = () => S.tab + '|' + (S.sel ? S.sel.kind + ':' + S.sel.id : '');
 function navRecord() {
   const k = navKey();
   if (NAV.last && k !== NAV.last.key && !NAV.restoring) {
     NAV.stack.push(NAV.last); if (NAV.stack.length > 60) NAV.stack.shift();
-    try { history.pushState({ bvt: NAV.stack.length }, ''); } catch (e) { }
+    try { safePush({ bvt: NAV.stack.length }); } catch (e) { }
   }
   if (!NAV.last || k !== NAV.last.key) NAV.last = { key: k, tab: S.tab, sel: S.sel ? { ...S.sel } : null, scroll: 0, dscroll: 0 };
 }
@@ -1007,7 +1020,7 @@ function openSheet(title, body, onSave, extraBtns = '') {
   closeSheet(); body += jobCtxBtn();
   const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.id = 'sheet';
   bg.innerHTML = `<div class="sheet"><div class="sheet-h"><button class="btn" data-act="sheet-cancel">‹ Back</button><h2>${h(title)}</h2>${extraBtns}<button class="btn primary" data-act="sheet-save" id="sheet-save">Save</button></div><div class="form">${body}</div></div>`;
-  document.body.appendChild(bg); SHEET = { onSave }; try { history.pushState({ sheet: 1 }, ''); } catch (e) { } updateBackBtn();
+  document.body.appendChild(bg); SHEET = { onSave }; try { safePush({ sheet: 1 }); } catch (e) { } updateBackBtn();
   // clicking outside the edit screen no longer closes it (too easy to lose typing); snapshot the form so leaving can warn
   setTimeout(() => { if (SHEET && $('#sheet') === bg) SHEET.snap = sheetState(); }, 0);
 }
@@ -1016,7 +1029,7 @@ function sheetDirty() { return !!(SHEET && SHEET.snap != null && sheetState() !=
 async function leaveSheet(fromPop) {
   if (!SHEET) return;
   if (!sheetDirty()) { if (fromPop) SHEET.popped = true; closeSheet(); return; }
-  if (fromPop) { try { history.pushState({ sheet: 1 }, ''); } catch (e) { } } // put the edit screen back while we ask
+  if (fromPop) { try { safePush({ sheet: 1 }); } catch (e) { } } // put the edit screen back while we ask
   const sh = SHEET;
   if (await ask('You have unsaved changes on this screen.\n\nLeave without saving?', 'Yes — discard my changes', true)) { if (SHEET === sh) closeSheet(); }
 }
@@ -1072,7 +1085,7 @@ function editContact(c) {
   const body = `${isNew ? '' : `<div class="f"><span class="lbl">This entry is a…</span><div class="seg"><button type="button" class="on" data-act="kind-pick" data-v="person">Person</button><button type="button" data-act="kind-pick" data-v="client">Client business</button><button type="button" data-act="kind-pick" data-v="industry">Industry business</button></div><input type="hidden" id="e-kind" value="person"><div id="e-kindhint" class="hint" style="display:none;margin-top:6px;color:var(--red-ink)"></div></div>`}
   <div class="grid2"><div class="f"><label>First name</label><input id="e-first" value="${h(c.first)}"></div><div class="f"><label>Surname</label><input id="e-last" value="${h(c.last)}"></div></div>
   <div class="grid2"><div class="f"><label>Middle / nickname</label><input id="e-middle" value="${h(c.middle)}"></div><div class="f"><label>Role / position</label><input id="e-role" value="${h(c.role)}"></div></div>
-  <div class="f"><label>Businesses</label><div id="e-links">${c.links.map((l) => linkRow(l.bid, null, l.past, l.role)).join('')}</div><div class="hint">Tick <b>Past</b> for a business they no longer work for — it stays on record but doesn't set their category.</div>
+  <div class="f"><label>Businesses</label>${roleDatalist()}<div id="e-links">${c.links.map((l) => linkRow(l.bid, null, l.past, l.role)).join('')}</div><div class="hint">Tick <b>Past</b> for a business they no longer work for — it stays on record but doesn't set their category.</div>
     <input id="e-bizsearch" placeholder="Search to link a business, or type a new business name"><div id="e-bizres"></div>
 </div>
   <div class="card" style="background:#fbfaf7"><h3>Contact category</h3>
@@ -1162,9 +1175,10 @@ function editContact(c) {
     out.innerHTML = `<div class="results">${m.map((b) => `<div data-act="link-biz" data-bid="${b.id}">${b.rating ? rbadge(b.rating) : ''}${h(b.name)}</div>`).join('')}<div data-act="link-newbiz" data-name="${h(bs.value.trim())}">+ Create new business “${h(bs.value.trim())}”</div></div>`;
   });
 }
+function roleDatalist() { return `<datalist id="lk-rolelist">${[...new Set([...LINK_ROLES, ...D.contacts.flatMap((c) => c.links.map((l) => l.role).filter(Boolean))])].slice(0, 60).map((r) => `<option value="${h(r)}">`).join('')}</datalist>`; }
 function linkRow(bid, newName, past, role) {
   const b = bid ? IDX.biz.get(bid) : null;
-  return `<div class="rep" style="flex-wrap:wrap" ${bid ? `data-bid="${bid}"` : `data-newbiz="${h(newName)}"`}><label style="display:flex;align-items:center;gap:4px;font-size:13.5px;white-space:nowrap"><input type="checkbox" class="lk-past" ${past ? 'checked' : ''}>Past</label><div style="flex:1;padding:9px 10px;background:#fff;border:1px solid var(--line);border-radius:9px">${b ? (b.rating ? rbadge(b.rating) : '') + h(b.name) : h(newName) + ' <span class="hint">(new)</span>'}</div><button class="x" type="button" data-act="rep-del">×</button><input class="lk-role" value="${h(role || '')}" placeholder="Role at this business (optional)" style="flex-basis:100%;margin-top:4px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:14.5px"></div>`;
+  return `<div class="rep" style="flex-wrap:wrap" ${bid ? `data-bid="${bid}"` : `data-newbiz="${h(newName)}"`}><label style="display:flex;align-items:center;gap:4px;font-size:13.5px;white-space:nowrap"><input type="checkbox" class="lk-past" ${past ? 'checked' : ''}>Past</label><div style="flex:1;padding:9px 10px;background:#fff;border:1px solid var(--line);border-radius:9px">${b ? (b.rating ? rbadge(b.rating) : '') + h(b.name) : h(newName) + ' <span class="hint">(new)</span>'}</div><button class="x" type="button" data-act="rep-del">×</button><input class="lk-role" list="lk-rolelist" value="${h(role || '')}" placeholder="Role here — Business owner, Staff, Family member or type one" style="flex-basis:100%;margin-top:4px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:14.5px"></div>`;
 }
 function newBusiness(name) {
   const b = { id: uid('b'), name, farmLinks: [], pics: [], patientIds: [], info: '', warnings: '', flags: [], rating: null };
@@ -3355,12 +3369,13 @@ document.addEventListener('click', async (e) => {
     case 'pf-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (!c || !b) break; closeSheet();
       const l = c.links.find((x) => x.bid === b.id); let extra = '';
       if (!l || l.past) { const prev = catOf(c); let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Nothing was changed'); break; } match = r === 'match'; }
-        if (l) delete l.past; else c.links.push({ bid: b.id }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); extra = l ? ' (was a past employee — now current)' : ' (linked to the business)'; }
+        if (l) delete l.past; else { const role = await askLinkRole(c, b, false); if (role === null) { toast('Nothing was changed'); break; } c.links.push(role ? { bid: b.id, role } : { bid: b.id }); } reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); extra = l ? ' (was a past employee — now current)' : ' (linked to the business)'; }
       b.primaryContact = c.id; touch(b); if (!c.tags.includes('pa') && !c.tags.includes('pi')) c.tags.push('pa'); touch(c);
       NEXT_LOG_LABEL = `${fullName(c)} made primary contact for ${b.name}${extra}`; if (await changed()) toast(`✓ ${fullName(c)} is now the primary contact`); break; }
     case 'biz-link-pick': { const c = D.contacts.find((x) => x.id === d.cid); const b = IDX.biz.get(d.bid); if (c && b && !c.links.some((l) => l.bid === d.bid)) { const prev = catOf(c);
       let match = !prev; if (prev && bizCat(b) && bizCat(b) !== prev) { const r = await askLinkCat(`<b>${h(fullName(c))}</b>`, b, tagName(prev)); if (!r) { toast('Not linked — nothing was changed'); break; } match = r === 'match'; }
-      c.links.push({ bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
+      const role = await askLinkRole(c, b, false); if (role === null) { toast('Not linked — nothing was changed'); break; }
+      c.links.push(role ? { bid: d.bid, role } : { bid: d.bid }); reindex(); if (match && bizCat(b)) setOne(c, bizCat(b)); else if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name}${role ? ' as ' + role : ''}` + (prev && bizCat(b) && bizCat(b) !== prev ? (match ? ' — category changed to match' : ' — kept own category') : ''); await changed(); toast(fullName(c) + ' linked'); } break; }
     case 'area-ai': { let cids = [], bids = [], req = '';
       if (d.v === 'search') { if (['loc', 'all'].includes(S.adv.kind)) { const r = advLocResults(); bids = [...new Set(r.slice(0, 60).map((f) => (IDX.farmBiz.get(f.id) || {}).id).filter(Boolean))]; req = `About my location search results (${r.length} locations): `; } else if ((S.adv.kind || 'people') === 'people') { const r = advResults(); const sel = S.advSel && S.advSel.size ? r.filter((c) => S.advSel.has(c.id)) : r; cids = sel.slice(0, 80).map((c) => c.id); req = `About ${S.advSel && S.advSel.size ? 'the ' + sel.length + ' people I selected' : 'my search results (' + r.length + ' people' + (r.length > 80 ? ', first 80 included' : '') + ')'}: `; }
         else { const r = advBizResults(); const sel = S.advBSel && S.advBSel.size ? r.filter((b) => S.advBSel.has(b.id)) : r; bids = sel.slice(0, 60).map((b) => b.id); req = `About ${S.advBSel && S.advBSel.size ? 'the ' + sel.length + ' businesses I selected' : 'my search results (' + r.length + ' businesses' + (r.length > 60 ? ', first 60 included' : '') + ')'}: `; } }
@@ -3381,7 +3396,8 @@ document.addEventListener('click', async (e) => {
     case 'linkrev-undo': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b) break; const prev = catOf(c); c.links = c.links.filter((l) => l.bid !== b.id); if (b.primaryContact === c.id) { b.primaryContact = null; touch(b); } reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Undid link: ${fullName(c)} → ${b.name}`; if (await changed()) toast('Link removed'); break; }
     case 'primin-fix': { const c = D.contacts.find((x) => x.id === d.cid); if (!c) break; c.tags = c.tags.filter((t2) => t2 !== 'pa'); if (!c.tags.includes('pi')) c.tags.push('pi'); touch(c); NEXT_LOG_LABEL = `${fullName(c)}: Primary (active) → Primary (inactive)`; if (await changed()) toast('✓ Changed to Primary (inactive)'); break; }
     case 'link-pick-past': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b || c.links.some((l) => l.bid === b.id)) break; const prev = catOf(c);
-      c.links.push({ bid: b.id, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name} as a past employee`; if (await changed()) toast(`✓ ${fullName(c)} linked to ${b.name} (past)`); break; }
+      const role = await askLinkRole(c, b, true); if (role === null) { toast('Not linked — nothing was changed'); break; }
+      c.links.push(role ? { bid: b.id, past: true, role } : { bid: b.id, past: true }); reindex(); if (prev) setOne(c, prev); touch(c); NEXT_LOG_LABEL = `Linked ${fullName(c)} to ${b.name} as a past ${role ? role.toLowerCase() : 'employee'}`; if (await changed()) toast(`✓ ${fullName(c)} linked to ${b.name} (past)`); break; }
     case 'link-past': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b) break; const prev = catOf(c);
       c.links = c.links.map((l) => (l.bid === b.id ? (d.v === '1' ? { bid: b.id, past: true } : { bid: b.id }) : l)); if (d.v === '1' && b.primaryContact === c.id) { b.primaryContact = null; touch(b); }
       reindex(); if (prev) setOne(c, prev); touch(c); // their category stays as it was
@@ -3582,7 +3598,7 @@ document.addEventListener('change', async (e) => {
 function net() { const n = $('#net'); n.textContent = navigator.onLine ? 'Online' : 'Offline'; n.className = 'pill' + (navigator.onLine ? '' : ' off'); }
 window.addEventListener('online', net); window.addEventListener('offline', net);
 window.addEventListener('popstate', () => {
-  if (NAV.ignorePop) { NAV.ignorePop--; return; }
+  if (NAV.ignorePop) { NAV.ignorePop--; if (!NAV.ignorePop) flushPush(); return; }
   if (CONFIRM) { closeAsk(false, true); return; } // phone Back closes a confirm pop-up first
   if (SHEET) { leaveSheet(true); return; } // back closes an open edit screen first (asks if there are unsaved changes)
   navRestore();
