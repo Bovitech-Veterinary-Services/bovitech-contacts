@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '12.3 (18 Oct 2026)';
+const APP_VERSION = '12.4 (18 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1301,8 +1301,8 @@ function biosecBanner(txt, from) { return (txt || '').trim() ? `<div class="fbio
 function farmBiosecOf(f) { /* the farm's own note plus any from the businesses using it */ const out = []; if ((f.biosec || '').trim()) out.push({ txt: f.biosec, from: '' }); farmUsersOf(f.id).filter((u) => !u.past && (u.b.biosec || '').trim()).forEach((u) => out.push({ txt: u.b.biosec, from: u.b.name })); return out; }
 function farmCard(b, f, withFlags = true, past = false) {
   const verify = f.kmStatus === 'needs-verify'; const pt = pinT(f.pinType); const sf = f.safety || {};
-  const users = farmUsersOf(f.id).filter((u) => u.b !== b); const owner = f.owner && (f.owner.bid ? IDX.biz.get(f.owner.bid) : null);
-  const ownerTxt = owner ? (owner === b ? '' : owner.name) : (f.owner && f.owner.text) || '';
+  const users = farmUsersOf(f.id).filter((u) => u.b !== b); const fo = farmOwner(f); const owner = fo.b || null;
+  const ownerTxt = ownedBy(f, b) && !fo.c ? '' : fo.name || (f.owner && f.owner.unknown ? 'unknown owner' : '');
   const nav = f.lat != null || (f.turn && f.turn.lat != null);
   return `<div class="farm ${f.seeWarning || sf.status === 'stop' ? 'red' : sf.status === 'caution' ? 'amber' : ''} ${past ? 'pastfarm' : ''}"><div class="fn"><span class="pinemo" title="${h(pt.name)}">${pt.emoji}</span> ${f.seeWarning ? '⚠ ' : ''}${h(f.name || pt.name)}${past ? ' <span class="pill" style="background:var(--line);color:var(--ink2)">Not current</span>' : ''}</div>
   ${f.address ? `<div>${h(f.address)}</div>` : ''}
@@ -1319,7 +1319,7 @@ function farmCard(b, f, withFlags = true, past = false) {
   ${f.info ? `<div class="body" style="margin-top:4px;font-size:14.5px">${h(f.info)}</div>` : ''}
   ${farmPhotosHtml(f, true)}${!past ? svAsk(f) : ''}
   ${withFlags ? flagLines('business', b.id, f.id) : ''}
-  <div class="actions" style="margin:8px 0 0">${nav ? `<a class="btn small" href="${gmapsNav(farmRoutePt(f))}" target="_blank" rel="noopener">🧭 Navigate${f.turn && f.turn.lat != null ? ' to turn-off' : ''}</a>` : ''}${f.turn && f.turn.lat != null && f.lat != null ? `<a class="btn small" href="${gmapsNav(f)}" target="_blank" rel="noopener">${pt.emoji} To the yards</a>` : ''}${(f.lat != null || (f.turn && f.turn.lat != null)) && !past ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">➕ Add to route</button>` : ''}<button class="btn small secedit" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}" title="Edit">✏️</button><button class="btn small" data-act="farm-past" data-bid="${b.id}" data-fid="${f.id}">${past ? 'Make current' : 'Make not current'}</button></div></div>`;
+  <div class="actions" style="margin:8px 0 0">${nav ? `<a class="btn small" href="${gmapsNav(farmRoutePt(f))}" target="_blank" rel="noopener">🧭 Navigate${f.turn && f.turn.lat != null ? ' to turn-off' : ''}</a>` : ''}${f.turn && f.turn.lat != null && f.lat != null ? `<a class="btn small" href="${gmapsNav(f)}" target="_blank" rel="noopener">${pt.emoji} To the yards</a>` : ''}${(f.lat != null || (f.turn && f.turn.lat != null)) && !past ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">➕ Add to route</button>` : ''}<button class="btn small secedit" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}" title="Edit">✏️</button><button class="btn small" data-act="farm-past" data-bid="${b.id}" data-fid="${f.id}">${past ? 'Make current' : 'Make not current'}</button><button class="btn small" data-act="farm-own" data-bid="${b.id}" data-fid="${f.id}">${ownedBy(f, b) ? 'Make not owned' : 'Make owned'}</button></div></div>`;
 }
 function svAsk(f) { /* "is this Street View photo useful?" — only when there's a key, a pin and no photo yet */
   if (!Maps.key() || f.svNo || (f.photos || []).length || (f.lat == null && !(f.turn && f.turn.lat != null))) return '';
@@ -1361,10 +1361,10 @@ function bizDetail(b) {
   mark('routes');
   { const rh = bizRoutesHtml(b, false); if (rh) html += `<div class="card"><h3>Saved routes</h3>${rh}</div>`; }
   mark('farms');
-  html += `<div class="card"><h3><span class="sp">${locWord(b, true)}</span><button class="btn small" data-act="add-farm" data-bid="${b.id}">➕ New</button></h3>${b.farms.filter((f) => !(f.owner && f.owner.bid && f.owner.bid !== b.id && IDX.biz.get(f.owner.bid))).map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} owned by this business.</div>`}
+  html += `<div class="card"><h3><span class="sp">${locWord(b, true)}</span><button class="btn small" data-act="add-farm" data-bid="${b.id}">➕ New</button></h3>${b.farms.filter((f) => ownedBy(f, b)).map((f) => farmCard(b, f)).join('') || `<div class="hint">No ${locWord(b, true).toLowerCase()} owned by this business.</div>`}
     <input id="farm-linksearch" data-bid="${b.id}" placeholder="➕ Link an existing farm or yards (e.g. a lease block) — search name, address or business" style="margin-top:8px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px"><div id="farm-linkres"></div></div>`;
   mark('farmsused');
-  { const used = b.farms.filter((f) => f.owner && f.owner.bid && f.owner.bid !== b.id && IDX.biz.get(f.owner.bid)); if (used.length) html += `<div class="card"><h3>${locWord(b, true)} used but not owned by this business (${used.length})</h3><div class="hint" style="margin-bottom:4px">Shared yards — the owner's details show here, and any change applies to every business that uses them.</div>${used.map((f) => farmCard(b, f)).join('')}</div>`; }
+  { const used = b.farms.filter((f) => !ownedBy(f, b)); if (used.length) html += `<div class="card"><h3>${locWord(b, true)} used but not owned by this business (${used.length})</h3><div class="hint" style="margin-bottom:4px">Shared yards — the owner's details show here, and any change applies to every business that uses them.</div>${used.map((f) => farmCard(b, f)).join('')}</div>`; }
   mark('farmspast');
   if (b.pastFarms.length) html += `<details class="card"><summary><h3 style="display:inline">Not current ${locWord(b, true).toLowerCase()} (${b.pastFarms.length})</h3></summary><div class="hint" style="margin:6px 0">Farms this business used to use (e.g. a block they sold or no longer lease).</div>${b.pastFarms.map((f) => farmCard(b, f, false, true)).join('')}</details>`;
   customSecs('business').forEach((cs) => { mark('cs:' + cs.id); html += customCard(b, cs, 'business'); });
@@ -1560,7 +1560,7 @@ function layoutCard() { const K = S.layK || 'contact'; const keys = layoutKeys(K
   <div class="actions" style="margin-top:6px"><button class="btn small" data-act="lay-reset">↺ Back to the standard layout</button></div>
   <div class="lbl" style="margin-top:14px;display:flex;align-items:center"><span style="flex:1">Your own sections</span><button class="btn small" data-act="cs-add">➕ Add a section</button></div>
   ${css.length ? css.map((x) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${sw(x.color)} ${x.emoji ? x.emoji + ' ' : ''}<b>${h(x.name)}</b> <span class="hint">— ${x.for === 'both' ? 'contacts and businesses' : x.for === 'business' ? 'businesses' : 'contacts'}${x.rich ? ' · formatting on' : ''}</span></div><button class="btn small" data-act="cs-edit" data-id="${x.id}">Edit</button><button class="btn small" data-act="cs-del" data-id="${x.id}" title="Delete">✕</button></div>`).join('') : '<div class="hint">None yet — e.g. "Dog names", "Gate codes", "Preferred days".</div>'}</div>`; }
-const emojiField = (v) => `<div class="f"><span class="lbl">Symbol <span class="hint">(optional)</span></span><div style="display:flex;gap:8px;align-items:center"><input data-ask="emoji" id="pt-emoji" value="${h(v || '')}" style="width:70px;font-size:26px;padding:4px;text-align:center;border:1px solid var(--line);border-radius:9px"><input id="pt-search" placeholder="🔍 Search symbols" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"></div><div id="pt-grid" class="emogrid" style="max-height:150px">${emojiGrid('')}</div></div>`;
+const emojiField = (v) => `<div class="f" data-noicons><span class="lbl">Symbol <span class="hint">(optional)</span></span><div style="display:flex;gap:8px;align-items:center"><input data-ask="emoji" id="pt-emoji" value="${h(v || '')}" style="width:70px;font-size:26px;padding:4px;text-align:center;border:1px solid var(--line);border-radius:9px"><input id="pt-search" placeholder="🔍 Search symbols" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"></div><div id="pt-grid" class="emogrid" data-noicons style="max-height:150px">${emojiGrid('')}</div></div>`;
 async function secNameForm(K, k) { const si = secInfo(K, k); const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"'; const textBox = k === 'info';
   const r = await askBox('Edit section', `<div class="hint" style="margin-bottom:6px">Standard name: ${h((si.def.emoji ? si.def.emoji + ' ' : '') + si.def.name)}. The new name shows as the heading on every ${K} page.</div>
     <div class="f"><span class="lbl">Name</span><input data-ask="name" value="${h(si.name)}" ${inp}></div>${emojiField(si.emoji)}
@@ -1627,6 +1627,27 @@ async function boxForm(k) { const b = BOXES.find((x) => x.k === k); if (!b) retu
   const g = (n) => box.querySelector(`[data-ask="${n}"]`), c = (n) => box.querySelector(`[data-askchk="${n}"]`); const pv = $('#box-prev'); if (!pv) return; const el = pv.querySelector(b.sel.replace(/^\.card\./, '.card.')) || pv.firstElementChild;
   el.style.setProperty('background', g('bg').value, 'important'); el.style.setProperty('border', '2px solid ' + g('bd').value, 'important');
   [el, ...el.querySelectorAll('.body,h3,.v')].forEach((t) => { t.style.setProperty('color', g('fg').value, 'important'); t.style.setProperty('font-weight', c('bold').checked ? '800' : '400', 'important'); t.style.setProperty('font-style', c('italic').checked ? 'italic' : 'normal', 'important'); if (g('size').value) t.style.setProperty('font-size', g('size').value, 'important'); else t.style.removeProperty('font-size'); }); }));
+/* owner search box: businesses and contacts; a typed name that isn't picked is kept as text */
+function ownerPicker(id, cur) { const o = cur || {}; const nm = o.bid ? (IDX.biz.get(o.bid) || {}).name : o.cid ? fullName(D.contacts.find((x) => x.id === o.cid) || { first: '' }) : o.text || '';
+  return `<input id="${id}" class="ownerq" data-ask="owner" value="${h(nm || '')}" placeholder="🔍 Search businesses or contacts — or type a name" autocomplete="off"><input type="hidden" id="${id}-bid" data-ask="ownerBid" value="${h(o.bid || '')}"><input type="hidden" id="${id}-cid" data-ask="ownerCid" value="${h(o.cid || '')}"><div id="${id}-res"></div>`; }
+function ownerFrom(v, bid, cid) { v = (v || '').trim(); if (bid && IDX.biz.get(bid)) return { bid }; if (cid && D.contacts.some((x) => x.id === cid)) return { cid };
+  const ob = D.businesses.find((x) => x.name.trim().toLowerCase() === v.toLowerCase()); if (ob) return { bid: ob.id }; return v ? { text: v } : { unknown: true }; }
+function readOwner(id) { const el = $('#' + id); if (!el) return null; return ownerFrom(el.value, ($('#' + id + '-bid') || {}).value, ($('#' + id + '-cid') || {}).value); }
+document.addEventListener('input', (e) => { const t = e.target; if (!t.classList || !t.classList.contains('ownerq')) return; ['bid', 'cid'].forEach((k) => { const x = $('#' + t.id + '-' + k); if (x) x.value = ''; }); const box = $('#' + t.id + '-res'); const pq = parseQuery(t.value); if (!box) return;
+  if (!pq.inc.length) { box.innerHTML = ''; return; } const bs = D.businesses.filter((b) => matchQ(b.name.toLowerCase(), pq)).slice(0, 6), cs = D.contacts.filter((c) => matchQ(nameHay(c), pq)).slice(0, 6);
+  box.innerHTML = `<div class="results">${bs.map((b) => `<div data-act="owner-pick" data-for="${t.id}" data-bid="${b.id}">🏢 <b>${h(b.name)}</b></div>`).join('')}${cs.map((c) => `<div data-act="owner-pick" data-for="${t.id}" data-cid="${c.id}">👤 <b>${h(fullName(c))}</b> <span class="hint">${h(bizOf(c).map((x) => x.name).join(', '))}</span></div>`).join('')}<div class="hint" style="padding:6px 8px">Not listed? Keep the typed name.</div></div>`; });
+/* ---------------- symbols used on buttons (Settings → Symbols), all devices ---------------- */
+const ICON_DEFS = [['edit', '✏️', 'Edit'], ['add', '➕', 'Add'], ['remove', '✕', 'Remove from a list'], ['delete', '🗑', 'Delete / remove info'], ['call', '📞', 'Phone call'], ['sms', '🅢🅜🅢', 'Text message'], ['email', '📧', 'Email'],
+  ['nav', '🧭', 'Navigate'], ['map', '🗺', 'Map'], ['fav', '★', 'Favourite'], ['ai', '🤖', 'Ask Claude'], ['dna', '☠️', 'Do not answer'], ['search', '🔍', 'Search']];
+function iconChanges() { const st = (typeof D !== 'undefined' && D && D.settings && D.settings.icons) || {}; return ICON_DEFS.filter(([k, d]) => st[k] && st[k] !== d).map(([k, d]) => [d, st[k]]); }
+const ICON_SEL = 'button, a.btn, .dnabanner, .star, .group-h, .results > div, .hint, label, summary';
+function fixIcons(root) { const ch = iconChanges(); if (!ch.length || !root || root.nodeType !== 1) return;
+  const els = [...(root.matches && root.matches(ICON_SEL) ? [root] : []), ...root.querySelectorAll(ICON_SEL)];
+  els.forEach((el) => { if (el.closest('[data-noicons]')) return; const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode())) { let t = n.data, t0 = t; ch.forEach(([a, b]) => { if (t.includes(a)) t = t.split(a).join(b); }); if (t !== t0) n.data = t; } });
+  root.querySelectorAll && root.querySelectorAll('input[placeholder]').forEach((i) => { if (i.closest('[data-noicons]')) return; let t = i.placeholder, t0 = t; ch.forEach(([a, b]) => { if (t.includes(a)) t = t.split(a).join(b); }); if (t !== t0) i.placeholder = t; }); }
+new MutationObserver((ms) => { if (!iconChanges().length) return; ms.forEach((m) => m.addedNodes.forEach((n) => fixIcons(n))); }).observe(document.documentElement, { childList: true, subtree: true });
+function iconCard() { const st = D.settings.icons || {}; return `<div class="card"><h3><span class="sp">Symbols</span></h3><div data-noicons><div class="hint" style="margin-bottom:8px">The symbols used on buttons throughout the app. Change one and it changes everywhere, on every device.</div>
+  ${ICON_DEFS.map(([k, d, l]) => `<div class="kv" style="align-items:center"><span style="font-size:22px;width:44px;text-align:center">${h(st[k] || d)}</span><div class="v" style="flex:1">${h(l)}${st[k] && st[k] !== d ? ` <span class="hint">· standard ${h(d)}</span>` : ''}</div><button class="btn small" data-act="icon-edit" data-k="${k}">Change</button></div>`).join('')}</div></div>`; }
 const LIST_GET = { inactiveReasons: () => inactiveReasons(), linkRoles: () => linkRoles() };
 function roleOptions() { const L = linkRoles(); const used = [...new Set(D.contacts.flatMap((c) => c.links.map((l) => l.role).filter(Boolean)))].filter((r) => !L.includes(r)).sort((a, b) => a.localeCompare(b)); return [...L, ...used].slice(0, 80); } /* your list first (Settings → Roles), then others already in use */
 function roleSelect(role) { const opts = roleOptions(); const custom = role && !opts.includes(role); return `<select class="lk-rolesel" style="flex-basis:100%;margin-top:4px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:14.5px"><option value="">Role here — none</option>${opts.map((o) => `<option value="${h(o)}" ${o === role ? 'selected' : ''}>${h(o)}</option>`).join('')}<option value="__custom" ${custom ? 'selected' : ''}>✏️ Custom role…</option></select>`; }
@@ -1730,7 +1751,7 @@ function editFarm(b, f) {
   f = f || newFarm({ owner: { bid: b.id } });
   const startGps = f.lat != null ? `${f.lat}, ${f.lng}` : ''; const startTurn = f.turn && f.turn.lat != null ? `${f.turn.lat}, ${f.turn.lng}` : '';
   const fac = f.fac || {}, sf = f.safety || {}, acc = f.access || {}, rc = f.reception || {};
-  const users = farmUsersOf(f.id); const owner = f.owner && f.owner.bid ? IDX.biz.get(f.owner.bid) : null;
+  const users = farmUsersOf(f.id); const fo0 = farmOwner(f); const owner = fo0.b || null;
   const sel = (id, opts, v) => `<select id="${id}">${opts.map(([k, l]) => `<option value="${h(k)}" ${(v || '') === k ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>`;
   const body = `<div class="grid2"><div class="f"><label>${locWord(b)} name</label><input id="e-fname" value="${h(f.name)}" placeholder='e.g. "Jarrahvale" cattle yards'></div>
     <div class="f"><label>Type of pin</label><select id="e-ftype">${pinTypes().map((t) => `<option value="${h(t.id)}" ${f.pinType === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select></div></div>
@@ -1752,7 +1773,7 @@ function editFarm(b, f) {
   <details class="fsec" ${rc.status ? 'open' : ''}><summary>📶 Mobile reception</summary><div class="grid2"><div class="f"><label>Reception at the yards</label>${sel('e-frec', Object.entries(RECEPTION), rc.status)}</div><div class="f"><label>Note</label><input id="e-frecnote" value="${h(rc.note || '')}" placeholder="e.g. Telstra only on the hill · UHF ch 18"></div></div>
     <div class="actions"><button type="button" class="btn small" data-act="rec-here">📶 I'm at the yards — check reception now</button><a class="btn small" href="https://www.telstra.com.au/coverage-networks/our-coverage" target="_blank" rel="noopener">Telstra coverage map</a></div><div id="e-rechint" class="hint">${rc.at ? `Last recorded ${new Date(rc.at).toLocaleDateString('en-AU')}${rc.by ? ' by ' + h(rc.by) : ''}.` : ''}</div></details>
   <details class="fsec" ${(f.biosec || '').trim() ? 'open' : ''}><summary>🦠 Biosecurity</summary><div class="f"><textarea id="e-fbio" class="biosec" placeholder="e.g. Come clean — wash down boots and vehicle · Sign in at the office">${h(f.biosec || '')}</textarea><div class="hint">Business-wide biosecurity (e.g. footrot in the flock) goes on the business and shows here too.</div></div></details>
-  <details class="fsec"><summary>🏷 Owner & who uses it</summary><div class="f"><label>Who owns these yards</label><input id="e-fowner" list="e-fownerlist" value="${h(owner ? owner.name : (f.owner && f.owner.text) || '')}" placeholder="Business or person"><datalist id="e-fownerlist">${D.businesses.map((x) => `<option value="${h(x.name)}">`).join('')}</datalist><div class="hint">Change this if the yards are sold. Pick a business from the list, or type any name.</div></div>
+  <details class="fsec"><summary>🏷 Owner & who uses it</summary><div class="f"><label>Who owns these yards</label>${ownerPicker('e-fowner', f.owner)}<div class="hint">Change this if the yards are sold. Search businesses and contacts and tap one, or just type a name.</div></div>
     <div class="hint">${users.length ? 'Used by: ' + h(users.map((u) => u.b.name + (u.past ? ' (not current)' : '')).join(', ')) : 'Not linked to a business yet.'} — link or unlink it from each business's page.</div></details>
   <details class="fsec" ${(f.photos || []).length ? 'open' : ''}><summary>📷 Photos</summary><div id="e-fphotos">${farmPhotoEdit(f)}</div>
     <div class="actions"><button type="button" class="btn small" data-act="sv-find">📷 Find a Street View photo</button><label class="btn small" style="cursor:pointer">＋ Add a photo<input type="file" id="e-fphotofile" accept="image/*" style="display:none"></label></div><div id="e-svprev"></div></details>
@@ -1775,9 +1796,9 @@ function editFarm(b, f) {
     const nfac = {}; FAC_FIELDS.forEach(([k]) => { const v = $('#e-fac-' + k).value; if (v) nfac[k] = v; }); FAC_TICKS.forEach(([k]) => { if ($('#e-fac-' + k).checked) nfac[k] = true; });
     const st = $('#e-fsafe').value, sn = val('e-fsafenote'); const nsf = st === 'ok' && !sn ? null : { status: st, note: sn, date: st === sf.status && sn === (sf.note || '') ? sf.date : new Date().toLocaleDateString('en-AU'), by: st === sf.status && sn === (sf.note || '') ? sf.by : devInfo().nick };
     const recS = $('#e-frec').value, recN = val('e-frecnote'); const nrc = recS || recN ? { ...rc, status: recS, note: recN, ...(recS !== (rc.status || '') ? { at: Date.now(), by: devInfo().nick } : {}) } : null;
-    const ow = val('e-fowner'); const ob = D.businesses.find((x) => x.name.trim().toLowerCase() === ow.toLowerCase());
+    const ownerV = readOwner('e-fowner');
     Object.assign(f, { name: val('e-fname'), pinType: $('#e-ftype').value, address: val('e-faddr'), info: $('#e-finfo').value.trim(), seeWarning: $('#e-fwarn').checked, warning: $('#e-fwarn').checked ? $('#e-fwarntext').value.trim() : '', kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn,
-      access: val('e-facc') || $('#e-fwet').value ? { notes: val('e-facc'), wet: $('#e-fwet').value } : null, fac: Object.keys(nfac).length ? nfac : null, safety: nsf, extra: xs, reception: nrc, biosec: $('#e-fbio').value.trim(), owner: ob ? { bid: ob.id } : ow ? { text: ow } : null, photos: SHEET_FARM.photos });
+      access: val('e-facc') || $('#e-fwet').value ? { notes: val('e-facc'), wet: $('#e-fwet').value } : null, fac: Object.keys(nfac).length ? nfac : null, safety: nsf, extra: xs, reception: nrc, biosec: $('#e-fbio').value.trim(), owner: ownerV, photos: SHEET_FARM.photos });
     Object.keys(f).forEach((k) => { if (f[k] === null && ['access', 'fac', 'safety', 'reception', 'owner'].includes(k)) delete f[k]; if (['biosec', 'extra', 'photos'].includes(k) && (f[k] === '' || (Array.isArray(f[k]) && !f[k].length))) delete f[k]; });
     if (!f.warning && f.warning !== undefined && !orig.warning) delete f.warning;
     if (g) { f.lat = g.lat; f.lng = g.lng; } else { f.lat = f.lng = null; }
@@ -1891,6 +1912,9 @@ function endpoint(e) {
   if (e.type === 'none') return null;
   return { ...D.settings.home, label: D.settings.home.label };
 }
+function farmOwner(f) { /* {name, b, c} — the owner can be a business, a contact, or just a typed name */ const o = f.owner || {};
+  if (o.bid) { const b = IDX.biz.get(o.bid); if (b) return { name: b.name, b }; } if (o.cid) { const c = D.contacts.find((x) => x.id === o.cid); if (c) return { name: fullName(c), c }; } return { name: o.text || '' }; }
+function ownedBy(f, b) { const o = f.owner; if (!o || (!o.bid && !o.cid && !o.text && !o.unknown)) return true; if (o.bid) return o.bid === b.id || !IDX.biz.get(o.bid); if (o.cid) { const c = D.contacts.find((x) => x.id === o.cid); return !!c && curLinks(c).some((l) => l.bid === b.id); } return false; }
 function farmLabel(f) { const b = IDX.farmBiz && IDX.farmBiz.get(f.id); return (b ? b.name : (f.owner && f.owner.text) || '') + (f.name ? (b || (f.owner && f.owner.text) ? ' — ' : '') + f.name : b ? '' : f.address || 'Farm'); }
 const locStr = (p) => (p.lat != null ? `${p.lat},${p.lng}` : p.text);
 function routeUrl(start, end, stops) {
@@ -2343,6 +2367,7 @@ function renderSettings() {
     <div class="kv" style="align-items:center"><span style="font-size:22px;width:34px">${turnPin().emoji}</span><div class="v">${h(turnName())} <span class="hint">· from the road · built in · ${D.farms.filter((f) => f.turn && f.turn.lat != null).length} pins</span></div><button class="btn small" data-act="turnpin-edit" title="Change the name or symbol">Edit</button></div></div>
   ${layoutCard()}
   ${boxCard()}
+  ${iconCard()}
   ${listCard('inactiveReasons', 'Reasons for inactivating', inactiveReasons(), 'Tap-to-fill choices when someone is made Inactive. Use the arrows to change the order.')}
   ${listCard('linkRoles', 'Roles', linkRoles(), 'Quick choices for someone\'s role at a business (when linking, and in Edit contact). Roles already in use that aren\'t here still appear after these.')}
   <div class="card"><h3>Location types</h3><div class="hint" style="margin-bottom:6px">Choose whether each pin type counts as a yard location or a non-farm location. This decides which toggle it shows under in ${h(lab('loc'))} and Search. Applies on every device.</div>
@@ -3849,6 +3874,12 @@ document.addEventListener('click', async (e) => {
     case 'sv-yes': { const f = IDX.farms.get(d.fid); if (!f) break; f.photos = [...(f.photos || []), { id: uid('ph'), kind: 'sv', lat: +d.lat, lng: +d.lng, radius: +d.r, at: Date.now(), by: devInfo().nick }]; touch(f); NEXT_LOG_LABEL = 'Street View photo added for ' + farmLabel(f); if (await changed()) toast('📷 Photo kept'); break; }
     case 'sv-no': { const f = IDX.farms.get(d.fid); if (!f) break; f.svNo = true; touch(f); NEXT_LOG_LABEL = 'Street View photo not useful for ' + farmLabel(f); await changed(); break; }
     case 'rec-here': recHere(); break;
+    case 'owner-pick': { const el = $('#' + d.for); if (!el) break; $('#' + d.for + '-bid').value = d.bid || ''; $('#' + d.for + '-cid').value = d.cid || ''; el.value = d.bid ? IDX.biz.get(d.bid).name : fullName(D.contacts.find((x) => x.id === d.cid)); const r = $('#' + d.for + '-res'); if (r) r.innerHTML = ''; break; }
+    case 'farm-own': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break;
+      if (ownedBy(f, b)) { const r = await askBox('Not owned by ' + b.name, `<p><b>${h(farmLabel(f))}</b> stays linked to ${h(b.name)}, but moves to "used but not owned".</p><div class="f"><span class="lbl">Who owns it? <span class="hint">(optional)</span></span>${ownerPicker('ask-owner', null)}</div>`, 'Save', false, 'Cancel'); if (!r) break;
+        const o = ownerFrom(ASK_FORM.owner, ASK_FORM.ownerBid, ASK_FORM.ownerCid); if (o.bid === b.id) { toast('That\'s this business — choose the owner or leave it blank'); break; } if (!(await sharedYardOk(f))) break; f.owner = o; }
+      else { if (!(await sharedYardOk(f))) break; f.owner = { bid: b.id }; }
+      touch(f); NEXT_LOG_LABEL = `${farmLabel(f)}: ${ownedBy(f, b) ? 'owned by ' + b.name : 'owner ' + (farmOwner(f).name || 'unknown')}`; if (await changed()) toast('Saved'); break; }
     case 'farm-past': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const l = b.farmLinks.find((x) => x.fid === f.id); if (!l) break; const toPast = !l.past; linkFarm(b, f, toPast); NEXT_LOG_LABEL = `${farmLabel(f)} ${toPast ? 'no longer current' : 'current again'} for ${b.name}`; if (await changed()) toast(toPast ? 'Moved to "Not current"' : 'Current again'); break; }
     case 'farm-link-pick': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const r = await askBox('Link farm', `<p>Link <b>${h(farmLabel(f))}</b> to <b>${h(b.name)}</b>?</p><p class="hint">It becomes a shared farm — any change to it shows for every business that uses it.</p>`, 'Link as current', false, 'Cancel', 'Link as not current'); if (!r) break; linkFarm(b, f, r === 'alt'); NEXT_LOG_LABEL = `Linked ${farmLabel(f)} to ${b.name}${r === 'alt' ? ' (not current)' : ''}`; S.skipConfirm = true; if (await changed()) toast('Farm linked'); break; }
     case 'edit-farm': { const f = IDX.farms.get(d.fid); if (f && !(await sharedYardOk(f))) break; editFarm(IDX.biz.get(d.bid), f); break; }
@@ -4040,6 +4071,10 @@ document.addEventListener('click', async (e) => {
       D.settings.layout = lay; D.settings.layoutHide = hide; touch(D.settings); NEXT_LOG_LABEL = 'Page layout changed (' + K + ' page)'; S.skipConfirm = true; await changed(); break; }
     case 'gacct-edit': { const r = await askBox('Practice Google account', `<div class="hint" style="margin-bottom:6px">Every device signs in with this one Google account — it holds the shared data file in Google Drive and the Google Contacts. If a device signs in with a different account, the app refuses it and asks again.</div><input data-ask="v" type="email" value="${h(practiceAccount())}" style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"><div class="hint" style="margin-top:6px">⚠ Only change this if the practice is moving to a different Google account — the shared data file has to be in the new account's Google Drive.</div>`, 'Save', true, 'Cancel');
       const v = (ASK_FORM.v || '').trim().toLowerCase(); if (!r || !v || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) break; D.settings.gAccount = v; touch(D.settings); NEXT_LOG_LABEL = 'Practice Google account set to ' + v; S.skipConfirm = true; await changed(); break; }
+    case 'icon-edit': { const def = ICON_DEFS.find((x) => x[0] === d.k); if (!def) break; const cur = (D.settings.icons || {})[d.k] || def[1];
+      const r = await askBox('Symbol for ' + def[2], `<div class="hint" style="margin-bottom:6px">Standard: <span style="font-size:20px">${h(def[1])}</span></div>${emojiField(cur)}`, 'Save', false, 'Cancel', 'Back to standard');
+      if (!r) break; const all = { ...(D.settings.icons || {}) }; const v = (ASK_FORM.emoji || '').trim(); if (r === 'alt' || !v || v === def[1]) delete all[d.k]; else all[d.k] = v;
+      D.settings.icons = all; touch(D.settings); NEXT_LOG_LABEL = `Symbol for ${def[2]}: ${all[d.k] || def[1]}`; S.skipConfirm = true; await changed(); break; }
     case 'box-edit': await boxForm(d.k); break;
     case 'sec-edit': await secNameForm(S.layK || 'contact', d.k); break;
     case 'cs-add': case 'cs-edit': { const list = [...(D.settings.customSecs || [])]; const i = list.findIndex((x) => x.id === d.id); const v = await customSecForm(i >= 0 ? list[i] : null); if (!v) break;
@@ -4056,14 +4091,14 @@ document.addEventListener('click', async (e) => {
       const r = await askBox('Edit the turn-off pin', `<div class="hint" style="margin-bottom:6px">The pin where you leave the road (farm gate or track). Change what it's called and its symbol — it updates everywhere, on every device.</div>
         <div class="f"><span class="lbl">Name</span><input data-ask="name" value="${h(cur.name)}" placeholder="Turn-off" ${inp}></div>
         <div class="f"><span class="lbl">Symbol</span><div style="display:flex;gap:8px;align-items:center"><input data-ask="emoji" id="pt-emoji" value="${h(cur.emoji)}" style="width:70px;font-size:26px;padding:4px;text-align:center;border:1px solid var(--line);border-radius:9px"><input id="pt-search" placeholder="🔍 Search symbols — e.g. gate, flag, road, sign" ${inp}></div>
-        <div id="pt-grid" class="emogrid">${emojiGrid('')}</div></div>`, 'Save', false, 'Cancel', 'Back to standard (🚩 Turn-off)');
+        <div id="pt-grid" class="emogrid" data-noicons>${emojiGrid('')}</div></div>`, 'Save', false, 'Cancel', 'Back to standard (🚩 Turn-off)');
       if (!r) break; if (r === 'alt') delete D.settings.turnPin; else { const name = (ASK_FORM.name || '').trim() || 'Turn-off', emoji = (ASK_FORM.emoji || '').trim() || '🚩'; D.settings.turnPin = { name, emoji }; }
       touch(D.settings); NEXT_LOG_LABEL = 'Turn-off pin changed to ' + turnPin().emoji + ' ' + turnName(); S.skipConfirm = true; if (await changed()) { if (FMAP) drawMapPins(); toast('Saved'); } break; }
     case 'pintype-add': case 'pintype-edit': { const cur = a === 'pintype-edit' ? pinT(d.id) : { id: '', name: '', emoji: '📍', yard: false };
       const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
       const r = await askBox(a === 'pintype-add' ? 'New pin type' : 'Edit pin type', `<div class="f"><span class="lbl">Name</span><input data-ask="name" value="${h(cur.name)}" placeholder="e.g. Calf shed" ${inp}></div>
         <div class="f"><span class="lbl">Symbol</span><div style="display:flex;gap:8px;align-items:center"><input data-ask="emoji" id="pt-emoji" value="${h(cur.emoji)}" style="width:70px;font-size:26px;padding:4px;text-align:center;border:1px solid var(--line);border-radius:9px"><input id="pt-search" placeholder="🔍 Search symbols — e.g. pig, truck, water, gate" ${inp}></div>
-        <div id="pt-grid" class="emogrid">${emojiGrid('')}</div>
+        <div id="pt-grid" class="emogrid" data-noicons>${emojiGrid('')}</div>
         <div class="hint">Tap a symbol to use it. Can't find one? Tap the symbol box and use your keyboard's emoji button (on Android the 😊 key, which has its own search; on Windows press the Windows key + full stop).</div></div>
         <label class="checks"><label><input type="checkbox" data-askchk="yard" ${cur.yard ? 'checked' : ''}> This is a type of yards (shows under "Yard pins" in ${h(lab('loc'))})</label></label>`, 'Save', false, 'Cancel');
       if (!r) break; const nm = (ASK_FORM.name || '').trim(), em = (ASK_FORM.emoji || '').trim() || '📍', yd = !!ASK_FORM.yard; if (!nm) { toast('Give the pin type a name'); break; }
@@ -4176,7 +4211,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'q') { S.q = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderContactList, 120); }
   else if (t.id === 'pf-search') { const b = IDX.biz.get(t.dataset.bid); if (b) $('#pf-res').innerHTML = primFindRes(b, t.value); }
   else if (t.id === 'farm-linksearch') { const pq = parseQuery(t.value); const b = IDX.biz.get(t.dataset.bid); const box = $('#farm-linkres'); if (!b) return;
-    const hay = (f) => [f.name, f.address, f.aka, ...farmUsersOf(f.id).map((u) => u.b.name), (f.owner && (f.owner.text || IDX.biz.get(f.owner.bid)?.name)) || ''].join(' ').toLowerCase();
+    const hay = (f) => [f.name, f.address, f.aka, ...farmUsersOf(f.id).map((u) => u.b.name), farmOwner(f).name].join(' ').toLowerCase();
     const res = pq.inc.length ? D.farms.filter((f) => !b.farmLinks.some((l) => l.fid === f.id) && matchQ(hay(f), pq)).slice(0, 12) : [];
     box.innerHTML = t.value.trim() ? `<div class="results">${res.map((f) => `<div data-act="farm-link-pick" data-bid="${b.id}" data-fid="${f.id}">${pinT(f.pinType).emoji} <b>${h(f.name || f.address || 'Farm')}</b> <span class="hint">${h(farmUsersOf(f.id).map((u) => u.b.name).join(', ') || 'not linked')}${f.address ? ' · ' + h(f.address) : ''}</span></div>`).join('') || '<div class="hint">No matching farms.</div>'}</div>` : ''; }
   else if (t.id === 'mg-search') { const isC = t.dataset.kind === 'contact'; const pq = parseQuery(t.value); const box = $('#mg-res');
