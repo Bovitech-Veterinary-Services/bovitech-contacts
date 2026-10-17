@@ -199,6 +199,7 @@ body.show-detail #detail{display:block}
 .job .who{font-weight:600}
 .job .note{font-size:14px;color:var(--ink2)}
 .job .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.subchips{margin-top:8px;padding-left:12px;border-left:3px solid var(--line)}
 .relsug{border-top:1px solid var(--line);padding:6px 0}.relsug:first-child{border-top:0}.relsug .acts{margin-top:4px}
 details.jobgroup>summary{list-style:none;cursor:pointer;padding:10px 12px;background:#efebe4;font-weight:700;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--line)}
 details.jobgroup>summary::-webkit-details-marker{display:none}
@@ -334,6 +335,9 @@ html[data-scheme] nav.tabs button.on{color:var(--acc)}
 @media(min-width:900px){html[data-theme=light][data-scheme] nav.tabs button.on{background:var(--acc-bg)}}
 .schsw{width:30px;height:30px;border-radius:50%;border:3px solid var(--card);box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}
 .schsw.on{box-shadow:0 0 0 3px var(--ink)}
+.draghandle{width:26px;flex:none;text-align:center;font-size:20px;line-height:1;color:var(--ink3);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;padding:6px 0}
+.dragrow.dragging{background:var(--yellow-bg);box-shadow:0 4px 14px rgba(0,0,0,.18);border-radius:8px;position:relative;z-index:2}
+body.dragging-on{user-select:none;-webkit-user-select:none;cursor:grabbing}
 </style>
 </head>
 <body>
