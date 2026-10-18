@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '13.0 (18 Oct 2026)';
+const APP_VERSION = '13.1 (18 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1193,7 +1193,7 @@ function pcRow(k, type, name, p) { return `<div class="card pc-row" data-k="${k}
 async function pinCheckSheet(f, opt = {}) {
   const t = f.turn || { lat: f.lat, lng: f.lng }; const needT = !!opt.needTurn && !f.turn; PC = { f, marks: new Map(), n: 0, adding: false, map: null };
   const rows = []; if (f.lat != null) rows.push(pcRow('m', f.pinType, f.name, f)); (f.extra || []).forEach((x) => rows.push(pcRow(x.id, x.type, x.name, x)));
-  openSheet('Check pins — ' + farmLabel(f), `<div class="hint" style="margin-bottom:6px">${needT ? `<b>Drag the ${turnPin().emoji} to where you leave the road</b> (it starts on the yards), or paste its GPS below.` : `Drag the ${turnPin().emoji} ${h(turnName().toLowerCase())} if it's not where you leave the road. Then tap <b>➕ Add yards pin</b> and tap the map where the yards are — add as many as this turn-off leads to, and choose what each one is.`}</div>
+  openSheet('Check pins — ' + farmLabel(f), `<div class="hint" style="margin-bottom:6px">${needT ? `<b>Drag the ${turnPin().emoji} (red ring) to where you leave the road</b> — it starts on top of the yards pin. Or paste its GPS below.` : `Drag the ${turnPin().emoji} ${h(turnName().toLowerCase())} if it's not where you leave the road. Then tap <b>➕ Add yards pin</b> and tap the map where the yards are — add as many as this turn-off leads to, and choose what each one is.`}</div>
     <div id="pc-map" style="height:340px;border-radius:10px;border:1px solid var(--line);background:#dcd8cf">${pinEmbed(t, 16).replace('height:220px', 'height:340px')}</div><div id="pc-hint" class="hint" style="margin-top:4px"></div>
     <div class="f" style="margin-top:8px"><label>${turnPin().emoji} ${h(turnName())} GPS</label><input id="pc-turn" value="${!needT && t.lat != null ? (+t.lat).toFixed(6) + ', ' + (+t.lng).toFixed(6) : ''}" placeholder="Drag the ${turnPin().emoji} on the map, or paste the GPS from Google Maps"></div>
     <div class="lbl" style="margin-top:8px">Yards and other pins at this turn-off</div><div id="pc-rows">${rows.join('')}</div>
@@ -1212,12 +1212,12 @@ async function pinCheckSheet(f, opt = {}) {
 }
 async function pcMapL(t) { /* same tap-to-place map, without Google's JavaScript API */ const el = $('#pc-map'); if (!el || !PC) return; el.classList.remove('gmap-live');
   const map = await satMap(el, t); PC.map = map; PC.leaflet = true; PC.marks.clear();
-  const icon = (emo, red) => L.divIcon({ className: 'pcpin', html: `<div style="width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid ${red ? '#d71f2b' : '#141414'};display:grid;place-items:center;font-size:17px">${emo}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
-  const mk = (k, p, emo) => { const m = L.marker([+p.lat, +p.lng], { draggable: true, icon: icon(emo, k === 'turn') }).addTo(map);
+  const icon = (emo, red) => { const z = red ? 38 : 30; return L.divIcon({ className: 'pcpin', html: `<div style="width:${z}px;height:${z}px;border-radius:50%;background:#fff;border:${red ? 3 : 2}px solid ${red ? '#d71f2b' : '#141414'};display:grid;place-items:center;font-size:${red ? 21 : 17}px;box-shadow:0 2px 6px rgba(0,0,0,.35)">${emo}</div>`, iconSize: [z, z], iconAnchor: [z / 2, z / 2] }); };
+  const mk = (k, p, emo) => { const m = L.marker([+p.lat, +p.lng], { draggable: true, icon: icon(emo, k === 'turn'), zIndexOffset: k === 'turn' ? 1000 : 0 }).addTo(map);
     m.on('dragend', () => { const ll = m.getLatLng(); const v = ll.lat.toFixed(6) + ', ' + ll.lng.toFixed(6); if (k === 'turn') $('#pc-turn').value = v; else { const r = document.querySelector(`#pc-rows .pc-row[data-k="${k}"] .pc-gps`); if (r) r.value = v; } });
     m.setMap = (x) => { if (!x) map.removeLayer(m); }; m.setLabel = (o) => m.setIcon(icon(o.text, k === 'turn')); m.setPosition = (o) => m.setLatLng([o.lat, o.lng]); PC.marks.set(k, m); return m; };
   mk('turn', t, turnPin().emoji); document.querySelectorAll('#pc-rows .pc-row').forEach((r) => { const g = parseGps(r.querySelector('.pc-gps').value); if (g) mk(r.dataset.k, g, pinT(r.querySelector('.pc-type').value).emoji); });
-  if (PC.marks.size > 1) map.fitBounds(L.latLngBounds([...PC.marks.values()].map((m) => m.getLatLng())), { padding: [40, 40] });
+  if (PC.marks.size > 1) { const bb = L.latLngBounds([...PC.marks.values()].map((m) => m.getLatLng())); if (bb.getNorthEast().distanceTo(bb.getSouthWest()) > 30) map.fitBounds(bb, { padding: [40, 40], maxZoom: 16 }); }
   map.on('click', (ev) => { if (!PC || !PC.adding) return; PC.adding = false; $('#pc-hint').textContent = ''; const k = 'n' + (++PC.n); const p = { lat: ev.latlng.lat, lng: ev.latlng.lng };
     $('#pc-rows').insertAdjacentHTML('beforeend', pcRow(k, 'cattle', '', p)); mk(k, p, pinT('cattle').emoji); }); PC.mk = mk; }
 async function pcMap(t) {
@@ -1226,11 +1226,11 @@ async function pcMap(t) {
   try { await loadScript(`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(Maps.key())}&v=weekly`); if (!window.google || !google.maps || !google.maps.Map) throw new Error('not loaded'); }
   catch (e) { delete SCRIPT_P[`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(Maps.key())}&v=weekly`]; MAPS_JS_BAD = true; try { await pcMapL(t); } catch (e2) { } return; }
   if (!PC || !$('#pc-map')) return; if (MAPS_JS_BAD) { pcMapL(t); return; } el.innerHTML = ''; el.classList.add('gmap-live'); el.addEventListener('gmfail', () => pcMapL(t), { once: true });
-  const map = new google.maps.Map(el, { center: { lat: t.lat, lng: t.lng }, zoom: 17, mapTypeId: 'hybrid', streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy', tilt: 0 }); PC.map = map;
-  const mk = (k, p, emo) => { const m = new google.maps.Marker({ position: { lat: +p.lat, lng: +p.lng }, map, draggable: true, label: { text: emo, fontSize: '20px' }, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 16, fillColor: '#fff', fillOpacity: 0.95, strokeColor: k === 'turn' ? '#d71f2b' : '#141414', strokeWeight: 2 } });
+  const map = new google.maps.Map(el, { center: { lat: t.lat, lng: t.lng }, zoom: 16, mapTypeId: 'hybrid', streetViewControl: false, fullscreenControl: false, gestureHandling: 'greedy', tilt: 0 }); PC.map = map;
+  const mk = (k, p, emo) => { const m = new google.maps.Marker({ position: { lat: +p.lat, lng: +p.lng }, map, draggable: true, label: { text: emo, fontSize: '20px' }, zIndex: k === 'turn' ? 1000 : 1, icon: { path: google.maps.SymbolPath.CIRCLE, scale: k === 'turn' ? 19 : 16, fillColor: '#fff', fillOpacity: 0.95, strokeColor: k === 'turn' ? '#d71f2b' : '#141414', strokeWeight: k === 'turn' ? 3 : 2 } });
     m.addListener('dragend', () => { const ll = m.getPosition(); const v = ll.lat().toFixed(6) + ', ' + ll.lng().toFixed(6); if (k === 'turn') $('#pc-turn').value = v; else { const r = document.querySelector(`#pc-rows .pc-row[data-k="${k}"] .pc-gps`); if (r) r.value = v; } }); PC.marks.set(k, m); return m; };
   mk('turn', t, turnPin().emoji); document.querySelectorAll('#pc-rows .pc-row').forEach((r) => { const g = parseGps(r.querySelector('.pc-gps').value); if (g) mk(r.dataset.k, g, pinT(r.querySelector('.pc-type').value).emoji); });
-  const bounds = new google.maps.LatLngBounds(); PC.marks.forEach((m) => bounds.extend(m.getPosition())); if (PC.marks.size > 1) map.fitBounds(bounds, 60);
+  const bounds = new google.maps.LatLngBounds(); PC.marks.forEach((m) => bounds.extend(m.getPosition())); const ne = bounds.getNorthEast(), sw = bounds.getSouthWest(); if (PC.marks.size > 1 && hav({ lat: ne.lat(), lng: ne.lng() }, { lat: sw.lat(), lng: sw.lng() }) > 0.03) { map.fitBounds(bounds, 60); google.maps.event.addListenerOnce(map, 'idle', () => { if (map.getZoom() > 17) map.setZoom(17); }); }
   map.addListener('click', (ev) => { if (!PC || !PC.adding) return; PC.adding = false; $('#pc-hint').textContent = ''; const k = 'n' + (++PC.n); const p = { lat: ev.latLng.lat(), lng: ev.latLng.lng() };
     $('#pc-rows').insertAdjacentHTML('beforeend', pcRow(k, 'cattle', '', p)); mk(k, p, pinT('cattle').emoji); });
   PC.mk = mk;
@@ -3459,7 +3459,7 @@ async function pinSearch() {
 }
 let MAPS_JS_BAD = false; // set when Google rejects the Maps JavaScript API for this key (not switched on, or not allowed for this website)
 window.gm_authFailure = () => { MAPS_JS_BAD = true; document.querySelectorAll('.gmap-live').forEach((el) => el.dispatchEvent(new Event('gmfail'))); };
-async function satMap(el, center, zoom = 16) { await loadLeaflet(); el.innerHTML = ''; const m = L.map(el, { zoomControl: true }).setView([center.lat, center.lng], zoom);
+async function satMap(el, center, zoom = 15) { await loadLeaflet(); el.innerHTML = ''; const m = L.map(el, { zoomControl: true }).setView([center.lat, center.lng], zoom);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 16, attribution: 'Imagery © Esri' }).addTo(m);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 16 }).addTo(m); setTimeout(() => m.invalidateSize(), 50); return m; }
 async function liveMoveMap(box, p, onMove) { /* draggable pin; tap the map to move it there */
@@ -3468,7 +3468,7 @@ async function liveMoveMap(box, p, onMove) { /* draggable pin; tap the map to mo
   if (MAPS_JS_BAD || !Maps.key()) return leaflet(); const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(Maps.key())}&v=weekly`;
   try { await loadScript(src); if (!window.google || !google.maps || !google.maps.Map) throw new Error('no maps'); } catch (e) { delete SCRIPT_P[src]; MAPS_JS_BAD = true; return leaflet(); }
   if (MAPS_JS_BAD) return leaflet(); box.innerHTML = '<div style="width:100%;height:300px;border-radius:9px"></div>'; box.classList.add('gmap-live'); box.addEventListener('gmfail', () => leaflet(), { once: true });
-  const map = new google.maps.Map(box.firstChild, { center: { lat: p.lat, lng: p.lng }, zoom: 17, mapTypeId: 'hybrid', streetViewControl: false, fullscreenControl: true, gestureHandling: 'greedy', tilt: 0 });
+  const map = new google.maps.Map(box.firstChild, { center: { lat: p.lat, lng: p.lng }, zoom: 16, mapTypeId: 'hybrid', streetViewControl: false, fullscreenControl: true, gestureHandling: 'greedy', tilt: 0 });
   const mk = new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, map, draggable: true }); const set = (ll) => onMove(ll.lat(), ll.lng());
   mk.addListener('dragend', () => set(mk.getPosition())); map.addListener('click', (ev) => { mk.setPosition(ev.latLng); set(ev.latLng); }); }
 async function pinMoveMapL(box, p) { box.classList.remove('gmap-live'); box.innerHTML = '<div style="width:100%;height:300px;border-radius:9px;position:relative;z-index:0"></div>';
@@ -3479,7 +3479,7 @@ async function pinMoveMap(p) {
   { const bx = $('#pin-mapbox'); if (bx && (MAPS_JS_BAD || !Maps.key())) { try { await pinMoveMapL(bx, p); } catch (e) { } return; } } /* swap the still picture for a Google satellite map with a pin you can drag (needs the Maps JavaScript API on the key) */
   const box = $('#pin-mapbox'); if (!box || !Maps.key()) return; const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(Maps.key())}&v=weekly`;
   try { await loadScript(src); if (!window.google || !google.maps || !google.maps.Map) throw new Error('no maps'); } catch (e) { delete SCRIPT_P[src]; MAPS_JS_BAD = true; try { await pinMoveMapL(box, p); } catch (e2) { } return; }
-  if (!$('#pin-mapbox') || MAPS_JS_BAD) { if ($('#pin-mapbox')) pinMoveMapL(box, p); return; } box.innerHTML = '<div style="width:100%;height:300px;border-radius:9px"></div>'; box.classList.add('gmap-live'); box.addEventListener('gmfail', () => pinMoveMapL(box, S.pinCand || p), { once: true }); const map = new google.maps.Map(box.firstChild, { center: { lat: p.lat, lng: p.lng }, zoom: 17, mapTypeId: 'hybrid', streetViewControl: false, fullscreenControl: true, gestureHandling: 'greedy', tilt: 0 });
+  if (!$('#pin-mapbox') || MAPS_JS_BAD) { if ($('#pin-mapbox')) pinMoveMapL(box, p); return; } box.innerHTML = '<div style="width:100%;height:300px;border-radius:9px"></div>'; box.classList.add('gmap-live'); box.addEventListener('gmfail', () => pinMoveMapL(box, S.pinCand || p), { once: true }); const map = new google.maps.Map(box.firstChild, { center: { lat: p.lat, lng: p.lng }, zoom: 16, mapTypeId: 'hybrid', streetViewControl: false, fullscreenControl: true, gestureHandling: 'greedy', tilt: 0 });
   const mk = new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, map, draggable: true });
   const set = (ll) => { S.pinCand = { ...S.pinCand, lat: ll.lat(), lng: ll.lng(), prec: 'moved by hand' }; const t = $('#pin-ll'); if (t) t.textContent = ll.lat().toFixed(5) + ', ' + ll.lng().toFixed(5) + ' (moved)'; };
   mk.addListener('dragend', () => set(mk.getPosition())); map.addListener('click', (ev) => { mk.setPosition(ev.latLng); set(ev.latLng); }); }
