@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '13.2 (18 Oct 2026)';
+const APP_VERSION = '13.3 (19 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -3458,8 +3458,12 @@ async function pinSearch() {
   } catch (e) { box.innerHTML = `${h(e.message)}${e.notFound ? '' : '<br>To let the app search, turn on <b>Geocoding API</b> (or Places API (New)) for your key in Google Cloud. Until then, use Search in Google Maps below.'}`; }
 }
 let MAPS_JS_BAD = false; // set when Google rejects the Maps JavaScript API for this key (not switched on, or not allowed for this website)
+let MAPS_JS_ERR = ''; // Google's own reason, e.g. RefererNotAllowedMapError
+const MAPS_ERR_HELP = { ApiNotActivatedMapError: 'the Maps JavaScript API isn\'t switched on for this key\'s project yet (APIs & Services → Library → Maps JavaScript API → Enable)', RefererNotAllowedMapError: 'the key\'s website restriction doesn\'t allow this site — add https://bovitech-veterinary-services.github.io/* under Application restrictions → Websites', ApiTargetBlockedMapError: 'the key\'s API restrictions don\'t include Maps JavaScript API — tick it under API restrictions', BillingNotEnabledMapError: 'billing isn\'t linked to the Google Cloud project', InvalidKeyMapError: 'the key in Settings isn\'t valid — check it was copied fully', MissingKeyMapError: 'no key was sent', ExpiredKeyMapError: 'the key has expired or been deleted', DeletedApiProjectMapError: 'the key\'s Google Cloud project was deleted' };
+{ const ce = console.error.bind(console); console.error = (...a) => { try { const m = String(a[0] || '').match(/Google Maps JavaScript API (?:error|warning): (\w+)/); if (m && /Error$/.test(m[1])) { MAPS_JS_ERR = m[1]; setTimeout(() => document.querySelectorAll('.mapserr').forEach((e) => { e.outerHTML = mapsErrNote(); }), 0); } } catch (e) { } ce(...a); }; }
+function mapsErrNote() { if (!Maps.key()) return ''; const msg = MAPS_JS_ERR ? `Plain satellite map shown because Google said <b>${h(MAPS_JS_ERR)}</b>: ${h(MAPS_ERR_HELP[MAPS_JS_ERR] || 'see Google Cloud → APIs & Services')}.` : 'Plain satellite map shown because Google\'s map didn\'t load (no internet, or the key was refused without a reason).'; return `<div class="hint mapserr" style="margin-top:4px;font-size:12px">${msg} After fixing it, wait 5 minutes then <span class="lnk" data-act="maps-retry">tap here to reload</span>.</div>`; }
 window.gm_authFailure = () => { MAPS_JS_BAD = true; document.querySelectorAll('.gmap-live').forEach((el) => el.dispatchEvent(new Event('gmfail'))); };
-async function satMap(el, center, zoom = 15) { await loadLeaflet(); el.innerHTML = ''; const m = L.map(el, { zoomControl: true }).setView([center.lat, center.lng], zoom);
+async function satMap(el, center, zoom = 15) { await loadLeaflet(); el.innerHTML = ''; { const par = el.parentNode; if (par && MAPS_JS_BAD && !(par.nextElementSibling && par.nextElementSibling.classList.contains('mapserr'))) setTimeout(() => { if (!par.nextElementSibling || !par.nextElementSibling.classList.contains('mapserr')) par.insertAdjacentHTML('afterend', mapsErrNote()); }, 400); } const m = L.map(el, { zoomControl: true }).setView([center.lat, center.lng], zoom);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 16, attribution: 'Imagery © Esri' }).addTo(m);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 16 }).addTo(m); setTimeout(() => m.invalidateSize(), 50); return m; }
 async function liveMultiMap(box, center, pins, onMove) { /* several draggable pins on one map: pins = [{k, lat, lng, emo, red}] */
@@ -4180,6 +4184,7 @@ document.addEventListener('click', async (e) => {
       if (!keep || !other) break; mergeSheet(d.kind, keep.id, other.id); break; }
     case 'ac-pick': { const el = AC.el; if (!el) break; let txt = d.main + (d.sub ? ', ' + d.sub.replace(/,?\s*Australia$/, '') : ''); try { const f = await addrDetail(d.id); if (f) txt = f; } catch (e2) { }
       if (AC.pre) txt = AC.pre + ', ' + txt; const ln = acLine(el); el.value = el.value.slice(0, ln.start) + txt + el.value.slice(ln.end); const b = acBoxOf(el); if (b) b.remove(); el.focus(); break; }
+    case 'maps-retry': { location.reload(); break; }
     case 'pcq-start': { const f = IDX.farms.get(d.fid); const box = $('#pm-' + d.fid); if (!f || !box || !f.turn) break; const t = { lat: +f.turn.lat, lng: +f.turn.lng };
       const y = f.lat != null ? { lat: +f.lat, lng: +f.lng } : { lat: t.lat + 0.0004, lng: t.lng + 0.0006 }; // no yards pin yet → start it just beside the turn-off
       const yT = f.lat != null || isYardType(f.pinType) ? f.pinType : ((pinTypes().find((x) => x.yard) || {}).id || f.pinType); S.pcq = { fid: f.id, turn: { ...t }, yards: { ...y }, newYards: f.lat == null, yT };
