@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '12.5 (18 Oct 2026)';
+const APP_VERSION = '12.6 (18 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -96,7 +96,7 @@ function remapFarmId(from, to) { S.route.stops.forEach((st) => { if (st.fid === 
 function dropFarmRecord(f) { D.farms = D.farms.filter((x) => x !== f); D.deleted.push({ id: f.id, kind: 'farms', at: Date.now() }); }
 function combineFarms(keep, other) { /* one shared farm: every business using either now uses keep */
   const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
-  keep.info = join(keep.info, other.info); keep.warning = join(keep.warning, other.warning); keep.seeWarning = !!(keep.seeWarning || other.seeWarning);
+  keep.info = join(keep.info, other.info); mergeNotes(keep, other, 'farm');
   ['address', 'name', 'turn', 'access', 'biosec', 'reception', 'fac', 'safety', 'owner'].forEach((k) => { if ((keep[k] == null || keep[k] === '') && other[k] != null && other[k] !== '') keep[k] = other[k]; });
   if (keep.lat == null && other.lat != null) { keep.lat = other.lat; keep.lng = other.lng; }
   if (keep.kmReturn == null) { keep.kmReturn = other.kmReturn; keep.kmStatus = other.kmStatus; } if (keep.driveMin == null) keep.driveMin = other.driveMin;
@@ -162,6 +162,48 @@ function contactRatings(c) {
 }
 const distinctRatings = (c) => [...new Set(contactRatings(c).map((r) => r.rating))];
 function contactTagSet(c) { const s = new Set(effTags(c)); contactRatings(c).forEach((r) => s.add(r.rating)); return s; }
+/* ---------------- warnings, side notes, cautions and repairs: several per record, with initials + date; "issue resolved" hides (never deletes) ----------------
+   rec.notes = [{id, k, t, by, at, edAt?, res?: {by, at, why}}]. The old text fields (warnings / sideNotes / farm warning) are kept up to date
+   from the notes so search, the CHECK WARNING photo ring and older app versions keep working. */
+const NOTE_KINDS = { warn: { l: 'General warnings', one: 'warning', emo: '⚠', cls: 'warn' }, side: { l: 'Side notes', one: 'side note', emo: '📝', cls: 'side' },
+  caution: { l: 'Caution', one: 'caution', emo: '⚠️', cls: 'caution' }, repair: { l: 'Repairs required', one: 'repair', emo: '🛠🛑✋', cls: 'repair' } };
+const NOTE_KS = { contact: ['warn', 'side'], business: ['warn', 'side'], farm: ['warn', 'caution', 'repair'] };
+function recOf(type, id) { return type === 'contact' ? D.contacts.find((x) => x.id === id) : type === 'business' ? IDX.biz.get(id) : IDX.farms.get(id); }
+function legacyText(rec, type, k) { if (type === 'farm') return k === 'warn' && rec.seeWarning ? ((rec.warning || '').trim() || 'Check farm info') : ''; const f = { warn: 'warnings', side: 'sideNotes' }[k]; return f ? (rec[f] || '').trim() : ''; }
+function notesOf(rec, type, k, resolved = false) { if (!rec) return []; const list = (rec.notes || []).filter((n) => n.k === k && !!n.res === resolved);
+  if (!rec.notesMig && !resolved) { const t = legacyText(rec, type, k); if (t) list.unshift({ id: 'legacy', k, t, by: '', at: null }); } return list; }
+function notesMaterialize(rec, type) { if (rec.notesMig) return; const n = [...(rec.notes || [])]; NOTE_KS[type].slice().reverse().forEach((k) => { const t = legacyText(rec, type, k); if (t) n.unshift({ id: uid('n'), k, t, by: '', at: null }); }); rec.notes = n; rec.notesMig = 1; }
+function notesSync(rec, type) { const act = (k) => (rec.notes || []).filter((n) => n.k === k && !n.res).map((n) => n.t);
+  if (type === 'farm') { const w = act('warn'); rec.seeWarning = w.length > 0; rec.warning = w.join('\n\n'); } else { rec.warnings = act('warn').join('\n\n'); rec.sideNotes = act('side').join('\n\n'); } }
+function myInitials() { const v = (LSget('bvt-initials') || '').trim(); if (v) return v.toUpperCase(); const n = (devInfo().nick || '').trim(); return n ? n.split(/\s+/).map((w) => w[0]).join('').toUpperCase().slice(0, 3) : '?'; }
+function addNote(rec, type, k, t, by) { notesMaterialize(rec, type); rec.notes.push({ id: uid('n'), k, t, by: by == null ? myInitials() : by, at: Date.now() }); notesSync(rec, type); touch(rec); }
+function mergeNotes(keep, other, tk, to = tk) { notesMaterialize(keep, tk); notesMaterialize(other, to); const ok = new Set(NOTE_KS[tk]);
+  (other.notes || []).forEach((n) => { if (ok.has(n.k) && !keep.notes.some((x) => x.t === n.t && x.k === n.k)) keep.notes.push({ ...n, id: uid('n') }); }); notesSync(keep, tk); }
+const noteDate = (t) => (t ? new Date(t).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+function noteMeta(n) { const d = noteDate(n.at); return n.by || d ? ` <span class="notemeta">${h(n.by || '')}${n.by && d ? ' · ' : ''}${d}${n.edAt ? ' · edited ' + noteDate(n.edAt) : ''}</span>` : ''; }
+function notesInner(type, id, k, opt = {}) { const rec = recOf(type, id); if (!rec) return ''; const act = notesOf(rec, type, k), res = notesOf(rec, type, k, true); const a = `data-type="${type}" data-id="${id}" data-k="${k}"`;
+  return `${act.map((n) => `<div class="noterow">${opt.from ? `<div class="notefrom">${h(opt.from)}</div>` : ''}<div class="body">${h(n.t)}${noteMeta(n)}</div><div class="noteacts"><button class="btn small" data-act="note-edit" ${a} data-nid="${n.id}" title="Edit">✏️</button><button class="btn small" data-act="note-resolve" ${a} data-nid="${n.id}">✓ Issue resolved</button></div></div>`).join('')}
+    ${res.length ? `<details class="resolvednotes"><summary>Resolved ${h(NOTE_KINDS[k].l.toLowerCase())}${opt.from ? ' — ' + h(opt.from) : ''} (${res.length})</summary>${res.map((n) => `<div class="noterow done"><div class="body"><s>${h(n.t)}</s>${noteMeta(n)}<div class="noteres">✓ Resolved: ${h(n.res.why)} <span class="notemeta">${h(n.res.by || '')} · ${noteDate(n.res.at)}</span></div></div><div class="noteacts"><button class="btn small" data-act="note-reopen" ${a} data-nid="${n.id}">Reopen</button></div></div>`).join('')}</details>` : ''}`; }
+const noteAddBtn = (type, id, k, label) => `<button class="btn small" data-act="note-add" data-type="${type}" data-id="${id}" data-k="${k}" title="Add a ${NOTE_KINDS[k].one}">${label || '➕'}</button>`;
+function noteCount(type, rec, k, resolved) { return notesOf(rec, type, k, resolved).length; }
+function noteEditorBlock(type, rec, k, label, isNew) { return `<div class="f"><label style="${k === 'warn' || k === 'repair' ? 'color:var(--red-ink)' : 'color:#7a5a00'}">${label}</label>${isNew ? `<div class="hint">Save first — then add ${NOTE_KINDS[k].l.toLowerCase()} here or on the page with ➕.</div>` : `<div class="notesblock nb-${k}" data-type="${type}" data-id="${rec.id}" data-k="${k}">${notesInner(type, rec.id, k)}</div>${noteAddBtn(type, rec.id, k, '➕ Add a ' + NOTE_KINDS[k].one)}`}</div>`; }
+function refreshNoteBlocks() { document.querySelectorAll('.notesblock').forEach((el) => { el.innerHTML = notesInner(el.dataset.type, el.dataset.id, el.dataset.k); }); }
+async function noteAction(a, d) { const rec = recOf(d.type, d.id); if (!rec) return; const K = NOTE_KINDS[d.k] || NOTE_KINDS.warn; const ta = 'style="width:100%;min-height:90px;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
+  const name = d.type === 'farm' ? farmLabel(rec) : d.type === 'business' ? rec.name : fullName(rec);
+  if (a === 'note-add') { let k = d.k; const pick = !k; const r = await askBox(pick ? 'Add to this farm' : 'Add a ' + K.one, `${pick ? `<div class="f">${NOTE_KS.farm.map((x, i) => `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="radio" name="nk" data-ask="k" value="${x}" ${i ? '' : 'checked'}> ${NOTE_KINDS[x].emo} ${NOTE_KINDS[x].l}</label>`).join('')}</div>` : ''}<div class="hint" style="margin-bottom:6px">${h(name)} — saved with your initials (${h(myInitials())}) and today's date.</div><textarea data-ask="t" ${ta} placeholder="${k === 'repair' ? 'e.g. Latch on the crush head bail is broken' : k === 'caution' || pick ? 'e.g. Do not use the suicide gate to stop the next cow — use the sliding gate behind it' : k === 'side' ? 'e.g. Prefers a call after 4 pm' : 'e.g. Dog bites — stay in the ute until called'}"></textarea>`, 'Save', false, 'Cancel');
+    const t = (ASK_FORM.t || '').trim(); if (!r || !t) return; if (pick) k = ASK_FORM.k || 'warn'; if (d.type === 'farm' && !(await sharedYardOk(rec))) return;
+    addNote(rec, d.type, k, t); NEXT_LOG_LABEL = `${NOTE_KINDS[k].l} added: ${name}`; }
+  else { notesMaterialize(rec, d.type); let n = d.nid === 'legacy' ? rec.notes.find((x) => x.k === d.k && !x.res && x.at == null && !x.by) : rec.notes.find((x) => x.id === d.nid); if (!n) return;
+    if (a === 'note-edit') { const r = await askBox('Edit ' + K.one, `<textarea data-ask="t" ${ta}>${h(n.t)}</textarea>`, 'Save', false, 'Cancel'); const t = (ASK_FORM.t || '').trim(); if (!r || !t || t === n.t) return; n.t = t; n.edAt = Date.now(); NEXT_LOG_LABEL = `${K.l} edited: ${name}`; }
+    if (a === 'note-resolve') { let why = ''; for (;;) { const r = await askBox('Issue resolved?', `<p>“${h(n.t)}”</p><div class="f"><span class="lbl">What was done? <span class="hint">(required)</span></span><textarea data-ask="why" ${ta} placeholder="e.g. Broken latch fixed"></textarea></div><div class="hint">It's hidden from the page but kept under "Resolved" — never deleted.</div>`, '✓ Mark as resolved', false, 'Cancel'); if (!r) return; why = (ASK_FORM.why || '').trim(); if (why) break; toast('Please say how it was resolved'); }
+      n.res = { by: myInitials(), at: Date.now(), why }; NEXT_LOG_LABEL = `${K.l} resolved (${why}): ${name}`; }
+    if (a === 'note-reopen') { delete n.res; NEXT_LOG_LABEL = `${K.l} reopened: ${name}`; }
+    notesSync(rec, d.type); touch(rec); }
+  S.skipConfirm = true; if (await changed()) { refreshNoteBlocks(); toast('Saved'); } }
+function noteCard(type, rec, k, inherit = []) { /* the card for a contact's / business's warnings or side notes, plus any from their businesses */
+  const K = NOTE_KINDS[k]; const own = noteCount(type, rec, k), ownRes = noteCount(type, rec, k, true); const inh = inherit.filter((b) => noteCount('business', b, k) || noteCount('business', b, k, true));
+  const act = own + inh.reduce((s, b) => s + noteCount('business', b, k), 0); if (!act && !ownRes && !inh.length) return '';
+  return `<div class="card ${act ? K.cls : 'noteclear'}"><h3><span class="sp">${K.emo} ${K.l}</span>${noteAddBtn(type, rec.id, k)}</h3>${act ? '' : `<div class="hint">No current ${K.l.toLowerCase()}.</div>`}${notesInner(type, rec.id, k)}${inh.map((b) => notesInner('business', b.id, k, { from: b.name })).join('')}</div>`; }
 function hasWarning(c) { return !!(c.warnings && c.warnings.trim()) || bizOf(c).some((b) => b.warnings && b.warnings.trim()); }
 const tagPhotoSrc = (id) => { const t = IDX.tags.get(id); if (!t) return null; if (t.photoData) return t.photoData; if (!t.photo) return null; return (window.IMG && window.IMG[t.photo]) || 'img/' + t.photo + '.png'; };
 function rbadge(r) { return `<span class="rb ${r}">${RATING_SHORT[r]}</span>`; }
@@ -1035,7 +1077,7 @@ function contactDetail(c) {
   let html = `<div class="d-wrap"><button class="back" data-act="back">‹ Back</button>
   ${catOf(c) === 'inactive' ? contactInactiveBox(c) : ''}
   ${dna ? `<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE ☠️</div>${dnaReasonBox(c.dnaReason || bizOf(c).map((b) => b.dnaReason).filter(Boolean).join('\n'))}` : ''}
-  <div class="hero">${contactPhotoImg(c, '', 320)}<div><h2>${h(fullName(c))}${c.maiden ? ` <span class="nee">née ${h(c.maiden)}</span>` : ''}</h2><div class="sub">${h(c.role || '')}${c.role && bs.length ? ' · ' : ''}${h(bs.map((b) => b.name).join(', '))}</div>
+  <div class="hero">${contactPhotoImg(c, '', 320)}<div><h2>${h(fullName(c))}${c.maiden ? ` <span class="nee">(maiden: ${h(c.maiden)})</span>` : ''}</h2><div class="sub">${h(c.role || '')}${c.role && bs.length ? ' · ' : ''}${h(bs.map((b) => b.name).join(', '))}</div>
   <div style="margin-top:6px">${contactRatings(c).map((r) => rbadge(r.rating) + (r.biz && bs.length > 1 ? `<span style="font-size:13px;color:var(--ink3);margin-right:8px">${h(r.biz.name)}</span>` : '')).join('')}</div></div></div>
   <div class="actions"><button class="btn primary" data-act="edit-contact" data-id="${c.id}">Edit</button><button class="btn" data-act="star" data-id="${c.id}">${isFav(c) ? '★ Favourite' : '☆ Favourite'}</button>${c.mobiles[0] ? `<a class="btn" href="tel:${h(c.mobiles[0].value.replace(/[^\d+]/g, ''))}">📞 Call</a>` : ''}</div>`;
   const M = []; const mark = (k) => M.push([k, html.length]);
@@ -1044,15 +1086,11 @@ function contactDetail(c) {
   mark('ice');
   html += iceCard(c);
   mark('warn');
-  if (hasWarning(c)) {
-    html += `<div class="card warn"><h3><span class="sp">⚠ General warnings</span>${secEdit('contact', c.id, 'General warnings')}</h3>${c.warnings ? `<div class="body">${h(c.warnings)}</div>` : ''}${bs.filter((b) => b.warnings).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.warnings)}</div>`).join('')}</div>`;
-  }
+  html += noteCard('contact', c, 'warn', bs);
   mark('biosec');
   html += bs.map((b) => biosecBanner(b.biosec, bs.length > 1 ? b.name : '')).join('');
   mark('side');
-  if ((c.sideNotes || '').trim() || bs.some((b) => (b.sideNotes || '').trim())) {
-    html += `<div class="card side"><h3><span class="sp">📝 Side notes</span>${secEdit('contact', c.id, 'Side notes')}</h3>${c.sideNotes ? `<div class="body">${h(c.sideNotes)}</div>` : ''}${bs.filter((b) => b.sideNotes).map((b) => `<div class="body" style="margin-top:6px"><b>${h(b.name)}:</b> ${h(b.sideNotes)}</div>`).join('')}</div>`;
-  }
+  html += noteCard('contact', c, 'side', bs);
   mark('contact');
   html += `<div class="card"><h3><span class="sp">Contact</span>${secEdit('contact', c.id, 'Mobile numbers')}</h3>${phoneLinks(c.mobiles.map((p) => ({ ...p, label: p.label || 'Mobile' })), true)}${phoneLinks(c.landlines.map((p) => ({ ...p, label: p.label || 'Landline' })))}${c.emails.map((e) => `<div class="kv"><div class="k">${h(e.label || 'Email')}</div><div class="v"><a href="mailto:${h(e.value)}">${h(e.value)}</a></div><a class="cbtn" href="mailto:${h(e.value)}" title="Send an email" aria-label="Email">📧</a></div>`).join('')}${c.postal.map((p) => `<div class="kv"><div class="k">Postal</div><div class="v">${h(p)}</div></div>`).join('')}${!c.mobiles.length && !c.landlines.length && !c.emails.length && !c.postal.length ? (noDet(c) ? '<div class="hint">Name only — ' + NODET + ' (we know who they are, but not how to reach them).</div>' : '<div class="hint">No contact details yet.</div>') : ''}</div>`;
   mark('nomention');
@@ -1320,11 +1358,11 @@ function farmCard(b, f, withFlags = true, past = false) {
   ${(f.extra || []).length ? `<div class="hint" style="margin-top:3px">${f.extra.map((x) => `${pinT(x.type).emoji} ${x.lat != null ? `<a href="${gmapsPin(x)}" target="_blank" rel="noopener">${h(x.name || pinT(x.type).name)}</a>` : h(x.name || pinT(x.type).name)}`).join(' · ')}</div>` : ''}
   ${(f.reception || {}).note ? `<div class="hint">📶 ${h(f.reception.note)}</div>` : ''}
   ${users.length || ownerTxt ? `<div class="hint" style="margin-top:3px">${users.length ? `Also used by: ${users.map((u) => `<span class="lnk" data-act="open" data-kind="business" data-id="${u.b.id}">${h(u.b.name)}</span>${u.past ? ' (past)' : ''}`).join(', ')}` : ''}${users.length && ownerTxt ? ' · ' : ''}${ownerTxt ? `Owned by: ${owner ? `<span class="lnk" data-act="open" data-kind="business" data-id="${owner.id}">${h(ownerTxt)}</span>` : h(ownerTxt)}` : ''}</div>` : ''}
-  ${f.seeWarning ? `<div class="body" style="margin-top:4px;font-weight:700">⚠ Farm warnings: ${h(f.warning || 'check farm info')}</div>` : ''}
+  ${NOTE_KS.farm.map((k) => { const n = noteCount('farm', f, k), r = noteCount('farm', f, k, true); return n || r ? `<div class="farmnote fn-${k}${n ? '' : ' clear'}"><div class="fnh">${NOTE_KINDS[k].emo} ${k === 'warn' ? (isClientBiz(b) ? 'Farm' : 'Location') + ' warnings' : NOTE_KINDS[k].l}</div>${notesInner('farm', f.id, k)}</div>` : ''; }).join('')}
   ${f.info ? `<div class="body" style="margin-top:4px;font-size:14.5px">${h(f.info)}</div>` : ''}
   ${farmPhotosHtml(f, true)}${!past ? svAsk(f) : ''}
   ${withFlags ? flagLines('business', b.id, f.id) : ''}
-  <div class="actions" style="margin:8px 0 0">${nav ? `<a class="btn small" href="${gmapsNav(farmRoutePt(f))}" target="_blank" rel="noopener">🧭 Navigate${f.turn && f.turn.lat != null ? ' to turn-off' : ''}</a>` : ''}${f.turn && f.turn.lat != null && f.lat != null ? `<a class="btn small" href="${gmapsNav(f)}" target="_blank" rel="noopener">${pt.emoji} To the yards</a>` : ''}${(f.lat != null || (f.turn && f.turn.lat != null)) && !past ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">➕ Add to route</button>` : ''}<button class="btn small secedit" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}" title="Edit">✏️</button><button class="btn small" data-act="farm-past" data-bid="${b.id}" data-fid="${f.id}">${past ? 'Make current' : 'Make not current'}</button><button class="btn small" data-act="farm-own" data-bid="${b.id}" data-fid="${f.id}">${ownedBy(f, b) ? 'Make not owned' : 'Make owned'}</button></div></div>`;
+  <div class="actions" style="margin:8px 0 0">${nav ? `<a class="btn small" href="${gmapsNav(farmRoutePt(f))}" target="_blank" rel="noopener">🧭 Navigate${f.turn && f.turn.lat != null ? ' to turn-off' : ''}</a>` : ''}${f.turn && f.turn.lat != null && f.lat != null ? `<a class="btn small" href="${gmapsNav(f)}" target="_blank" rel="noopener">${pt.emoji} To the yards</a>` : ''}${(f.lat != null || (f.turn && f.turn.lat != null)) && !past ? `<button class="btn small" data-act="route-add" data-fid="${f.id}">➕ Add to route</button>` : ''}<button class="btn small secedit" data-act="edit-farm" data-bid="${b.id}" data-fid="${f.id}" title="Edit">✏️</button><button class="btn small" data-act="farm-past" data-bid="${b.id}" data-fid="${f.id}">${past ? 'Make current' : 'Make not current'}</button><button class="btn small" data-act="note-add" data-type="farm" data-id="${f.id}" data-k="" title="Add a warning, caution or repair">➕ Warning / caution / repair</button><button class="btn small" data-act="farm-own" data-bid="${b.id}" data-fid="${f.id}">${ownedBy(f, b) ? 'Make not owned' : 'Make owned'}</button></div></div>`;
 }
 function svAsk(f) { /* "is this Street View photo useful?" — only when there's a key, a pin and no photo yet */
   if (!Maps.key() || f.svNo || (f.photos || []).length || (f.lat == null && !(f.turn && f.turn.lat != null))) return '';
@@ -1341,11 +1379,11 @@ function bizDetail(b) {
   if ((b.cats || []).includes('dna')) html += `<div class="dnabanner">☠️ DO NOT ANSWER — NO FUTURE SERVICE ☠️</div>${dnaReasonBox(b.dnaReason)}`;
   const M = []; const mark = (k) => M.push([k, html.length]);
   mark('warn');
-  if (b.warnings) html += `<div class="card warn"><h3><span class="sp">⚠ General warnings</span>${secEdit('business', b.id, 'General warnings')}</h3><div class="body">${h(b.warnings)}</div></div>`;
+  html += noteCard('business', b, 'warn');
   mark('biosec');
   html += biosecBanner(b.biosec);
   mark('side');
-  if (b.sideNotes) html += `<div class="card side"><h3><span class="sp">📝 Side notes</span>${secEdit('business', b.id, 'Side notes')}</h3><div class="body">${h(b.sideNotes)}</div></div>`;
+  html += noteCard('business', b, 'side');
   mark('cat');
   html += `<div class="card"><h3><span class="sp">Contact category</span><button class="btn small" data-act="cat-edit" data-bid="${b.id}">Change…</button></h3>${b.rating || (b.cats || []).length ? `<div class="tagrow">${[...(b.rating ? [b.rating] : []), ...(b.cats || [])].map(tagPill).join('')}</div>` : '<div class="hint">None set.</div>'}${cs.filter((c) => c.ownCats || ownRating(c)).length ? `<div class="hint" style="margin-top:6px">Own categories: ${h(cs.filter((c) => c.ownCats || ownRating(c)).map((c) => c.first).join(', '))}</div>` : ''}</div>`;
   mark('phone');
@@ -1474,10 +1512,10 @@ function editContact(c) {
   <div class="f"><label>Email</label>${repRows('email', c.emails, [{ k: 'value', ph: 'name@example.com', w: 3 }, { k: 'label', ph: 'Label', w: 2 }])}</div>
   <div class="f"><label>Postal address</label>${repRows('postal', c.postal.map((p) => ({ value: p })), [{ k: 'value', ph: 'PO Box / street, town, postcode' }])}</div>
   <div class="f"><label>General info</label>${richEditor('e-info', c)}</div>
-  <div class="f"><label style="color:var(--red-ink)">General warnings (adds "CHECK WARNING" to the client's photo). If the warning relates to farm or yards, please add to the farm warning section under the relevant business.</label><textarea id="e-warn" class="warn">${h(c.warnings)}</textarea></div>
+  ${noteEditorBlock('contact', c, 'warn', 'General warnings (adds "CHECK WARNING" to the client\'s photo). If the warning relates to farm or yards, add it to the farm under the relevant business.', !D.contacts.includes(c))}
   <div class="f" id="e-inwrap" style="${catOf(c) === 'inactive' ? '' : 'display:none'}"><label style="color:var(--red-ink)">Inactive — reason (required, shown in a red box at the top)</label>${reasonChips('#e-inreason')}<textarea id="e-inreason" class="warn" style="min-height:60px" placeholder="e.g. inactivated as no longer using our routine services, or client retired and sold farm">${h(c.inactiveReason || '')}</textarea>${!(c.inactiveReason || '').trim() ? bizOf(c).filter((b) => bizCat(b) === 'inactive' && (b.inactiveReason || '').trim()).map((b) => `<div class="hint" style="margin-top:4px">Currently showing the reason from <b>${h(b.name)}</b>: “${h(b.inactiveReason)}” — <a href="#" data-act="edit-biz" data-id="${b.id}" data-jump="Inactive">edit it on the business</a>. Anything typed here is for ${h(c.first || fullName(c))} only.</div>`).join('') : ''}</div>
   <div class="f" id="e-dnawrap" style="${effTags(c).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">☠️ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-dnareason" class="warn" placeholder="e.g. bad debtor, not the client for us, don't feel safe" style="min-height:60px">${h(c.dnaReason || '')}</textarea></div>
-  <div class="f"><label style="color:#7a5a00">Side notes (a general caution but not an urgent warning, e.g. don't mention X as they don't talk)</label><textarea id="e-side" class="sidenote">${h(c.sideNotes || '')}</textarea></div>
+  ${noteEditorBlock('contact', c, 'side', 'Side notes (a general caution but not an urgent warning)', !D.contacts.includes(c))}
   ${customFields(c, 'contact')}
   <div class="f"><label style="color:#7a5a00">🤫 Don't mention — other topics (people and relationships are added with ➕ in the yellow Don't mention section)</label><textarea id="e-nomention" class="nomention">${h(c.noMention || '')}</textarea></div>
   <div class="f"><label>Photo</label><select id="e-photo">${photoOpts.map(([v, l]) => `<option value="${h(v)}" ${curPc === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>
@@ -1497,7 +1535,7 @@ function editContact(c) {
     readCustom(c);
     if ($('#e-nodet')) { if ($('#e-nodet').checked) c.noDetails = true; else delete c.noDetails; }
     if ($('#e-maiden')) { const mv = val('e-maiden'); if (mv) c.maiden = mv; else delete c.maiden; }
-    Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), ...readRich('e-info'), warnings: $('#e-warn').value.trim(), sideNotes: $('#e-side').value.trim(), noMention: $('#e-nomention').value.trim(), dnaReason: $('#e-dnareason').value.trim(), inactiveReason: $('#e-inreason').value.trim(), });
+    Object.assign(c, { first, last, middle: val('e-middle'), role: val('e-role'), ...readRich('e-info'), noMention: $('#e-nomention').value.trim(), dnaReason: $('#e-dnareason').value.trim(), inactiveReason: $('#e-inreason').value.trim(), });
     const oldBids = new Set((c.links || []).map((l) => l.bid)); const prevCat = isNew ? '' : catOf(c);
     c.links = [...document.querySelectorAll('#e-links [data-bid]')].map((el) => { const l = { bid: el.dataset.bid }; if (el.querySelector('.lk-past')?.checked) l.past = true; const r = (el.querySelector('.lk-role')?.value || '').trim(); if (r) l.role = r; return l; });
     const newBiz = [...document.querySelectorAll('#e-links [data-newbiz]')];
@@ -1611,6 +1649,9 @@ const BOXES = [
   { k: 'warn', l: 'General warnings', sel: '.card.warn', txt: '.card.warn h3,.card.warn .body', sample: '<div class="card warn"><h3><span class="sp">⚠ General warnings</span></h3><div class="body">Dog bites — stay in the ute</div></div>', d: { bg: '#fdeaea', fg: '#a3121c', bd: '#f3b3b6', bold: false } },
   { k: 'side', l: 'Side notes', sel: '.card.side', txt: '.card.side h3,.card.side .body', sample: '<div class="card side"><h3><span class="sp">📝 Side notes</span></h3><div class="body">Prefers a call after 4 pm</div></div>', d: { bg: '#fff6c7', fg: '#6b4f00', bd: '#efd46a', bold: false } },
   { k: 'biosec', l: 'Biosecurity', sel: '.fbiosec', txt: '.fbiosec', sample: '<div class="fbiosec">🦠 <b>Biosecurity:</b> Ovine footrot</div>', d: { bg: '#fff1e6', fg: '#7a3300', bd: '#f5c7a1', bold: false } },
+  { k: 'caution', l: 'Farm caution', sel: '.farmnote.fn-caution', txt: '.farmnote.fn-caution,.farmnote.fn-caution .body', sample: '<div class="farmnote fn-caution"><div class="fnh">⚠️ Caution</div><div class="body">Use the sliding gate, not the suicide gate</div></div>', d: { bg: '#fff6c7', fg: '#6b4f00', bd: '#efd46a', bold: false } },
+  { k: 'repair', l: 'Farm repairs required', sel: '.farmnote.fn-repair', txt: '.farmnote.fn-repair,.farmnote.fn-repair .body', sample: '<div class="farmnote fn-repair"><div class="fnh">🛠🛑✋ Repairs required</div><div class="body">Head bail latch broken</div></div>', d: { bg: '#ffe8d1', fg: '#7a3b00', bd: '#f5b06a', bold: false } },
+  { k: 'farmwarn', l: 'Farm warnings', sel: '.farmnote.fn-warn', txt: '.farmnote.fn-warn,.farmnote.fn-warn .body', sample: '<div class="farmnote fn-warn"><div class="fnh">⚠ Farm warnings</div><div class="body">Crush has no proper vet gate</div></div>', d: { bg: '#fdeaea', fg: '#a3121c', bd: '#f3b3b6', bold: false } },
   { k: 'nomention', l: "Don't mention", sel: '.card.nomention', txt: '.card.nomention h3,.card.nomention .body,.card.nomention .v', sample: '<div class="card nomention"><h3><span class="sp">🤫 Don\'t mention</span></h3><div class="body">Recently lost their working dog — best not to bring it up</div></div>', d: { bg: '#fff3a6', fg: '#4a3a00', bd: '#e7c200', bold: true } }];
 const BOX_SIZES = [['', 'Normal'], ['13px', 'Small'], ['18px', 'Large'], ['22px', 'Extra large']];
 function boxCss() { const st = D.settings.boxStyles || {}; return BOXES.map((b) => { const o = st[b.k]; if (!o) return ''; const box = [], txt = [];
@@ -1686,10 +1727,10 @@ function editBiz(b) {
   <div class="f client-only"><label>Property Identification Code (PIC)</label>${repRows('pic', b.pics, [{ k: 'value', ph: 'e.g. WFAY2784', w: 2, attrs: 'class="picin" autocapitalize="characters" autocomplete="off" spellcheck="false"' }, { k: 'label', ph: 'Label (optional, e.g. farm or entity)', w: 3 }])}</div>
   <div class="f client-only"><label>Patient IDs</label>${repRows('pid', b.patientIds, [{ k: 'value', ph: 'e.g. 100154', w: 2 }, { k: 'label', ph: 'Cattle Herd ID / Sheep Flock ID / (entity) …', w: 3, list: 'pidlabels' }])}<datalist id="pidlabels">${[...new Set([...PID_LABELS, ...D.businesses.flatMap((x) => x.patientIds.map((p) => p.label))])].map((l) => `<option value="${h(l)}">`).join('')}</datalist></div>
   <div class="f"><label>General info</label>${richEditor('e-binfo', b)}</div>
-  <div class="f"><label style="color:var(--red-ink)">General warnings (red — shown on every linked contact). Farm warnings go on the farm.</label><textarea id="e-bwarn" class="warn">${h(b.warnings)}</textarea></div>
+  ${noteEditorBlock('business', b, 'warn', 'General warnings (red — shown on every linked contact). Farm warnings go on the farm.', !D.businesses.includes(b))}
   <div class="f" id="e-binwrap" style="${bizCat(b) === 'inactive' ? '' : 'display:none'}"><label style="color:var(--red-ink)">Inactive — reason (required, shown in a red box at the top)</label>${reasonChips('#e-binreason')}<textarea id="e-binreason" class="warn" style="min-height:60px" placeholder="e.g. client retired and sold farm">${h(b.inactiveReason || '')}</textarea></div>
   <div class="f" id="e-bdnawrap" style="${(b.cats || []).includes('dna') ? '' : 'display:none'}"><label style="color:var(--red-ink)">☠️ Do not answer — reason (required, shown under the red banner)</label><textarea id="e-bdnareason" class="warn" style="min-height:60px">${h(b.dnaReason || '')}</textarea></div>
-  <div class="f"><label style="color:#7a5a00">Side notes (yellow — shown on every linked contact)</label><textarea id="e-bside" class="sidenote">${h(b.sideNotes || '')}</textarea></div>
+  ${noteEditorBlock('business', b, 'side', 'Side notes (yellow — shown on every linked contact)', !D.businesses.includes(b))}
   <div class="f"><label style="color:#8a3b00">🦠 Biosecurity (shown on this business, its contacts and its farms)</label><textarea id="e-bbio" class="biosec" placeholder="e.g. Ovine footrot · Has pigs — don't visit if you've been near pigs in the last week">${h(b.biosec || '')}</textarea></div>
   ${customFields(b, 'business')}
   <div class="hint">Farms are added and edited from the business page.</div>
@@ -1714,7 +1755,7 @@ function editBiz(b) {
       if (!oldBc.includes('dna') && b.cats.includes('dna') && !c.tags.includes('blockedc')) { c.flags = c.flags || []; c.flags.push({ type: 'blockcheck', at: Date.now() }); touch(c); }
     });
     readCustom(b);
-    Object.assign(b, { name, rating: newRating, pics: readRep('pic').map((p) => ({ ...p, value: p.value.toUpperCase().replace(/\s+/g, '') })), patientIds: readRep('pid'), ...readRich('e-binfo'), warnings: $('#e-bwarn').value.trim(), sideNotes: $('#e-bside').value.trim(), biosec: $('#e-bbio').value.trim(), dnaReason: $('#e-bdnareason').value.trim(), inactiveReason: $('#e-binreason').value.trim() });
+    Object.assign(b, { name, rating: newRating, pics: readRep('pic').map((p) => ({ ...p, value: p.value.toUpperCase().replace(/\s+/g, '') })), patientIds: readRep('pid'), ...readRich('e-binfo'), biosec: $('#e-bbio').value.trim(), dnaReason: $('#e-bdnareason').value.trim(), inactiveReason: $('#e-binreason').value.trim() });
     setBizType(b, pickedType); // keeps the type you chose even if the category says otherwise
     touch(b); if (isNew) D.businesses.push(b);
     S.sel = { kind: 'business', id: b.id }; if (isNew) S.tab = 'biz';
@@ -1785,8 +1826,9 @@ function editFarm(b, f) {
   <details class="fsec" ${(f.photos || []).length ? 'open' : ''}><summary>📷 Photos</summary><div id="e-fphotos">${farmPhotoEdit(f)}</div>
     <div class="actions"><button type="button" class="btn small" data-act="sv-find">📷 Find a Street View photo</button><label class="btn small" style="cursor:pointer">＋ Add a photo<input type="file" id="e-fphotofile" accept="image/*" style="display:none"></label></div><div id="e-svprev"></div></details>
   <div class="f" style="margin-top:10px"><label>${locWord(b)} info</label><textarea id="e-finfo">${h(f.info)}</textarea></div>
-  <div class="f"><label class="checks"><label><input type="checkbox" id="e-fwarn" ${f.seeWarning ? 'checked' : ''}> Add ${isClientBiz(b) ? 'farm' : 'location'} warnings</label></label>
-  <div id="e-fwarnbox" style="margin-top:8px;${f.seeWarning ? '' : 'display:none'}"><label style="color:var(--red-ink)">${isClientBiz(b) ? 'Farm' : 'Location'} warnings (shown in red with this ${isClientBiz(b) ? 'farm' : 'location'})</label><textarea id="e-fwarntext" class="warn" placeholder="e.g. Crush has no proper vet gate — take care">${h(f.warning || '')}</textarea></div></div>
+  ${noteEditorBlock('farm', f, 'warn', (isClientBiz(b) ? 'Farm' : 'Location') + ' warnings (red)', !D.farms.includes(f))}
+  ${noteEditorBlock('farm', f, 'caution', '⚠️ Caution (yellow — doesn\'t add CHECK WARNING to the photo)', !D.farms.includes(f))}
+  ${noteEditorBlock('farm', f, 'repair', '🛠🛑✋ Repairs required', !D.farms.includes(f))}
   ${f.importedLabel ? `<div class="hint">Original Google Contacts label: ${h(f.importedLabel)}</div>` : ''}
   ${isNew ? '' : `<div class="f" style="margin-top:12px"><button class="btn" data-act="del-farm" data-bid="${b.id}" data-fid="${f.id}" style="color:var(--red)">${users.length > 1 ? 'Remove from ' + h(b.name) : 'Delete farm'}</button></div>`}`;
   SHEET_FARM = { f, photos: JSON.parse(JSON.stringify(f.photos || [])) }; const orig = { warning: f.warning };
@@ -1804,10 +1846,9 @@ function editFarm(b, f) {
     const st = $('#e-fsafe').value, sn = val('e-fsafenote'); const nsf = st === 'ok' && !sn ? null : { status: st, note: sn, date: st === sf.status && sn === (sf.note || '') ? sf.date : new Date().toLocaleDateString('en-AU'), by: st === sf.status && sn === (sf.note || '') ? sf.by : devInfo().nick };
     const recS = $('#e-frec').value, recN = val('e-frecnote'); const nrc = recS || recN ? { ...rc, status: recS, note: recN, ...(recS !== (rc.status || '') ? { at: Date.now(), by: devInfo().nick } : {}) } : null;
     const ownerV = readOwner('e-fowner');
-    Object.assign(f, { name: val('e-fname'), pinType: $('#e-ftype').value, address: val('e-faddr'), info: $('#e-finfo').value.trim(), seeWarning: $('#e-fwarn').checked, warning: $('#e-fwarn').checked ? $('#e-fwarntext').value.trim() : '', kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn,
+    Object.assign(f, { name: val('e-fname'), pinType: $('#e-ftype').value, address: val('e-faddr'), info: $('#e-finfo').value.trim(), kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn,
       access: val('e-facc') || $('#e-fwet').value ? { notes: val('e-facc'), wet: $('#e-fwet').value } : null, fac: Object.keys(nfac).length ? nfac : null, safety: nsf, extra: xs, reception: nrc, biosec: $('#e-fbio').value.trim(), owner: ownerV, photos: SHEET_FARM.photos });
     Object.keys(f).forEach((k) => { if (f[k] === null && ['access', 'fac', 'safety', 'reception', 'owner'].includes(k)) delete f[k]; if (['biosec', 'extra', 'photos'].includes(k) && (f[k] === '' || (Array.isArray(f[k]) && !f[k].length))) delete f[k]; });
-    if (!f.warning && f.warning !== undefined && !orig.warning) delete f.warning;
     if (g) { f.lat = g.lat; f.lng = g.lng; } else { f.lat = f.lng = null; }
     if (tg) f.turn = { lat: tg.lat, lng: tg.lng }; else delete f.turn;
     if (gpsChanged) f.flags = (f.flags || []).filter((x) => x.type !== 'signfix' && x.type !== 'kmcheck');
@@ -1818,7 +1859,6 @@ function editFarm(b, f) {
     return true;
   });
   SHEET.verifyNeeded = false;
-  $('#e-fwarn').addEventListener('change', (e) => { $('#e-fwarnbox').style.display = e.target.checked ? '' : 'none'; if (e.target.checked) $('#e-fwarntext').focus(); });
   $('#e-ftype').addEventListener('change', (e) => { $('#e-ftypeemo').textContent = pinT(e.target.value).emoji; });
   const showVerify = () => {
     SHEET.verifyNeeded = true;
@@ -2335,6 +2375,7 @@ function renderSettings() {
   <div class="card"><h3>This device</h3>${(() => { const di = devInfo(); return `<div class="grid2 stack"><div class="f"><label>Your nickname</label><input id="s-nick" value="${h(di.nick)}" placeholder="e.g. Amelia"><div class="hint">Shown as "Hi ${h(di.nick || '…')}" when the app opens.</div></div>
     <div class="f"><label>Device name</label><div class="search"><input id="s-devmodel" value="${h(di.dev)}" placeholder="e.g. Amelia's Samsung or Office PC"><button class="btn small" data-act="dev-detect" title="Pick up the device model again">Detect</button></div><div class="hint">Picked up from the device where it allows (Android shares the model, e.g. "Samsung SM-S918B", not the name you gave the phone) — change it to anything you like.</div></div>
     <div class="f"><label>Your phone number</label><input id="s-devphone" value="${h(di.phone)}" inputmode="tel" placeholder="04xx xxx xxx"><div class="hint">Required. Phones don't let apps read their own number, so type it in (on a computer, use your mobile).</div></div></div>
+    <div class="f"><label>Your initials</label><input id="s-initials" value="${h(LSget('bvt-initials') || '')}" placeholder="${h(myInitials())}" maxlength="4" style="max-width:120px;text-transform:uppercase"><div class="hint">Shown next to warnings and side notes you add (with the date). Leave empty to use ${h(myInitials())}.</div></div>
     <div class="actions"><button class="btn primary small" data-act="devname-save">Save</button><span class="hint">Shown in the change log as "${h(deviceName())}"</span></div>`; })()}
     <div class="lbl" style="margin-top:8px">Devices using the app</div>${Object.entries(D.devices || {}).sort((a, b) => (b[1].last || 0) - (a[1].last || 0)).map(([k, v]) => `<div class="kv"><div class="k">${h(v.name || 'Device')}${k === DEVICE ? ' <span class="hint">(this one)</span>' : ''}</div><div class="v">${v.phone ? h(v.phone) + ' · ' : ''}last synced ${v.last ? new Date(v.last).toLocaleString('en-AU') : '—'} · v${h(v.ver || '?')}</div></div>`).join('') || '<div class="hint">Devices appear here after they sync.</div>'}</div>
   <div class="card"><h3>Display <span class="hint">(this device)</span></h3><div class="grid2">
@@ -2736,7 +2777,7 @@ function carryBizDetails(b, dest) { /* a business entry that is going away: keep
   (b.emails || []).forEach((p) => { dest.emails = dest.emails || []; if (!same(dest.emails, p.value)) dest.emails.push({ ...p }); });
   const join = (x, y) => [x, y].filter((t) => (t || '').trim()).join('\n\n');
   if ((b.info || '').trim() && !(dest.info || '').includes(b.info.trim())) { dest.info = join(dest.info, b.info); delete dest.infoHtml; }
-  if ((b.warnings || '').trim()) dest.warnings = join(dest.warnings, b.warnings); if ((b.sideNotes || '').trim()) dest.sideNotes = join(dest.sideNotes, b.sideNotes);
+  mergeNotes(dest, b, dest.links ? 'contact' : 'business', 'business');
   touch(dest);
 }
 function convertBizOnly(c, b) { // contact that was really just the business → its details move onto the business
@@ -2745,7 +2786,7 @@ function convertBizOnly(c, b) { // contact that was really just the business →
       b.phones = b.phones || []; ph.forEach((p) => { if (!has(b.phones, p.value)) b.phones.push(p); }); b.emails = b.emails || []; em.forEach((p) => { if (!has(b.emails, p.value)) b.emails.push(p); });
       b.postal = [...new Set([...(b.postal || []), ...c.postal])];
       const join = (x, y) => [x, y].filter((t) => (t || '').trim()).join('\n\n');
-      if ((c.info || '').trim()) { b.info = join(b.info, c.info); delete b.infoHtml; } if ((c.warnings || '').trim()) b.warnings = join(b.warnings, c.warnings); if ((c.sideNotes || '').trim()) b.sideNotes = join(b.sideNotes, c.sideNotes);
+      if ((c.info || '').trim()) { b.info = join(b.info, c.info); delete b.infoHtml; } mergeNotes(b, c, 'business', 'contact');
       if (c.gid && !b.gid) b.gid = c.gid; // keep the same Google Contacts entry for caller ID
       if (b.primaryContact === c.id) b.primaryContact = null; touch(b);
   trashContact(c);
@@ -3363,7 +3404,7 @@ function mergeSheet(kind, aId, bId) {
     } else {
       const typeB = isClientBiz(b), typeA = isClientBiz(a); const primB = b.primaryContact;
       a.phones = [...(a.phones || []), ...(b.phones || []).filter((p) => !(a.phones || []).some((q) => lastDigits(q.value) === lastDigits(p.value)))]; a.emails = [...(a.emails || []), ...(b.emails || []).filter((p) => !(a.emails || []).some((q) => q.value.toLowerCase() === p.value.toLowerCase()))]; a.postal = [...new Set([...(a.postal || []), ...(b.postal || [])])];
-      a.sideNotes = a.sideNotes || b.sideNotes; a.inactiveReason = a.inactiveReason || b.inactiveReason; a.dnaReason = a.dnaReason || b.dnaReason;
+      mergeNotes(a, b, 'business'); a.inactiveReason = a.inactiveReason || b.inactiveReason; a.dnaReason = a.dnaReason || b.dnaReason;
       const pastB = new Set(D.contacts.filter((c) => c.links.some((l) => l.bid === b.id && l.past)).map((c) => c.id)); const hadA = new Set(D.contacts.filter((c) => c.links.some((l) => l.bid === a.id)).map((c) => c.id));
       mergeBiz(a, b); D.contacts.forEach((c) => { if (pastB.has(c.id) && !hadA.has(c.id)) { c.links = c.links.map((l) => (l.bid === a.id ? { bid: a.id, past: true } : l)); touch(c); } }); // past employees of the other business stay past
       Object.assign(a, scal); Object.entries(keepText).forEach(([k, v]) => { a[k] = v; if (k === 'info') delete a.infoHtml; });
@@ -3381,8 +3422,8 @@ function mergeContacts(keep, other) {
   keep.emails = uni(keep.emails, other.emails, (e) => e.value.toLowerCase()); keep.postal = [...new Set([...keep.postal, ...other.postal])];
   keep.tags = [...new Set([...keep.tags, ...other.tags])]; keep.links = uni(keep.links, other.links, (l) => l.bid);
   keep.info = join(keep.info, other.info); if (keep.infoHtml || other.infoHtml) keep.infoHtml = [keep.infoHtml || h(keep.info || ''), other.infoHtml || ''].filter(Boolean).join('<br>');
-  keep.warnings = join(keep.warnings, other.warnings); keep.role = keep.role || other.role; if (isFav(other)) setFav(keep, true); keep.gid = keep.gid || other.gid;
-  keep.sideNotes = keep.sideNotes || other.sideNotes; keep.inactiveReason = keep.inactiveReason || other.inactiveReason; keep.dnaReason = keep.dnaReason || other.dnaReason;
+  mergeNotes(keep, other, 'contact'); keep.role = keep.role || other.role; if (isFav(other)) setFav(keep, true); keep.gid = keep.gid || other.gid;
+  keep.inactiveReason = keep.inactiveReason || other.inactiveReason; keep.dnaReason = keep.dnaReason || other.dnaReason;
   if ((!keep.photoChoice || keep.photoChoice === 'auto') && other.photoChoice && other.photoChoice !== 'auto') { keep.photoChoice = other.photoChoice; if (other.photoData) keep.photoData = other.photoData; }
   if (other.ice && other.ice.length) { keep.ice = keep.ice || []; other.ice.forEach((i) => { if (i.cid !== keep.id && !keep.ice.some((x) => x.cid === i.cid)) keep.ice.push(i); }); }
   D.contacts.forEach((c) => { if (c !== other && (c.ice || []).some((i) => i.cid === other.id)) { c.ice = c.ice.map((i) => (i.cid === other.id ? { ...i, cid: keep.id } : i)).filter((i, k, arr) => i.cid !== c.id && arr.findIndex((y) => y.cid === i.cid) === k); touch(c); } });
@@ -3393,7 +3434,7 @@ function mergeBiz(keep, other) {
   const join = (a, b) => [...new Set([a, b].map((x) => (x || '').trim()).filter(Boolean))].join('\n');
   other.farmLinks.forEach((l) => { const k = keep.farmLinks.find((x) => x.fid === l.fid); if (k) { if (!l.past) delete k.past; } else keep.farmLinks.push({ ...l }); }); keep.pics = [...keep.pics, ...other.pics.filter((p) => !keep.pics.some((q) => q.value === p.value))];
   keep.patientIds = [...keep.patientIds, ...other.patientIds.filter((p) => !keep.patientIds.some((q) => q.value === p.value && q.label === p.label))];
-  keep.info = join(keep.info, other.info); keep.warnings = join(keep.warnings, other.warnings); keep.rating = keep.rating || other.rating; keep.primaryContact = keep.primaryContact || other.primaryContact;
+  keep.info = join(keep.info, other.info); mergeNotes(keep, other, 'business'); keep.rating = keep.rating || other.rating; keep.primaryContact = keep.primaryContact || other.primaryContact;
   if (keep.infoHtml || other.infoHtml) keep.infoHtml = [keep.infoHtml || h(keep.info || ''), other.infoHtml || ''].filter(Boolean).join('<br>');
   D.contacts.forEach((c) => { if (c.links.some((l) => l.bid === other.id)) { c.links = c.links.filter((l) => l.bid !== other.id); if (!c.links.some((l) => l.bid === keep.id)) c.links.push({ bid: keep.id }); touch(c); } });
   touch(keep); other.farmLinks = []; trashBiz(other);
@@ -3614,7 +3655,7 @@ document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'log-undo') { ev.preventDefault(); undoEntry(el.dataset.id); }
   if (el.dataset.act === 'log-more') { S.logShow += 50; renderAll(); }
-  if (el.dataset.act === 'devname-save') { const v = $('#s-nick').value.trim(); if (!v) { toast('Enter a nickname'); return; } if ($('#s-devphone').value.replace(/\D/g, '').length < 8) { toast('Enter your phone number'); return; } LSset('bvt-nick', v); LSset('bvt-devmodel', $('#s-devmodel').value.trim() === AUTO_DEV ? '' : $('#s-devmodel').value.trim()); LSset('bvt-devphone', $('#s-devphone').value.trim()); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Saved — hi ' + v); updHi(); renderAll(); }
+  if (el.dataset.act === 'devname-save') { const v = $('#s-nick').value.trim(); if (!v) { toast('Enter a nickname'); return; } if ($('#s-devphone').value.replace(/\D/g, '').length < 8) { toast('Enter your phone number'); return; } LSset('bvt-nick', v); LSset('bvt-devmodel', $('#s-devmodel').value.trim() === AUTO_DEV ? '' : $('#s-devmodel').value.trim()); LSset('bvt-devphone', $('#s-devphone').value.trim()); LSset('bvt-initials', ($('#s-initials') ? $('#s-initials').value.trim().toUpperCase() : '')); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Saved — hi ' + v); updHi(); renderAll(); }
   if (el.dataset.act === 'dev-detect') { detectDevice().then((d) => { $('#s-devmodel').value = d || ''; if (!d) toast("This device doesn't share its model — type a name"); }); }
 });
 
@@ -3904,9 +3945,10 @@ document.addEventListener('click', async (e) => {
       const rec = w.kind === 'contact' ? D.contacts.find((x) => x.id === w.id) : IDX.biz.get(w.bid); const f = w.fid ? IDX.farms.get(w.fid) : null; if (!rec) break;
       const join = (x, y) => [x, y].filter((t) => (t || '').trim()).join('\n'); const tgt = rec;
       if (a === 'warn-remove') { if (!(await ask(`Remove the *WARNING* section (and the text under it) from ${f ? 'the farm info of ' + (f.name || 'this farm') : 'the general info of ' + j.who}?\n\n${j.warnTxt}`, 'Yes — remove it', true))) break; if (f) { removeWarnSection(f); touch(rec); } else { removeWarnSection(rec); touch(rec); } NEXT_LOG_LABEL = `Removed *WARNING* section from ${j.who}`; S.skipConfirm = true; if (await changed()) toast('Removed from general info'); break; }
-      if (d.to === 'general') { if ((tgt.warnings || '').includes(j.warnTxt)) { toast('Already in the general warning'); break; } tgt.warnings = join(tgt.warnings, j.warnTxt); touch(tgt); }
-      if (d.to === 'side') { if ((tgt.sideNotes || '').includes(j.warnTxt)) { toast('Already in the side note'); break; } tgt.sideNotes = join(tgt.sideNotes, j.warnTxt); touch(tgt); }
-      if (d.to === 'farm') { const ff = IDX.farms.get(d.fid); const fb = ff && IDX.farmBiz.get(ff.id); if (!ff) break; if ((ff.warning || '').includes(j.warnTxt)) { toast('Already in that farm warning'); break; } ff.seeWarning = true; ff.warning = join(ff.warning, j.warnTxt); touch(ff); }
+      const tType = w.kind === 'contact' ? 'contact' : 'business';
+      if (d.to === 'general') { if ((tgt.warnings || '').includes(j.warnTxt)) { toast('Already in the general warning'); break; } addNote(tgt, tType, 'warn', j.warnTxt); }
+      if (d.to === 'side') { if ((tgt.sideNotes || '').includes(j.warnTxt)) { toast('Already in the side note'); break; } addNote(tgt, tType, 'side', j.warnTxt); }
+      if (d.to === 'farm') { const ff = IDX.farms.get(d.fid); if (!ff) break; if ((ff.warning || '').includes(j.warnTxt)) { toast('Already in that farm warning'); break; } addNote(ff, 'farm', 'warn', j.warnTxt); }
       NEXT_LOG_LABEL = `Applied warning for ${j.who} as ${d.to === 'general' ? 'general warning' : d.to === 'side' ? 'side note' : 'farm warning'}`;
       if (await changed()) toast('✓ Applied — you can now remove it from general info if you like'); break; }
     case 'e-primtoggle': { const inp = $('#e-bprimary'); if (!inp) break; inp.value = inp.value === d.cid ? '' : d.cid; document.querySelectorAll('#e-bprimlist .primbtn').forEach((x) => { const on = x.dataset.cid === inp.value; x.classList.toggle('on', on); x.textContent = on ? 'Primary — tap to remove' : '☆ Make primary'; }); break; }
@@ -4085,6 +4127,7 @@ document.addEventListener('click', async (e) => {
       if (!r) break; const all = { ...(D.settings.icons || {}) }; const v = (ASK_FORM.emoji || '').trim(); if (r === 'alt' || !v || v === def[1]) delete all[d.k]; else all[d.k] = v;
       D.settings.icons = all; touch(D.settings); NEXT_LOG_LABEL = `Symbol for ${def[2]}: ${all[d.k] || def[1]}`; S.skipConfirm = true; await changed(); break; }
     case 'maiden-fix': { const c = D.contacts.find((x) => x.id === d.cid); if (!c || !maidenApply(c)) break; NEXT_LOG_LABEL = `${fullName(c)}: maiden name ${c.maiden} moved to its own box`; if (await changed()) toast('Maiden name moved'); break; }
+    case 'note-add': case 'note-edit': case 'note-resolve': case 'note-reopen': await noteAction(a, d); break;
     case 'box-edit': await boxForm(d.k); break;
     case 'sec-edit': await secNameForm(S.layK || 'contact', d.k); break;
     case 'cs-add': case 'cs-edit': { const list = [...(D.settings.customSecs || [])]; const i = list.findIndex((x) => x.id === d.id); const v = await customSecForm(i >= 0 ? list[i] : null); if (!v) break;

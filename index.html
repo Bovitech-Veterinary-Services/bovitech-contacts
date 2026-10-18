@@ -358,6 +358,25 @@ details.secfold>.card>h3{justify-content:flex-end;margin:-4px 0 0;min-height:0}
 .chips.wrapchips{flex-wrap:wrap!important;overflow:visible!important;mask-image:none!important;-webkit-mask-image:none!important}
 .ownerq{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;font-size:16px;background:var(--card);color:var(--ink)}
 .nee{font-family:var(--font);font-size:15px;font-weight:500;color:var(--ink3);white-space:nowrap}
+.noterow{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;padding:5px 0;border-top:1px dashed rgba(0,0,0,.12)}
+.noterow:first-child{border-top:0}.noterow>.body{flex:1 1 200px;min-width:0}
+.notemeta{font-size:11.5px;font-weight:600;opacity:.65;white-space:nowrap;margin-left:4px;font-style:normal}
+.noteacts{display:flex;gap:5px;flex-wrap:wrap}.noteacts .btn.small{padding:4px 8px;font-size:12.5px}
+.notefrom{flex-basis:100%;font-size:12px;font-weight:700;opacity:.75}
+.noterow.done{opacity:.8}.noteres{font-size:13px;margin-top:2px;color:var(--green)}
+details.resolvednotes{margin-top:6px;font-size:14px}details.resolvednotes>summary{cursor:pointer;font-size:13px;font-weight:600;opacity:.75}
+.card.noteclear{background:var(--card)}
+.card.caution{background:#fff6c7;border-color:#efd46a}.card.caution h3,.card.caution .body{color:#6b4f00}
+.farmnote{margin-top:6px;padding:6px 10px;border-radius:9px;border:1px solid}
+.farmnote .fnh{font-weight:800;font-size:13.5px;text-transform:uppercase;letter-spacing:.3px}
+.farmnote.fn-warn{background:#fdeaea;border-color:#f3b3b6;color:#a3121c}
+.farmnote.fn-caution{background:#fff6c7;border-color:#efd46a;color:#6b4f00}
+.farmnote.fn-repair{background:#ffe8d1;border-color:#f5b06a;color:#7a3b00}
+.farmnote.clear{background:transparent;border-style:dashed;color:var(--ink2)}
+html[data-theme=dark] .farmnote.fn-warn{background:#3b1517;color:#ff8d92;border-color:#6e2a2e}html[data-theme=dark] .farmnote.fn-caution{background:#33301a;color:#f2d37b;border-color:#6b5a1f}html[data-theme=dark] .farmnote.fn-repair{background:#3d2614;color:#f7c79b;border-color:#6e4422}
+.notesblock{margin-bottom:4px}
+.nee{font-family:var(--font);font-size:15px;font-weight:500;color:var(--ink3);white-space:nowrap}
+h3+.noterow,.fnh+.noterow,.notefrom:first-child,.hint+.noterow{border-top:0!important}
 </style>
 </head>
 <body>
