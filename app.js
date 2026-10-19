@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '14.6 (19 Oct 2026)';
+const APP_VERSION = '14.7 (19 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1802,9 +1802,9 @@ async function customSecForm(cur) { const inp = 'style="width:100%;font-size:16p
 let DND = null;
 document.addEventListener('pointerdown', (e) => { const row = e.target.closest('.dragrow'); if (!row) return; const hd = e.target.closest('.draghandle');
   if (!hd && (e.pointerType !== 'mouse' || e.target.closest('button,input,select,a,label'))) return; const box = row.parentElement; if (!box || !box.dataset.dnd) return; if ((box.dataset.dnd === 'settings' || box.dataset.dnd.startsWith('eplayout:')) && (!hd || !S.admin)) return;
-  DND = { row, box, y0: e.clientY, moved: false }; try { row.setPointerCapture(e.pointerId); } catch (e2) { } if (hd) e.preventDefault(); });
+  if (!hd && e.target.closest('[data-act], .lnk')) return; DND = { row, box, y0: e.clientY, moved: false, pid: e.pointerId }; if (hd) { try { row.setPointerCapture(e.pointerId); } catch (e2) { } e.preventDefault(); } });
 document.addEventListener('pointermove', (e) => { if (!DND) return; if (!DND.moved && Math.abs(e.clientY - DND.y0) < 5) return;
-  if (!DND.moved) { DND.moved = true; DND.row.classList.add('dragging'); document.body.classList.add('dragging-on'); } e.preventDefault();
+  if (!DND.moved) { DND.moved = true; try { DND.row.setPointerCapture(DND.pid); } catch (e2) { } DND.row.classList.add('dragging'); document.body.classList.add('dragging-on'); } e.preventDefault();
   const rows = [...DND.box.querySelectorAll(':scope > .dragrow')].filter((r) => r !== DND.row); const y = e.clientY;
   const after = rows.find((r) => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; });
   if (after) { if (DND.row.nextElementSibling !== after) DND.box.insertBefore(DND.row, after); } else if (DND.box.lastElementChild !== DND.row) DND.box.appendChild(DND.row);
@@ -2604,9 +2604,9 @@ function renderSettings() {
     <div class="f"><label>1. What do you want Claude to do or find?</label><textarea id="ai-req" style="min-height:70px" placeholder="e.g. Link Kiara Trowbridge to Zambonetti Transport and make her C client · Which A clients have no PIC? · Make all the Ravenhill contacts A+">${h(S.aiReq || '')}</textarea></div>
     <div class="f"><label>Send Claude</label><select id="ai-scope"><option value="mentioned">Only the people and businesses named in my request (plus who they're linked to)</option><option value="all" ${S.aiScope === 'all' ? 'selected' : ''}>Everyone, in short form (for questions across all clients)</option></select></div>
     <div class="actions"><button class="btn primary" data-act="ai-copy">2. Copy for Claude &amp; open Claude</button></div><div id="ai-copyinfo" class="hint"></div>
-    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Open a particular Claude chat or project instead of a new chat${D.settings.aiChatUrl ? ' <b>(set)</b>' : ''}</summary>
+    ${S.admin ? `<details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Open a particular Claude chat or project instead of a new chat${D.settings.aiChatUrl ? ' <b>(set)</b>' : ''}</summary>
       <div class="hint" style="margin:6px 0">Open the chat (or Claude project) in Claude, copy its address from the address bar or Share menu, and paste it here. Leave empty to start a new chat each time. Applies on every device.</div>
-      <div class="search"><input id="ai-chaturl" value="${h(D.settings.aiChatUrl || '')}" placeholder="https://claude.ai/chat/…"><button class="btn small" data-act="ai-chat-save">Save</button></div></details>
+      <div class="search"><input id="ai-chaturl" value="${h(D.settings.aiChatUrl || '')}" placeholder="https://claude.ai/chat/…"><button class="btn small" data-act="ai-chat-save">Save</button></div></details>` : `<div class="hint" style="margin-top:8px">Opens ${D.settings.aiChatUrl ? 'a particular Claude chat or project (set by the admin)' : 'a new Claude chat'}. <button type="button" class="setlock" style="font-size:11px;padding:1px 7px" data-act="admin-unlock">🔒 Admin only — unlock to change</button></div>`}
     <div class="f" style="margin-top:10px"><label>3. Paste Claude's reply here</label><textarea id="ai-reply" style="min-height:90px" placeholder="Paste Claude's whole reply">${h(S.aiReply || '')}</textarea></div>
     <div class="actions"><button class="btn primary" data-act="ai-apply">Check changes</button></div><div id="ai-result" class="hint">${S.aiResult || ''}</div></div>
   <div class="card"><h3><span class="sp">Tags &amp; photos</span><button class="btn small" data-act="new-tag">➕ New tag</button></h3>
@@ -2914,7 +2914,7 @@ function syncSettingsCard() {
   ${Sync.msg ? `<div class="kv"><div class="k">Last error</div><div class="v" style="color:var(--red)">${h(Sync.msg)}</div></div>` : ''}
   <div class="actions" style="margin-top:8px"><button class="btn primary" data-act="sync-now">Sync now</button>${D.sync.email ? '<button class="btn" data-act="g-signout">Sign out</button>' : ''}</div>
   <div class="lbl" style="margin-top:14px">Google Contacts (caller photos on the phones)</div>
-  <label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0"><input type="checkbox" data-act="gpush-toggle" ${gp.on ? 'checked' : ''} ${S.admin ? '' : 'disabled title="Only the admin can change this"'}> <span>This device keeps Google Contacts up to date <span class="setlock fixed" style="font-size:11px;padding:1px 7px">🔒 Admin only</span><br><span class="hint">Turn this on for one device only — the office computer is best. It copies names, numbers, emails, business and the tag photo (with CHECK WARNING) to bovitechvetservices@gmail.com, so the phones show the right photo when a client rings.</span></span></label>
+  <label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0"><input type="checkbox" data-act="gpush-toggle" ${gp.on ? 'checked' : ''} ${S.admin ? '' : 'disabled title="Only the admin can change this"'}> <span>This device keeps Google Contacts up to date ${S.admin ? '<span class="setlock fixed" style="font-size:11px;padding:1px 7px">🔒 Admin only</span>' : '<button type="button" class="setlock" style="font-size:11px;padding:1px 7px" data-act="admin-unlock" title="Unlock admin">🔒 Admin only — unlock</button>'}<br><span class="hint">Turn this on for one device only — the office computer is best. It copies names, numbers, emails, business and the tag photo (with CHECK WARNING) to bovitechvetservices@gmail.com, so the phones show the right photo when a client rings.</span></span></label>
   ${gp.on ? `<div class="kv"><div class="k">Status</div><div class="v">${h(gp.msg || 'Waiting')}</div></div><div class="actions"><button class="btn small" data-act="gpush-now">Update Google Contacts now</button></div>` : ''}
   </div>`;
 }
@@ -3600,11 +3600,22 @@ async function satMap(el, center, zoom = 15) { await loadLeaflet(); el.innerHTML
 function pcqAuto() { /* open pin-check job: the first farm's map opens by itself */ if (S.tab !== 'jobs') return; if (S.pcq && $('#pm-' + S.pcq.fid + ' .pcqmap')) return;
   const btn = document.querySelector('details.jobgroup[open][data-type^="pincheck"] [data-act=pcq-start]'); if (btn) btn.click(); }
 document.addEventListener('toggle', (e) => { const t = e.target; if (t.matches && t.matches('details.jobgroup[data-type^="pincheck"]') && t.open) setTimeout(pcqAuto, 30); }, true);
+function pcqDupes(f) { /* other farms that look like the same yards: a pin within 150 m, or the same name and address */
+  const mine = [f.lat != null ? { lat: f.lat, lng: f.lng } : null, f.turn && f.turn.lat != null ? f.turn : null, ...(f.extra || []).filter((x) => x.lat != null)].filter(Boolean); const nm = ((f.name || '') + '|' + (f.address || '')).toLowerCase();
+  return D.farms.filter((o) => o !== f && farmUsersOf(o.id).length && (([o.lat != null ? { lat: o.lat, lng: o.lng } : null, o.turn && o.turn.lat != null ? o.turn : null].filter(Boolean).some((p) => mine.some((m) => hav(m, p) < 0.15))) || (f.address && nm === ((o.name || '') + '|' + (o.address || '')).toLowerCase()))).slice(0, 4); }
+function pcqUsersHtml(f) { const q = S.pcq; const us = farmUsersOf(f.id); const fo = farmOwner(f); const dup = pcqDupes(f); let out = '';
+  if (us.length > 1) { const ownOpts = [['keep', fo.name ? `${fo.name} (as now)` : 'Not set (as now)'], ...us.filter((u) => !(f.owner && f.owner.bid === u.b.id)).map((u) => ['b:' + u.b.id, u.b.name]), ['unknown', 'Unknown owner']];
+    out += `<div class="pcqusers"><div class="lbl" style="margin:8px 0 4px">These yards are shared — check each business</div>${us.map((u) => `<div class="pcqpin"><span style="flex:1;font-weight:600">${h(u.b.name)}</span><select class="pcq-user" data-bid="${u.b.id}"><option value="cur" ${q.users[u.b.id] ? '' : 'selected'}>✓ Still uses them</option><option value="past" ${q.users[u.b.id] ? 'selected' : ''}>Not current</option></select></div>`).join('')}
+      <div class="pcqpin"><span style="flex:1;font-weight:600">Owned by</span><select class="pcq-owner">${ownOpts.map(([v, l]) => `<option value="${h(v)}" ${q.owner === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select></div></div>`; }
+  if (dup.length) out += `<div class="pcqusers"><div class="lbl" style="margin:8px 0 4px">⚠ Possible duplicate yards</div>${dup.map((o) => `<div class="pcqpin"><span style="flex:1">${h(farmLabel(o))}</span><button type="button" class="btn small" data-act="farm-merge-pick" data-fid="${f.id}" data-oid="${o.id}">⇄ Merge</button></div>`).join('')}</div>`;
+  return out; }
+document.addEventListener('change', (e) => { const t = e.target; if (!S.pcq || !t.classList) return; if (t.classList.contains('pcq-user')) S.pcq.users[t.dataset.bid] = t.value === 'past'; if (t.classList.contains('pcq-owner')) S.pcq.owner = t.value; });
 async function pcqDraw(f) { /* the check-pins map in a job: every pin with its type, label and ✕, plus the map */
   const q = S.pcq, box = $('#pm-' + f.id), hint = $('#pmh-' + f.id); if (!q || !box || !hint) return; const emo = (t) => (t === 'turn' ? turnPin().emoji : pinT(t).emoji);
   const opts = (v) => `<option value="turn" ${v === 'turn' ? 'selected' : ''}>${turnPin().emoji} ${h(turnName())}</option>${pinTypes().map((t) => `<option value="${h(t.id)}" ${v === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}`;
   hint.innerHTML = `<b>Drag each pin into place.</b> The ${turnPin().emoji} (red ring) is where you leave the road. Change a pin's type below if it's wrong.${q.newYards ? ' The yards pin starts beside the turn-off.' : ''}
     <div class="pcqpins">${q.pins.map((p) => `<div class="pcqpin" data-k="${h(p.k)}"><span class="yemo">${emo(p.type)}</span><select class="pcq-type" data-fid="${f.id}" data-k="${h(p.k)}">${opts(p.type)}</select>${p.type === 'turn' ? '<span style="flex:1"></span>' : `<input class="pcq-name" data-k="${h(p.k)}" value="${h(p.name || '')}" placeholder="Label (optional)">`}${q.pins.length > 1 ? `<button type="button" class="btn small" data-act="pcq-del" data-fid="${f.id}" data-k="${h(p.k)}" title="Remove this pin">✕</button>` : ''}</div>`).join('')}</div>
+    ${pcqUsersHtml(f)}
     <div class="acts" style="margin-top:6px"><button class="btn small" data-act="pcq-add" data-fid="${f.id}">➕ Add another pin</button><button class="btn small greenbtn" data-act="pcq-save" data-fid="${f.id}" data-next="1">✓ Save & next</button><button class="btn small" data-act="pcq-save" data-fid="${f.id}">✓ Save</button><button class="btn small pcqfs" data-act="pcq-full" data-fid="${f.id}">${S.pcqFull ? '✕ Exit full screen' : '⛶ Full screen'}</button></div>`;
   const c = q.pins.find((x) => x.type === 'turn') || q.pins[0];
   await liveMultiMap(box, c, q.pins.map((p) => ({ k: p.k, lat: p.lat, lng: p.lng, emo: emo(p.type), red: p.type === 'turn' })), (k, lat, lng) => { const p = S.pcq && S.pcq.fid === f.id && S.pcq.pins.find((x) => x.k === k); if (p) { p.lat = lat; p.lng = lng; } }); }
@@ -4352,12 +4363,12 @@ document.addEventListener('click', async (e) => {
       const yT = f.lat != null || isYardType(f.pinType) ? f.pinType : ((pinTypes().find((x) => x.yard) || {}).id || f.pinType);
       const pins = [{ k: 'turn', type: 'turn', name: '', ...t }, { k: 'main', type: yT, name: f.yLabel || '', ...(f.lat != null ? { lat: +f.lat, lng: +f.lng } : { lat: t.lat + 0.0004, lng: t.lng + 0.0006 }) }]; // no yards pin yet → start it just beside the turn-off
       (f.extra || []).forEach((x) => { if (x.lat != null) pins.push({ k: 'x:' + x.id, type: x.type, name: x.name || '', lat: +x.lat, lng: +x.lng }); });
-      S.pcq = { fid: f.id, pins, newYards: f.lat == null }; box.parentElement.classList.add('pcqwrap'); box.parentElement.classList.toggle('pcqfull', !!S.pcqFull);
+      const us0 = farmUsersOf(f.id); S.pcq = { fid: f.id, pins, newYards: f.lat == null, users: Object.fromEntries(us0.map((u) => [u.b.id, !!u.past])), owner: 'keep' }; box.parentElement.classList.add('pcqwrap'); box.parentElement.classList.toggle('pcqfull', !!S.pcqFull);
       await pcqDraw(f); if (!S.pcqFull) box.scrollIntoView({ block: 'start', behavior: 'smooth' }); break; }
     case 'pcq-add': { const f = IDX.farms.get(d.fid), q = S.pcq; if (!f || !q || q.fid !== f.id) break; const last = q.pins[q.pins.length - 1]; q.pins.push({ k: 'n' + Date.now(), type: (pinTypes().find((x) => x.yard) || { id: 'cattle' }).id, name: '', lat: last.lat + 0.0004, lng: last.lng - 0.0006 }); await pcqDraw(f); toast('New pin added beside the last one — drag it into place'); break; }
     case 'pcq-del': { const f = IDX.farms.get(d.fid), q = S.pcq; if (!f || !q || q.pins.length < 2) break; q.pins = q.pins.filter((x) => x.k !== d.k); await pcqDraw(f); break; }
     case 'pcq-full': { const box = $('#pm-' + d.fid); if (!box) break; S.pcqFull = !S.pcqFull; box.parentElement.classList.toggle('pcqfull', S.pcqFull); document.body.classList.toggle('pcq-on', S.pcqFull); el.textContent = S.pcqFull ? '✕ Exit full screen' : '⛶ Full screen'; setTimeout(() => { try { if (box._lm) box._lm.invalidateSize(); } catch (e) { } if (!S.pcqFull) box.scrollIntoView({ block: 'start' }); }, 80); break; }
-    case 'pcq-save': { const f = IDX.farms.get(d.fid), q = S.pcq; if (!f || !q || q.fid !== f.id) break; const turns = q.pins.filter((x) => x.type === 'turn'); if (turns.length > 1) { toast(`Only one pin can be the ${turnName().toLowerCase()} — change the type of the others`); break; } if (!(await sharedYardOk(f))) break;
+    case 'pcq-save': { const f = IDX.farms.get(d.fid), q = S.pcq; if (!f || !q || q.fid !== f.id) break; const turns = q.pins.filter((x) => x.type === 'turn'); if (turns.length > 1) { toast(`Only one pin can be the ${turnName().toLowerCase()} — change the type of the others`); break; }
       const was = JSON.parse(JSON.stringify({ turn: f.turn, lat: f.lat, lng: f.lng, kmReturn: f.kmReturn, driveMin: f.driveMin, kmStatus: f.kmStatus, pinType: f.pinType, yLabel: f.yLabel, extra: f.extra })); const r6 = (v) => +(+v).toFixed(6);
       const before = farmRoutePt(f); const yards = q.pins.filter((x) => x.type !== 'turn'); const tp = turns[0];
       if (tp) f.turn = { lat: r6(tp.lat), lng: r6(tp.lng) }; else delete f.turn;
@@ -4366,6 +4377,8 @@ document.addEventListener('click', async (e) => {
       const ex = [...yards.slice(1).map((p2) => { const o = p2.k.startsWith('x:') ? old.get(p2.k.slice(2)) : null; return { ...(o || {}), id: o ? o.id : uid('p'), type: p2.type, name: (p2.name || '').trim(), lat: r6(p2.lat), lng: r6(p2.lng), safety: (o && o.safety) || {} }; }), ...kept]; if (ex.length) f.extra = ex; else delete f.extra;
       const after = farmRoutePt(f); const moved = !before || !after || before.lat == null || after.lat == null || Math.abs(before.lat - after.lat) > 1e-6 || Math.abs(before.lng - after.lng) > 1e-6;
       if (moved && !(await verifyKmBox(f))) { Object.assign(f, was); if (!was.turn) delete f.turn; if (!was.extra) delete f.extra; if (was.yLabel == null) delete f.yLabel; toast('Not saved — nothing was changed'); break; }
+      Object.entries(q.users || {}).forEach(([bid, past]) => { const b = IDX.biz.get(bid), l = b && b.farmLinks.find((x) => x.fid === f.id); if (l && !!l.past !== past) linkFarm(b, f, past); });
+      if (q.owner === 'unknown') f.owner = { unknown: true }; else if (q.owner && q.owner.startsWith('b:')) f.owner = { bid: q.owner.slice(2) };
       f.pinChecked = true; touch(f); NEXT_LOG_LABEL = `Pins checked: ${farmLabel(f)}`; S.skipConfirm = true; const type = jobs().find((j) => (j.type === 'pincheck' || j.type === 'pincheckin') && j.fid === f.id)?.type;
       if (!(await changed())) break; S.pcq = null; toast('✓ Pins saved');
       if (d.next) setTimeout(() => { const nb = [...document.querySelectorAll(`details.jobgroup[data-type="${type || 'pincheck'}"] [data-act=pcq-start]`)][0]; if (nb) nb.click(); }, 350); break; }
