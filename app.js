@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '13.8 (19 Oct 2026)';
+const APP_VERSION = '13.9 (19 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1979,7 +1979,7 @@ function parseGps(s) {
   return { lat, lng };
 }
 function extraPinRow(x) { x = x || { id: uid('p'), type: (pinTypes().find((t) => t.yard) || { id: 'sheep' }).id, name: '', lat: null, lng: null, safety: {} }; const sf = x.safety || {};
-  return `<div class="card xpin" data-id="${h(x.id)}" style="padding:8px;margin:6px 0"><div class="lbl" style="margin:0 0 4px">Other pin</div><div style="display:flex;gap:6px;flex-wrap:wrap"><select class="xp-type" style="flex:1;min-width:150px">${pinTypes().map((t) => `<option value="${h(t.id)}" ${x.type === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select><input class="xp-name" value="${h(x.name || '')}" placeholder="Label (optional)" style="flex:1;min-width:140px"><button type="button" class="btn small" data-act="xpin-del">✕</button></div>
+  return `<div class="card xpin" data-id="${h(x.id)}" style="padding:8px;margin:6px 0"><div class="yardlbl">${h(x.name || '')}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><select class="xp-type" style="flex:1;min-width:150px">${pinTypes().map((t) => `<option value="${h(t.id)}" ${x.type === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select><input class="xp-name" value="${h(x.name || '')}" placeholder="Label (optional)" style="flex:1;min-width:140px"><button type="button" class="btn small" data-act="xpin-del">✕</button></div>
     <input class="xp-gps" value="${x.lat != null ? h(x.lat + ', ' + x.lng) : ''}" placeholder="GPS pin (or paste a Google Maps link)" style="width:100%;margin-top:6px">
     <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><select class="xp-safe" style="flex:1;min-width:150px">${Object.entries(SAFETY).map(([k, v]) => `<option value="${k}" ${(sf.status || 'ok') === k ? 'selected' : ''}>Safety: ${v.l}</option>`).join('')}</select><input class="xp-safenote" value="${h(sf.note || '')}" placeholder="Safety note" style="flex:2;min-width:150px"></div></div>`;
 }
@@ -2002,7 +2002,7 @@ function editFarm(b, f) {
     <div><button class="btn small" type="button" data-act="calc-dist">Calculate with Google Maps</button> <span class="hint" id="e-calchint">Measured to the ${h(turnName().toLowerCase())} pin (or the main yards if there's no ${h(turnName().toLowerCase())}).</span></div>
     <div id="e-verify"></div></div>
   <div class="pinstep"><div class="pinstep-h"><span class="pinnum">2</span>🐄 Yards pins <span class="hint">— where the work is done</span></div>
-    <div class="card" style="padding:8px;margin:6px 0"><div class="lbl" style="margin:0 0 4px">Main yards</div><select id="e-ftype" style="width:100%">${pinTypes().map((t) => `<option value="${h(t.id)}" ${f.pinType === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select>
+    <div class="card" style="padding:8px;margin:6px 0"><div class="yardlbl" id="e-ylbl">${h(f.yLabel || '')}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><select id="e-ftype" style="flex:1;min-width:150px">${pinTypes().map((t) => `<option value="${h(t.id)}" ${f.pinType === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select><input id="e-fylabel" value="${h(f.yLabel || '')}" placeholder="Label (optional)" style="flex:1;min-width:140px"></div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span id="e-ftypeemo" style="font-size:20px">${pinT(f.pinType).emoji}</span><input id="e-fgps" value="${h(startGps)}" placeholder="GPS of the yards (or paste a Google Maps link)" style="flex:1"></div>
       <div class="hint" id="e-fgpshint">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">Open pin in Google Maps</a>` : 'Drop a pin on the yards in Google Maps, copy the coordinates, paste here.'}</div>
       <div class="actions" style="margin-top:6px"><button type="button" class="btn small" data-act="farm-pinsuggest">📍 Suggest a pin from the address</button></div><div id="pin-res" class="hint"></div><div id="pin-prev"></div></div>
@@ -2040,9 +2040,9 @@ function editFarm(b, f) {
     const st = $('#e-fsafe').value, sn = val('e-fsafenote'); const nsf = st === 'ok' && !sn ? null : { status: st, note: sn, date: st === sf.status && sn === (sf.note || '') ? sf.date : new Date().toLocaleDateString('en-AU'), by: st === sf.status && sn === (sf.note || '') ? sf.by : devInfo().nick };
     const recS = $('#e-frec').value, recN = val('e-frecnote'); const nrc = recS || recN ? { ...rc, status: recS, note: recN, ...(recS !== (rc.status || '') ? { at: Date.now(), by: devInfo().nick } : {}) } : null;
     const ownerV = readOwner('e-fowner');
-    Object.assign(f, { name: val('e-fname'), pinType: $('#e-ftype').value, address: val('e-faddr'), info: $('#e-finfo').value.trim(), kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn,
+    Object.assign(f, { name: val('e-fname'), yLabel: val('e-fylabel'), pinType: $('#e-ftype').value, address: val('e-faddr'), info: $('#e-finfo').value.trim(), kmReturn: km === '' ? null : +km, driveMin: mn === '' ? null : +mn,
       access: val('e-facc') || $('#e-fwet').value ? { notes: val('e-facc'), wet: $('#e-fwet').value } : null, fac: Object.keys(nfac).length ? nfac : null, safety: nsf, extra: xs, reception: nrc, biosec: $('#e-fbio').value.trim(), owner: ownerV, photos: SHEET_FARM.photos });
-    Object.keys(f).forEach((k) => { if (f[k] === null && ['access', 'fac', 'safety', 'reception', 'owner'].includes(k)) delete f[k]; if (['biosec', 'extra', 'photos'].includes(k) && (f[k] === '' || (Array.isArray(f[k]) && !f[k].length))) delete f[k]; });
+    if (!f.yLabel) delete f.yLabel; Object.keys(f).forEach((k) => { if (f[k] === null && ['access', 'fac', 'safety', 'reception', 'owner'].includes(k)) delete f[k]; if (['biosec', 'extra', 'photos'].includes(k) && (f[k] === '' || (Array.isArray(f[k]) && !f[k].length))) delete f[k]; });
     if (g) { f.lat = g.lat; f.lng = g.lng; } else { f.lat = f.lng = null; }
     if (tg) f.turn = { lat: tg.lat, lng: tg.lng }; else delete f.turn;
     if (gpsChanged) f.flags = (f.flags || []).filter((x) => x.type !== 'signfix' && x.type !== 'kmcheck');
@@ -4527,6 +4527,7 @@ async function routeAddedBox(fids) {
   if (await askBox(ok.length ? 'Added to route' : 'Route not changed', html, `View route (${S.route.stops.length} stop${S.route.stops.length === 1 ? '' : 's'})`, false, 'OK — keep going')) goTab('route');
 }
 document.addEventListener('change', (e) => { const t = e.target; if (!t.matches || !t.matches('[name=dtype]')) return; const box = t.closest('#askbox, .card') || document; const ph = t.value === 'phone'; box.querySelectorAll('.dt-phone').forEach((x) => { x.hidden = !ph; }); box.querySelectorAll('.dt-comp').forEach((x) => { x.hidden = ph; }); });
+document.addEventListener('input', (e) => { const t = e.target; if (t.id === 'e-fylabel') { const l = $('#e-ylbl'); if (l) l.textContent = t.value.trim(); } else if (t.classList && t.classList.contains('xp-name')) { const l = t.closest('.xpin').querySelector('.yardlbl'); if (l) l.textContent = t.value.trim(); } });
 async function askDeviceName() { // compulsory on a new device; asked once more on each device when it first opens v8.2
   if (window.SEED) return; const recheck = !LSget('bvt-devask82'); const okPh = (v) => (v || '').replace(/\D/g, '').length >= 8; if (devInfo().nick && (devIsPhone() ? okPh(devInfo().phone) : !!LSget('bvt-devmodel')) && !recheck && LSget('bvt-devtype') && LSget('bvt-initials')) { updHi(); return; }
   await detectDevice(); const di = devInfo(); di.type = devIsPhone() ? 'phone' : 'computer'; if (di.type === 'computer' && di.dev === AUTO_DEV) di.dev = ''; const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
