@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '14.2 (19 Oct 2026)';
+const APP_VERSION = '14.3 (19 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -4141,7 +4141,11 @@ document.addEventListener('click', async (e) => {
     case 'edit-contact': editContact(D.contacts.find((x) => x.id === d.id)); if (d.jump) jumpTo(d.jump); break;
     case 'new-biz': editBiz(null); break;
     case 'edit-biz': editBiz(IDX.biz.get(d.id)); if (d.jump) jumpTo(d.jump); break;
-    case 'add-farm': editFarm(IDX.biz.get(d.bid), null); break;
+    case 'add-farm': { const b = IDX.biz.get(d.bid); if (!b) break; const lw = locWord(b).toLowerCase();
+      const r = await askBox('Add a ' + lw + ' to ' + b.name, `<p>Is this a <b>new</b> ${h(lw)} that isn't in the app yet, or one that's <b>already in the app</b> (e.g. yards shared with another business, or a lease block) that just needs linking?</p>`, '➕ New — add it', false, 'Cancel', '🔗 Existing — find and link it');
+      if (r === true) editFarm(b, null); else if (r === 'alt') openSheet('Link an existing ' + lw + ' — ' + b.name, `<div class="hint" style="margin-bottom:8px">Search by farm or yards name, address, or the business that uses or owns it, then tap it to link.</div><input id="farm-linksearch2" data-bid="${b.id}" placeholder="🔍 Search farms and yards" autocomplete="off" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><div id="farm-linkres2"></div><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-act="farm-link-new" data-bid="${b.id}">Not found? ➕ Add it as a new ${h(lw)}</button></div>`, () => { toast('Tap a farm in the list to link it'); return false; }), setTimeout(() => { const i = $('#farm-linksearch2'); if (i) i.focus(); }, 50);
+      break; }
+    case 'farm-link-new': { const b = IDX.biz.get(d.bid); closeSheet(); if (b) editFarm(b, null); break; }
     case 'im-ok': { const c = D.contacts.find((x) => x.id === d.cid); if (!c) break; delete c.infoMove; touch(c); NEXT_LOG_LABEL = `General info of ${fullName(c)} confirmed on the business`; await changed(); break; }
     case 'im-to': { const c = D.contacts.find((x) => x.id === d.cid), b = IDX.biz.get(d.bid); if (!c || !b || !c.infoMove) break; const im = c.infoMove; let block = im.block;
       if (im.pending) block = infoBlockFor(c, im.text); else { const ob = IDX.biz.get(im.bid); if (ob) infoRemove(ob, im.block); }
@@ -4232,7 +4236,7 @@ document.addEventListener('click', async (e) => {
       else { if (!(await sharedYardOk(f))) break; f.owner = { bid: b.id }; }
       touch(f); NEXT_LOG_LABEL = `${farmLabel(f)}: ${ownedBy(f, b) ? 'owned by ' + b.name : 'owner ' + (farmOwner(f).name || 'unknown')}`; if (await changed()) toast('Saved'); break; }
     case 'farm-past': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const l = b.farmLinks.find((x) => x.fid === f.id); if (!l) break; const toPast = !l.past; linkFarm(b, f, toPast); NEXT_LOG_LABEL = `${farmLabel(f)} ${toPast ? 'no longer current' : 'current again'} for ${b.name}`; if (await changed()) toast(toPast ? 'Moved to "Not current"' : 'Current again'); break; }
-    case 'farm-link-pick': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; const r = await askBox('Link farm', `<p>Link <b>${h(farmLabel(f))}</b> to <b>${h(b.name)}</b>?</p><p class="hint">It becomes a shared farm — any change to it shows for every business that uses it.</p>`, 'Link as current', false, 'Cancel', 'Link as not current'); if (!r) break; linkFarm(b, f, r === 'alt'); NEXT_LOG_LABEL = `Linked ${farmLabel(f)} to ${b.name}${r === 'alt' ? ' (not current)' : ''}`; S.skipConfirm = true; if (await changed()) toast('Farm linked'); break; }
+    case 'farm-link-pick': { const b = IDX.biz.get(d.bid), f = IDX.farms.get(d.fid); if (!b || !f) break; if (d.close) closeSheet(); const r = await askBox('Link farm', `<p>Link <b>${h(farmLabel(f))}</b> to <b>${h(b.name)}</b>?</p><p class="hint">It becomes a shared farm — any change to it shows for every business that uses it.</p>`, 'Link as current', false, 'Cancel', 'Link as not current'); if (!r) break; linkFarm(b, f, r === 'alt'); NEXT_LOG_LABEL = `Linked ${farmLabel(f)} to ${b.name}${r === 'alt' ? ' (not current)' : ''}`; S.skipConfirm = true; if (await changed()) toast('Farm linked'); break; }
     case 'edit-farm': { const f = IDX.farms.get(d.fid); if (f && !(await sharedYardOk(f))) break; editFarm(IDX.biz.get(d.bid), f); break; }
     case 'calc-dist': SHEET && SHEET.calc && SHEET.calc(); break;
     case 'sheet-cancel': leaveSheet(); break;
@@ -4636,10 +4640,10 @@ document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; clearTimeout(t._tm); t._tm = setTimeout(renderContactList, 120); }
   else if (t.id === 'pf-search') { const b = IDX.biz.get(t.dataset.bid); if (b) $('#pf-res').innerHTML = primFindRes(b, t.value); }
-  else if (t.id === 'farm-linksearch') { const pq = parseQuery(t.value); const b = IDX.biz.get(t.dataset.bid); const box = $('#farm-linkres'); if (!b) return;
+  else if (t.id === 'farm-linksearch' || t.id === 'farm-linksearch2') { const pq = parseQuery(t.value); const b = IDX.biz.get(t.dataset.bid); const two = t.id === 'farm-linksearch2'; const box = $(two ? '#farm-linkres2' : '#farm-linkres'); if (!b) return;
     const hay = (f) => [f.name, f.address, f.aka, ...farmUsersOf(f.id).map((u) => u.b.name), farmOwner(f).name].join(' ').toLowerCase();
     const res = pq.inc.length ? D.farms.filter((f) => !b.farmLinks.some((l) => l.fid === f.id) && matchQ(hay(f), pq)).slice(0, 12) : [];
-    box.innerHTML = t.value.trim() ? `<div class="results">${res.map((f) => `<div data-act="farm-link-pick" data-bid="${b.id}" data-fid="${f.id}">${pinT(f.pinType).emoji} <b>${h(f.name || f.address || 'Farm')}</b> <span class="hint">${h(farmUsersOf(f.id).map((u) => u.b.name).join(', ') || 'not linked')}${f.address ? ' · ' + h(f.address) : ''}</span></div>`).join('') || '<div class="hint">No matching farms.</div>'}</div>` : ''; }
+    box.innerHTML = t.value.trim() ? `<div class="results">${res.map((f) => `<div data-act="farm-link-pick" data-bid="${b.id}" data-fid="${f.id}" ${two ? 'data-close="1"' : ''}>${pinT(f.pinType).emoji} <b>${h(f.name || f.address || 'Farm')}</b> <span class="hint">${h(farmUsersOf(f.id).map((u) => u.b.name).join(', ') || 'not linked')}${f.address ? ' · ' + h(f.address) : ''}</span></div>`).join('') || '<div class="hint">No matching farms.</div>'}</div>` : ''; }
   else if (t.id === 'mg-search') { const isC = t.dataset.kind === 'contact'; const pq = parseQuery(t.value); const box = $('#mg-res');
     const res = !pq.inc.length ? [] : isC ? D.contacts.filter((c) => c.id !== t.dataset.id && matchQ([fullName(c), ...c.mobiles.map((p) => p.value.replace(/\D/g, '')), ...c.landlines.map((p) => p.value.replace(/\D/g, '')), ...bizOf(c).map((b) => b.name)].join(' ').toLowerCase(), pq)).slice(0, 12) : D.businesses.filter((b) => b.id !== t.dataset.id && matchQ(bizHay(b), pq)).slice(0, 12);
     box.innerHTML = t.value.trim() ? `<div class="results">${res.map((r) => `<div data-act="mg-pick" data-kind="${t.dataset.kind}" data-a="${t.dataset.id}" data-b="${r.id}"><b>${h(isC ? fullName(r) : r.name)}</b> <span class="hint">${h(isC ? (bizOf(r).map((b) => b.name).join(', ') || (r.mobiles[0] || r.landlines[0] || {}).value || '') : ((IDX.bizContacts.get(r.id) || []).map((c) => c.first).join(', ') + ' · ' + r.farms.length + ' farms'))}</span></div>`).join('') || '<div class="hint">No matches.</div>'}</div>` : ''; }
