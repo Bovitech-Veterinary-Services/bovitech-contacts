@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '13.3 (19 Oct 2026)';
+const APP_VERSION = '13.4 (19 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1417,7 +1417,7 @@ function biosecBanner(txt, from) { const o = secOver('contact', 'biosec') || {};
 function farmBiosecOf(f) { /* the farm's own note plus any from the businesses using it */ const out = []; if ((f.biosec || '').trim()) out.push({ txt: f.biosec, from: '' }); farmUsersOf(f.id).filter((u) => !u.past && (u.b.biosec || '').trim()).forEach((u) => out.push({ txt: u.b.biosec, from: u.b.name })); return out; }
 function farmCard(b, f, withFlags = true, past = false) {
   const verify = f.kmStatus === 'needs-verify'; const pt = pinT(f.pinType); const sf = f.safety || {};
-  const users = farmUsersOf(f.id).filter((u) => u.b !== b); const fo = farmOwner(f); const owner = fo.b || null;
+  const users = farmUsersOf(f.id).filter((u) => u.b !== b && !u.past); /* past users of a farm aren't listed on other contacts */ const fo = farmOwner(f); const owner = fo.b || null;
   const ownerTxt = ownedBy(f, b) && !fo.c ? '' : fo.name || (f.owner && f.owner.unknown ? 'unknown owner' : '');
   const nav = f.lat != null || (f.turn && f.turn.lat != null);
   return `<div class="farm ${f.seeWarning || sf.status === 'stop' ? 'red' : sf.status === 'caution' ? 'amber' : ''} ${past ? 'pastfarm' : ''}"><div class="fn"><span class="pinemo" title="${h(pt.name)}">${pt.emoji}</span> ${f.seeWarning ? '⚠ ' : ''}${h(f.name || pt.name)}${past ? ' <span class="pill" style="background:var(--line);color:var(--ink2)">Not current</span>' : ''}</div>
@@ -1701,7 +1701,7 @@ async function customSecForm(cur) { const inp = 'style="width:100%;font-size:16p
 /* hold ⠿ and drag to reorder (touch, pen or mouse); on a computer the whole row can be dragged */
 let DND = null;
 document.addEventListener('pointerdown', (e) => { const row = e.target.closest('.dragrow'); if (!row) return; const hd = e.target.closest('.draghandle');
-  if (!hd && (e.pointerType !== 'mouse' || e.target.closest('button,input,select,a,label'))) return; const box = row.parentElement; if (!box || !box.dataset.dnd) return;
+  if (!hd && (e.pointerType !== 'mouse' || e.target.closest('button,input,select,a,label'))) return; const box = row.parentElement; if (!box || !box.dataset.dnd) return; if (box.dataset.dnd === 'settings' && (!hd || !S.admin)) return;
   DND = { row, box, y0: e.clientY, moved: false }; try { row.setPointerCapture(e.pointerId); } catch (e2) { } if (hd) e.preventDefault(); });
 document.addEventListener('pointermove', (e) => { if (!DND) return; if (!DND.moved && Math.abs(e.clientY - DND.y0) < 5) return;
   if (!DND.moved) { DND.moved = true; DND.row.classList.add('dragging'); document.body.classList.add('dragging-on'); } e.preventDefault();
@@ -1714,6 +1714,7 @@ const dndEnd = async () => { if (!DND) return; const d = DND; DND = null; d.row.
   if (kind === 'layout') { if (!S.admin) return; const K = S.layK || 'contact'; D.settings.layout = { ...(D.settings.layout || {}), [K]: order }; NEXT_LOG_LABEL = 'Page layout changed (' + K + ' page)'; }
   else if (kind.startsWith('farms:')) { const b = IDX.biz.get(kind.slice(6)); if (!b) return; const rest = (b.farmOrder || []).filter((id) => !order.includes(id)); const all = sortFarms(b, [...b.farms, ...b.pastFarms]).map((f) => f.id);
     b.farmOrder = [...order, ...rest.filter((id) => all.includes(id)), ...all.filter((id) => !order.includes(id) && !rest.includes(id))]; touch(b); NEXT_LOG_LABEL = `Farm order changed: ${b.name}`; S.skipConfirm = true; await changed(); return; }
+  else if (kind === 'settings') { if (!S.admin) return; D.settings.setOrder = order; NEXT_LOG_LABEL = 'Settings sections reordered'; }
   else if (kind.startsWith('list:')) { const k = kind.slice(5); const list = [...LIST_GET[k]()]; D.settings[k] = order.map((i) => list[+i]); NEXT_LOG_LABEL = (k === 'linkRoles' ? 'Roles' : 'Reasons for inactivating') + ' list reordered'; }
   else return; touch(D.settings); S.skipConfirm = true; await changed(); };
 document.addEventListener('pointerup', dndEnd); document.addEventListener('pointercancel', dndEnd);
@@ -2459,16 +2460,27 @@ function collapseSettings() {
   S.setOpen = S.setOpen || new Set();
   document.querySelectorAll('#list .d-wrap > .card').forEach((card) => {
     const h3 = card.querySelector(':scope > h3'); if (!h3) return;
-    const title = (h3.querySelector('.sp') || h3).textContent.trim().replace(/\s*\(this device\)\s*$/, '');
+    const devOnly = /\(this device\)/.test(h3.textContent); const title = (h3.querySelector('.sp') || h3).textContent.trim().replace(/\s*\(this device\)\s*$/, '');
+    const lk = setLocked(title, devOnly); const locked = !S.admin && lk;
     const det = document.createElement('details'); det.className = 'card setsec'; det.dataset.sec = title; if (S.setOpen.has(title)) det.open = true;
-    const sum = document.createElement('summary'); sum.innerHTML = `<span>${h3.innerHTML.replace(/<button[\s\S]*?<\/button>/g, '').replace(/<span class="sp">|<\/span>/g, '')}</span>`; det.appendChild(sum);
+    det.classList.add('dragrow'); det.dataset.dk = title;
+    const sum = document.createElement('summary'); sum.innerHTML = `${S.admin ? '<span class="draghandle" title="Hold and drag to move this section">⠿</span>' : ''}${locked ? '<span title="Admin only">🔒</span>' : ''}<span style="flex:1">${h3.innerHTML.replace(/<button[\s\S]*?<\/button>/g, '').replace(/<span class="sp">|<\/span>/g, '')}</span>`; if (S.admin) sum.insertAdjacentHTML('beforeend', SET_ALWAYS_ADMIN.includes(title) ? '<span class="setlock fixed" title="Always admin only">🔒 Admin only</span>' : `<button type="button" class="setlock ${lk ? '' : 'open'}" data-act="set-lock" data-sec="${h(title)}" title="Tap to change who can use this section">${lk ? '🔒 Locked' : '🔓 Everyone'}</button>`); det.appendChild(sum);
     const body = document.createElement('div'); body.className = 'setbody';
     const btns = [...h3.querySelectorAll('button')]; if (btns.length) { const bar = document.createElement('div'); bar.className = 'actions'; btns.forEach((b) => bar.appendChild(b)); body.appendChild(bar); }
-    h3.remove(); while (card.firstChild) body.appendChild(card.firstChild); det.appendChild(body);
+    h3.remove(); if (locked) { body.innerHTML = '<div class="hint">🔒 Only the admin (Jess) can change this.</div><div class="actions"><button class="btn small" data-act="admin-unlock">🔓 Unlock with admin PIN</button></div>'; } else while (card.firstChild) body.appendChild(card.firstChild); det.appendChild(body);
     det.addEventListener('toggle', () => { det.open ? S.setOpen.add(title) : S.setOpen.delete(title); });
     card.replaceWith(det);
   });
+  const dets = [...document.querySelectorAll('#list .d-wrap > details.setsec')]; if (!dets.length) return;
+  const box = document.createElement('div'); box.dataset.dnd = 'settings'; dets[0].before(box);
+  const order = D.settings.setOrder || []; const byT = new Map(dets.map((x) => [x.dataset.sec, x])); const out = order.filter((t) => byT.has(t)).map((t) => byT.get(t));
+  dets.forEach((x, i) => { if (out.includes(x)) return; const prev = dets.slice(0, i).reverse().find((y) => out.includes(y)); out.splice(prev ? out.indexOf(prev) + 1 : 0, 0, x); }); // new sections keep their natural spot
+  out.forEach((x) => box.appendChild(x));
 }
+const SET_OPEN_ALL = ['This device', '🤖 Ask Claude', 'App version', 'Sync & Google']; // usable without the admin PIN by default (plus every "(this device)" section)
+const SET_ALWAYS_ADMIN = ['Page layout and custom sections', 'Box colours and text', 'Symbols', 'Menu names'];
+function setLocked(title, devOnly) { if (SET_ALWAYS_ADMIN.includes(title)) return true; const v = (D.settings.setLocks || {})[title]; return v != null ? !!v : !(devOnly || SET_OPEN_ALL.includes(title)); }
+document.addEventListener('click', (e) => { if (e.target.closest('summary .draghandle, summary .setlock')) e.preventDefault(); }, true);
 function renderSettings() {
   const st = D.settings;
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('settings'))}</h2>
@@ -4334,6 +4346,8 @@ document.addEventListener('click', async (e) => {
     case 'ep-mv': { if (!needAdmin()) break; const K = d.kind; const keys = layoutKeys(K); const i = keys.indexOf(d.k), j = i + +d.d; if (i < 0 || j < 0 || j >= keys.length) break; [keys[i], keys[j]] = [keys[j], keys[i]];
       D.settings.layout = { ...(D.settings.layout || {}), [K]: keys }; touch(D.settings); NEXT_LOG_LABEL = 'Page layout changed (' + K + ' page)'; S.skipConfirm = true; await changed(); break; }
     case 'ep-name': if (!needAdmin()) break; S.layK = d.kind; if (d.k.startsWith('cs:')) { const list = [...(D.settings.customSecs || [])]; const ci = list.findIndex((x) => 'cs:' + x.id === d.k); const v = ci >= 0 && await customSecForm(list[ci]); if (v) { list[ci] = v; D.settings.customSecs = list; touch(D.settings); NEXT_LOG_LABEL = 'Custom section changed: ' + v.name; S.skipConfirm = true; await changed(); } } else await secNameForm(d.kind, d.k); break;
+    case 'set-lock': { if (!needAdmin()) break; const sec = d.sec; const det = el.closest('details.setsec'); const dev = det && /\(this device\)/.test(det.querySelector('summary').textContent); const now = setLocked(sec, dev);
+      D.settings.setLocks = { ...(D.settings.setLocks || {}), [sec]: !now }; touch(D.settings); NEXT_LOG_LABEL = `Settings — ${sec}: ${now ? 'open to everyone' : 'admin only'}`; S.skipConfirm = true; await changed(); break; }
     case 'set-all': document.querySelectorAll('details.setsec').forEach((x) => { x.open = d.v === '1'; }); break;
     case 'show-all': S.showAll = el.checked; S.showAllFor = d.id; renderAll(); break;
     case 'box-edit': if (!needAdmin()) break; await boxForm(d.k); break;
