@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '13.4 (19 Oct 2026)';
+const APP_VERSION = '13.5 (19 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -630,6 +630,7 @@ function computeJobs() {
   D.businesses.forEach((b) => { const cs = [...(b.rating ? [b.rating] : []), ...(b.cats || [])]; if (cs.length > 1) add({ type: 'multicat', key: 'multicat:' + b.id + ':' + cs.join('.'), kind: 'business', id: b.id, who: b.name, note: 'Has ' + cs.length + ' categories (' + cs.map(tagName).join(' + ') + ') — only one is allowed. Edit the business and pick one.' }); });
   D.contacts.forEach((c) => { const cs = [...new Set(c.tags.filter((t) => isCatTag(t) || RATING_SET.has(t)))]; const both = c.tags.includes('pa') && c.tags.includes('pi');
     if (cs.length > 1 || both) add({ type: 'multicat', key: 'multicat:' + c.id + ':' + cs.join('.') + (both ? ':papi' : ''), kind: 'contact', id: c.id, who: fullName(c), note: [cs.length > 1 ? 'Has ' + cs.length + ' categories (' + cs.map(tagName).join(' + ') + ') — only one is allowed' : '', both ? 'Tagged both Primary (active) and Primary (inactive)' : ''].filter(Boolean).join('. ') + '. Edit the contact and fix it.' }); });
+  cjSyncTypes(); cjList().forEach((cj) => { try { cjRecords(cj).forEach((x) => add({ type: 'cj_' + cj.id, ...x, note: cj.why || cjRuleText(cj) })); } catch (e) { } });
   (D.conflicts || []).forEach((cf) => add({ type: 'conflict', kind: cf.kind === 'businesses' ? 'business' : 'contact', id: cf.key, who: cf.who, note: 'Changed on two devices while offline — differences below. Choose which version to keep:', data: cf }));
   return jobs;
 }
@@ -676,8 +677,96 @@ const JOB_TYPES = {
   ratingconflict: { t: 'Business has conflicting ratings', manual: true },
   noname: { t: 'Business created from a contact name — check', manual: true },
 };
+/* ---------------- your own job lists (built from a rule — Jobs → ➕ New job list) ---------------- */
+const CJ_KINDS = { contact: 'Contacts', business: 'Businesses', farm: 'Farms / yards' };
+const cjTxt = (v) => (Array.isArray(v) ? v.map((x) => (x && typeof x === 'object' ? x.value || '' : x)).join(' ') : v == null ? '' : String(v));
+const cjFarmCur = (f) => farmUsersOf(f.id).filter((u) => !u.past);
+const CJ_FIELDS = {
+  contact: [['name', 'Full name', 'text', (c) => fullName(c)], ['first', 'First name', 'text', (c) => c.first], ['last', 'Surname', 'text', (c) => c.last], ['pref', 'Preferred name', 'text', (c) => c.pref], ['maiden', 'Maiden name', 'text', (c) => c.maiden], ['role', 'Role', 'text', (c) => c.role],
+    ['category', 'Category', 'cat', (c) => catOf(c)], ['tags', 'Tags (incl. category)', 'tags', (c) => [...contactTagSet(c)]], ['mobile', 'Mobile', 'text', (c) => cjTxt(c.mobiles)], ['landline', 'Landline', 'text', (c) => cjTxt(c.landlines)], ['email', 'Email', 'text', (c) => cjTxt(c.emails)], ['postal', 'Postal address', 'text', (c) => cjTxt(c.postal)],
+    ['info', 'General info', 'text', (c) => c.info], ['warnings', 'Warnings', 'text', (c) => c.warnings], ['nbiz', 'Number of current businesses', 'num', (c) => bizOf(c).length], ['bizname', 'Business name', 'text', (c) => bizOf(c).map((b) => b.name).join(' | ')], ['inactiveReason', 'Inactive reason', 'text', (c) => c.inactiveReason], ['nrel', 'Number of related people', 'num', (c) => (c.related || []).length]],
+  business: [['name', 'Name', 'text', (b) => b.name], ['abbr', 'Abbreviation', 'text', (b) => b.abbr], ['type', 'Client or non-client', 'pick:client,nonclient', (b) => (isClientBiz(b) ? 'client' : 'nonclient')], ['category', 'Category', 'cat', (b) => bizCat(b)],
+    ['phone', 'Phone', 'text', (b) => cjTxt(b.phones)], ['email', 'Email', 'text', (b) => cjTxt(b.emails)], ['postal', 'Postal address', 'text', (b) => cjTxt(b.postal)], ['pic', 'PIC', 'text', (b) => cjTxt(b.pics)], ['patientId', 'Patient / ezyVet ID', 'text', (b) => cjTxt(b.patientIds)],
+    ['info', 'General info', 'text', (b) => b.info], ['warnings', 'Warnings', 'text', (b) => b.warnings], ['biosec', 'Biosecurity', 'text', (b) => b.biosec], ['nfarms', 'Number of farms', 'num', (b) => (b.farms || []).length], ['ncontacts', 'Number of current contacts', 'num', (b) => (IDX.bizContacts.get(b.id) || []).length], ['primary', 'Has a primary contact', 'bool', (b) => !!b.primaryContact]],
+  farm: [['name', 'Farm / yards name', 'text', (f) => f.name], ['address', 'Address', 'text', (f) => f.address], ['pinType', 'Pin type', 'pin', (f) => f.pinType], ['yards', 'Has a yards pin', 'bool', (f) => f.lat != null], ['turn', 'Has a turn-off pin', 'bool', (f) => !!(f.turn && f.turn.lat != null)],
+    ['km', 'Return km', 'num', (f) => f.kmReturn], ['min', 'Drive minutes each way', 'num', (f) => f.driveMin], ['checked', 'Pins checked', 'bool', (f) => !!f.pinChecked], ['current', 'Used by a current business', 'bool', (f) => cjFarmCur(f).length > 0],
+    ['category', 'Category of the business using it', 'cat', (f) => (cjFarmCur(f)[0] ? bizCat(cjFarmCur(f)[0].b) : '')], ['bizname', 'Business using it', 'text', (f) => cjFarmCur(f).map((u) => u.b.name).join(' | ')], ['reception', 'Phone reception', 'pick:good,patchy,none', (f) => (f.reception || {}).status || '']],
+};
+const CJ_OPS = { empty: 'is empty', notempty: 'is not empty', is: 'is', isnot: 'is not', contains: 'contains', notcontains: "doesn't contain", starts: 'starts with', gt: 'is more than', lt: 'is less than', yes: 'is yes', no: 'is no' };
+const cjField = (kind, k) => (CJ_FIELDS[kind] || []).find((x) => x[0] === k);
+function cjOpsFor(type) { if (type === 'bool') return ['yes', 'no']; if (type === 'num') return ['gt', 'lt', 'is', 'isnot', 'empty', 'notempty']; if (type === 'tags') return ['contains', 'notcontains', 'empty', 'notempty']; if (type === 'cat' || type === 'pin' || type.startsWith('pick:')) return ['is', 'isnot', 'empty', 'notempty']; return ['empty', 'notempty', 'contains', 'notcontains', 'is', 'isnot', 'starts']; }
+function cjTest(kind, rec, r) { const fd = cjField(kind, r.f); if (!fd) return false; let v; try { v = fd[3](rec); } catch (e) { v = ''; } const want = String(r.v ?? '').trim().toLowerCase();
+  if (fd[2] === 'tags') { const has = (v || []).map(String); if (r.op === 'empty') return !has.length; if (r.op === 'notempty') return !!has.length; const hit = has.some((t) => t.toLowerCase() === want || tagName(t).toLowerCase() === want); return r.op === 'contains' ? hit : !hit; }
+  if (fd[2] === 'bool') return r.op === 'no' ? !v : !!v;
+  const s = v == null ? '' : String(v).trim(); const sl = s.toLowerCase(); const lbl = fd[2] === 'cat' && s ? tagName(s).toLowerCase() : fd[2] === 'pin' && s ? pinT(s).name.toLowerCase() : sl;
+  switch (r.op) { case 'empty': return !s; case 'notempty': return !!s; case 'is': return sl === want || lbl === want; case 'isnot': return !(sl === want || lbl === want); case 'contains': return sl.includes(want); case 'notcontains': return !sl.includes(want); case 'starts': return sl.startsWith(want);
+    case 'gt': return s !== '' && +s > +want; case 'lt': return s !== '' && +s < +want; } return false; }
+function cjMatch(cj, rec) { const rs = (cj.rules || []).filter((r) => r.f && r.op); if (!rs.length) return false; return cj.match === 'any' ? rs.some((r) => cjTest(cj.kind, rec, r)) : rs.every((r) => cjTest(cj.kind, rec, r)); }
+function cjRecords(cj) { /* → [{kind, id, fid, who}] */ const out = [];
+  if (cj.kind === 'contact') D.contacts.forEach((c) => { if (cjMatch(cj, c)) { const bs = bizOf(c); out.push({ kind: 'contact', id: c.id, who: fullName(c) + (bs.length ? ' (' + bs.map((b) => b.name).join(', ') + ')' : '') }); } });
+  else if (cj.kind === 'business') D.businesses.forEach((b) => { if (cjMatch(cj, b)) out.push({ kind: 'business', id: b.id, who: b.name }); });
+  else D.farms.forEach((f) => { const us = farmUsersOf(f.id); if (!us.length || !cjMatch(cj, f)) return; const b = (us.find((u) => !u.past) || us[0]).b; out.push({ kind: 'business', id: b.id, fid: f.id, who: b.name + (f.name ? ' — ' + f.name : '') }); });
+  return out; }
+const cjList = () => D.settings.customJobs || [];
+function cjSyncTypes() { Object.keys(JOB_TYPES).forEach((k) => { if (k.startsWith('cj_')) delete JOB_TYPES[k]; }); cjList().forEach((cj) => { JOB_TYPES['cj_' + cj.id] = { t: (cj.emoji ? cj.emoji + ' ' : '') + cj.name, manual: true, btn: 'Leave as is', custom: true }; }); }
+function cjRuleText(cj) { return (cj.rules || []).map((r) => { const fd = cjField(cj.kind, r.f); const v = fd && fd[2] === 'cat' && r.v ? tagName(r.v) : fd && fd[2] === 'pin' && r.v ? pinT(r.v).name : r.v; return `${fd ? fd[1] : r.f} ${CJ_OPS[r.op] || r.op}${['empty', 'notempty', 'yes', 'no'].includes(r.op) ? '' : ' "' + (v ?? '') + '"'}`; }).join(cj.match === 'any' ? ' OR ' : ' AND '); }
+const jobsGone = () => new Set(D.settings.jobsDeleted || []);
+/* the editor */
+function cjValInput(kind, r, i) { const fd = cjField(kind, r.f); if (!fd || ['empty', 'notempty', 'yes', 'no'].includes(r.op)) return '';
+  const opt = (list) => `<select class="cj-v" data-i="${i}" style="flex:1;min-width:120px">${list.map(([v, l]) => `<option value="${h(v)}" ${String(r.v) === v ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>`;
+  if (fd[2] === 'cat') return opt([...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)].map((id) => [id, tagName(id)]));
+  if (fd[2] === 'tags') return opt(D.tags.map((t) => [t.id, t.name]));
+  if (fd[2] === 'pin') return opt(pinTypes().map((t) => [t.id, t.emoji + ' ' + t.name]));
+  if (fd[2].startsWith('pick:')) return opt(fd[2].slice(5).split(',').map((v) => [v, v === 'nonclient' ? 'non-client' : v]));
+  return `<input class="cj-v" data-i="${i}" value="${h(r.v ?? '')}" ${fd[2] === 'num' ? 'inputmode="decimal"' : ''} placeholder="value" style="flex:1;min-width:120px">`; }
+function cjRulesHtml(dr) { return (dr.rules.length ? dr.rules : [{ f: '', op: '' }]).map((r, i) => { const fd = cjField(dr.kind, r.f); const ops = fd ? cjOpsFor(fd[2]) : [];
+  return `<div class="cj-rule" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0;padding:6px;border:1px solid var(--line);border-radius:9px"><select class="cj-f" data-i="${i}" style="flex:1;min-width:150px"><option value="">— choose —</option>${CJ_FIELDS[dr.kind].map(([k, l]) => `<option value="${k}" ${r.f === k ? 'selected' : ''}>${h(l)}</option>`).join('')}</select>${fd ? `<select class="cj-op" data-i="${i}" style="min-width:120px">${ops.map((o) => `<option value="${o}" ${r.op === o ? 'selected' : ''}>${CJ_OPS[o]}</option>`).join('')}</select>` : ''}${cjValInput(dr.kind, r, i)}<button type="button" class="btn small" data-act="cj-delrule" data-i="${i}" title="Remove">✕</button></div>`; }).join(''); }
+function cjRead() { const dr = S.cjDraft; if (!dr || !$('#cj-name')) return dr; dr.name = val('cj-name'); dr.emoji = val('cj-emoji'); dr.why = val('cj-why'); dr.kind = $('#cj-kind').value; dr.match = $('#cj-match').value;
+  document.querySelectorAll('#cj-rules .cj-rule').forEach((row, i) => { const r = dr.rules[i] || (dr.rules[i] = {}); const f = row.querySelector('.cj-f'), o = row.querySelector('.cj-op'), v = row.querySelector('.cj-v'); r.f = f.value; if (o) r.op = o.value; if (v) r.v = v.value; }); return dr; }
+function cjRedraw() { const dr = S.cjDraft; dr.rules.forEach((r) => { const fd = cjField(dr.kind, r.f); if (!fd) { r.op = ''; return; } const ops = cjOpsFor(fd[2]); if (!ops.includes(r.op)) r.op = ops[0]; if (/^(cat|pin|tags|pick)/.test(fd[2]) && !['empty', 'notempty'].includes(r.op) && (r.v == null || r.v === '')) { const tmp = document.createElement('div'); tmp.innerHTML = cjValInput(dr.kind, { ...r, v: '' }, 0); const s = tmp.querySelector('select'); if (s) r.v = s.value; } });
+  $('#cj-rules').innerHTML = cjRulesHtml(dr); cjCount(); }
+function cjCount() { const dr = S.cjDraft; const el = $('#cj-count'); if (!el || !dr) return; const ok = dr.rules.filter((r) => r.f && r.op); if (!ok.length) { el.innerHTML = 'Add at least one rule.'; return; } const recs = cjRecords(dr); el.innerHTML = `<b>${recs.length}</b> ${recs.length === 1 ? 'match' : 'match'} right now${recs.length ? ': ' + recs.slice(0, 6).map((x) => h(x.who)).join(' · ') + (recs.length > 6 ? ' …' : '') : ''}`; }
+function cjPrompt(desc) { const cats = [...RATINGS, ...D.tags.filter((t) => t.group === 'client').map((t) => t.id)].map((id) => `${id} = ${tagName(id)}`).join('; ');
+  return `I'm adding a new automatic job list to the Bovitech Contacts app (a mobile large-animal vet practice's client list in Albany, WA). The app checks every record against a rule and lists the ones that match, so someone can fix them.
+
+WHAT I WANT THE LIST TO FIND:
+${desc}
+
+Reply with a short explanation and ONE JSON block (in \`\`\`json fences) in exactly this format:
+{"name":"short list title","emoji":"one emoji (optional)","kind":"contact|business|farm","match":"all|any","rules":[{"f":"field key","op":"operator","v":"value"}],"why":"one line telling the person what to do with each item"}
+
+FIELDS (key = label (type)):
+${Object.entries(CJ_FIELDS).map(([k, fs]) => `${k}: ${fs.map(([f, l, t]) => `${f} = ${l} (${t})`).join('; ')}`).join('\n')}
+
+OPERATORS: ${Object.entries(CJ_OPS).map(([k, l]) => `${k} = ${l}`).join('; ')}
+- text: empty, notempty, contains, notcontains, is, isnot, starts · num: gt, lt, is, isnot, empty, notempty · bool: yes, no (no value) · cat/pin/pick: is, isnot, empty, notempty · tags: contains, notcontains, empty, notempty
+- Text matching ignores capitals. "empty"/"notempty"/"yes"/"no" take no value.
+- Category ids (for cat fields and tags): ${cats}. Other tag ids: ${D.tags.filter((t) => t.group === 'additional').map((t) => `${t.id} = ${t.name}`).join('; ')}
+- Pin type ids: ${pinTypes().map((t) => `${t.id} = ${t.name}`).join('; ')}
+- If what I want can't be done with these fields, say so and suggest the closest list you can make.`; }
+function cjParse(text) { const m = text.match(/```(?:json)?\s*([\s\S]*?)```/i); let raw = m ? m[1] : null; if (!raw) { const i = text.indexOf('{'), j = text.lastIndexOf('}'); if (i >= 0 && j > i) raw = text.slice(i, j + 1); } if (!raw) throw new Error("No JSON found in Claude's reply");
+  const js = JSON.parse(raw); if (!CJ_FIELDS[js.kind]) throw new Error('Unknown kind "' + js.kind + '"'); const bad = (js.rules || []).filter((r) => !cjField(js.kind, r.f) || !CJ_OPS[r.op]); if (bad.length) throw new Error('Unknown field or operator: ' + bad.map((r) => r.f + ' ' + r.op).join(', '));
+  return { name: String(js.name || ''), emoji: String(js.emoji || ''), kind: js.kind, match: js.match === 'any' ? 'any' : 'all', rules: (js.rules || []).map((r) => ({ f: r.f, op: r.op, v: r.v == null ? '' : String(r.v) })), why: String(js.why || '') }; }
+function cjSheet(cur) { S.cjDraft = cur ? JSON.parse(JSON.stringify(cur)) : { name: '', emoji: '', kind: 'contact', match: 'all', rules: [{ f: '', op: '' }], why: '' }; const dr = S.cjDraft; if (!dr.rules.length) dr.rules.push({ f: '', op: '' });
+  openSheet(cur ? 'Edit job list' : 'New job list', `<div class="hint" style="margin-bottom:8px">The app checks every record against your rule and keeps the list up to date — items drop off once they no longer match (or someone taps "Leave as is"). Shows on every device.</div>
+    <details class="card" style="background:var(--green-bg);border-color:var(--green);margin-bottom:10px" ${cur ? '' : 'open'}><summary style="cursor:pointer;font-weight:700">🤖 Get Claude to set it up</summary>
+      <div class="f" style="margin-top:8px"><label>1. Describe what the list should find</label><textarea id="cj-desc" style="min-height:60px" placeholder="e.g. A and A+ clients with no email address · farms over 150 km with no turn-off pin · contacts with a landline but no mobile">${h(S.cjDesc || '')}</textarea></div>
+      <div class="actions"><button type="button" class="btn small primary" data-act="cj-copy">2. Copy for Claude &amp; open Claude</button></div><div id="cj-copyinfo" class="hint"></div>
+      <div class="f" style="margin-top:8px"><label>3. Paste Claude's reply</label><textarea id="cj-reply" style="min-height:60px" placeholder="Paste Claude's whole reply"></textarea></div>
+      <div class="actions"><button type="button" class="btn small primary" data-act="cj-fill">4. Fill in the rule below</button></div><div id="cj-fillinfo" class="hint"></div></details>
+    <div class="grid2"><div class="f"><label>List name</label><input id="cj-name" value="${h(dr.name)}" placeholder="e.g. A clients with no email"></div><div class="f"><label>Emoji (optional)</label><input id="cj-emoji" value="${h(dr.emoji || '')}" maxlength="4" style="max-width:90px"></div></div>
+    <div class="grid2"><div class="f"><label>Check</label><select id="cj-kind">${Object.entries(CJ_KINDS).map(([k, l]) => `<option value="${k}" ${dr.kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div><div class="f"><label>Show when</label><select id="cj-match"><option value="all" ${dr.match !== 'any' ? 'selected' : ''}>ALL of the rules match</option><option value="any" ${dr.match === 'any' ? 'selected' : ''}>ANY rule matches</option></select></div></div>
+    <div class="lbl">Rules</div><div id="cj-rules">${cjRulesHtml(dr)}</div><div class="actions"><button type="button" class="btn small" data-act="cj-addrule">➕ Add a rule</button></div>
+    <div class="f" style="margin-top:8px"><label>What to do with each item (shown on the job)</label><input id="cj-why" value="${h(dr.why || '')}" placeholder="e.g. Ring and get an email address"></div>
+    <div class="hint" id="cj-count" style="margin-top:6px"></div>`, () => {
+    const d2 = cjRead(); if (!d2.name.trim()) { toast('Give the list a name'); return false; } d2.rules = d2.rules.filter((r) => r.f && r.op); if (!d2.rules.length) { toast('Add at least one rule'); return false; }
+    const list = [...cjList()]; const item = { id: cur ? cur.id : uid('j'), name: d2.name.trim(), ...(d2.emoji.trim() ? { emoji: d2.emoji.trim() } : {}), kind: d2.kind, match: d2.match, rules: d2.rules, why: d2.why.trim(), by: cur ? cur.by : myInitials(), at: cur ? cur.at : Date.now(), ...(cur ? { edAt: Date.now() } : {}) };
+    if (cur) list[list.findIndex((x) => x.id === cur.id)] = item; else list.push(item); D.settings.customJobs = list; touch(D.settings); JOBS_CACHE = null; S.jobOpen['cj_' + item.id] = true; NEXT_LOG_LABEL = `${cur ? 'Job list changed' : 'New job list'}: ${item.name}`; S.skipConfirm = true; return true; });
+  setTimeout(cjCount, 0); }
+document.addEventListener('change', (e) => { const t = e.target; if (!S.cjDraft || !t.closest || !t.closest('#sheet')) return; if (t.id === 'cj-kind') { cjRead(); S.cjDraft.rules = [{ f: '', op: '' }]; cjRedraw(); return; } if (t.classList.contains('cj-f') || t.classList.contains('cj-op')) { cjRead(); if (t.classList.contains('cj-f')) S.cjDraft.rules[+t.dataset.i].v = ''; cjRedraw(); return; } if (t.classList.contains('cj-v') || t.id === 'cj-match') { cjRead(); cjCount(); } });
+document.addEventListener('input', (e) => { const t = e.target; if (t.id === 'cj-desc') S.cjDesc = t.value; if (S.cjDraft && t.classList && t.classList.contains('cj-v') && t.tagName === 'INPUT') { cjRead(); clearTimeout(S.cjT); S.cjT = setTimeout(cjCount, 300); } });
 let JOBS_CACHE = null;
-function jobs() { if (!JOBS_CACHE) { const off = new Set(PREF.jobsOff || []); JOBS_CACHE = computeJobs().filter((j) => !off.has(j.type)); } return JOBS_CACHE; } // job types switched off in Settings are hidden on this device
+function jobs() { if (!JOBS_CACHE) { const off = new Set([...(PREF.jobsOff || []), ...jobsGone()]); JOBS_CACHE = computeJobs().filter((j) => !off.has(j.type)); } return JOBS_CACHE; } // job types switched off in Settings are hidden on this device
 const INACT = ['inactive', 'dna'];
 function jobInactive(j) { /* is this job about an inactive / do-not-answer client? (they go in the Inactive list so active clients come first) */
   if (j.type === 'pincheckin') return true; if (j.type === 'pincheck') return false;
@@ -2328,22 +2417,26 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       <button class="btn small" data-act="job-ai" data-key="${h(j.key)}" title="Ask Claude how to sort this out">🤖 Ask Claude</button>${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${j.okLabel ? '✓ ' + h(j.okLabel) : JOB_TYPES[t].btn || 'Mark resolved - changes not required'}</button>` : ''}</div></div></div>`;
 }
 function renderJobs() {
-  const all = jobs(); const nIn = all.filter(jobInactive).length; const js = jobsShown(); const groups = {}; const ja = S.jobAct || 'active';
+  cjSyncTypes(); const all = jobs(); const nIn = all.filter(jobInactive).length; const js = jobsShown(); const groups = {}; const ja = S.jobAct || 'active';
   js.forEach((j) => (groups[j.type] = groups[j.type] || []).push(j));
   let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('jobs'))} — things to check</h2>
   <div class="hint" style="margin-bottom:10px">Items clear automatically once fixed. Flags also show on the contact or business itself.</div>
-  <div class="actions"><button class="btn primary" data-act="jobs-refresh">⟳ Refresh jobs</button><button class="btn" data-act="check-dist">Check all distances against Google Maps</button></div><div id="check-msg" class="hint"></div>
+  <div class="actions"><button class="btn primary" data-act="jobs-refresh">⟳ Refresh jobs</button><button class="btn" data-act="check-dist">Check all distances against Google Maps</button><button class="btn greenbtn" data-act="cj-new">➕ New job list</button></div><div id="check-msg" class="hint"></div>
   <div class="chips" style="margin:10px 0">${[['active', 'Active clients', '🟢', all.length - nIn], ['inactive', 'Inactive / do not answer', '⚫', nIn], ['all', 'All', '📋', all.length]].map(([v, l, ic, n]) => `<button class="chip ${ja === v ? 'on' : ''}" data-act="jobact" data-v="${v}"><span class="ci">${ic}</span>${l}<span class="cn">${n}</span></button>`).join('')}</div>`;
   if (!js.length) html += `<div class="empty">${all.length ? 'Nothing in this list. 🎉' : 'Nothing needs attention. 🎉'}</div>`;
   Object.keys(JOB_TYPES).forEach((t) => {
     const g = groups[t]; if (!g) return;
     const isOpen = !!S.jobOpen[t]; // folded unless you open it
     const nSel = g.filter((j) => S.jobSel.has(j.key)).length; const ops = bulkOps(t, g.filter((j) => S.jobSel.has(j.key)));
-    html += `<details class="jobgroup" data-type="${t}" ${isOpen ? 'open' : ''}><summary><input type="checkbox" class="jobcheck" data-act="job-selall" data-type="${t}" title="Select all" ${nSel && nSel === g.length ? 'checked' : ''}><span style="color:var(--red)">${ICONS.flag}</span><span style="flex:1">${h(JOB_TYPES[t].t)}</span><span class="count">${g.length}</span></summary>`;
+    html += `<details class="jobgroup" data-type="${t}" ${isOpen ? 'open' : ''}><summary><input type="checkbox" class="jobcheck" data-act="job-selall" data-type="${t}" title="Select all" ${nSel && nSel === g.length ? 'checked' : ''}><span style="color:var(--red)">${ICONS.flag}</span><span style="flex:1">${h(JOB_TYPES[t].t)}</span><span class="count">${g.length}</span>${S.admin ? `${JOB_TYPES[t].custom ? `<button type="button" class="btn small nofold" data-act="cj-edit" data-type="${t}" title="Edit this job list">✏️</button>` : ''}<button type="button" class="btn small nofold" data-act="joblist-del" data-type="${t}" title="Delete this whole job list">🗑</button>` : ''}</summary>${JOB_TYPES[t].custom ? `<div class="hint" style="margin:4px 0 6px">Rule: ${h(cjRuleText(cjList().find((x) => 'cj_' + x.id === t) || {}))}</div>` : ''}`;
     if (nSel) html += `<div class="bulkbar"><b>${nSel} selected</b>${t === 'nocat' ? `<select id="jb-cat" style="padding:6px;border:1px solid var(--line);border-radius:8px">${[...RATINGS, ...D.tags.filter((x) => x.group === 'client').map((x) => x.id)].map((v) => `<option value="${v}">${h(tagName(v))}</option>`).join('')}</select>` : ''}${ops.map((o) => `<button class="btn small ${o.green ? 'greenbtn' : ''}" data-act="job-bulk" data-type="${t}" data-op="${o.op}">${h(o.label)}</button>`).join('') || '<span class="hint">Nothing can be done to all of these at once — use each job\'s own buttons.</span>'}<button class="btn small" data-act="job-selnone" data-type="${t}">Clear selection</button></div>`;
     g.forEach((j) => { html += jobItemHtml(j); });
     html += '</details>';
   });
+  const gone = [...jobsGone()].filter((t) => JOB_TYPES[t]);
+  html += `<div class="card" style="margin-top:16px"><h3><span class="sp">Your own job lists</span><button class="btn small" data-act="cj-new">➕ New</button></h3>${cjList().length ? cjList().map((cj) => { const n = jobs().filter((j) => j.type === 'cj_' + cj.id).length; return `<div class="kv" style="align-items:center"><div class="v" style="flex:1"><b>${h((cj.emoji ? cj.emoji + ' ' : '') + cj.name)}</b> <span class="hint">(${n} now · ${h(CJ_KINDS[cj.kind])}${cj.by ? ' · added by ' + h(cj.by) : ''})</span><div class="hint">${h(cjRuleText(cj))}</div></div>${S.admin ? `<button class="btn small" data-act="cj-edit" data-type="cj_${cj.id}" title="Edit">✏️</button><button class="btn small" data-act="joblist-del" data-type="cj_${cj.id}" title="Delete">🗑</button>` : ''}</div>`; }).join('') : '<div class="hint">None yet — tap ➕ New to make a list from a rule (Claude can set it up for you).</div>'}
+    ${gone.length ? `<div class="lbl" style="margin-top:10px">Deleted built-in job lists</div>${gone.map((t) => `<div class="kv" style="align-items:center"><div class="v" style="flex:1">${h(JOB_TYPES[t].t)}</div>${S.admin ? `<button class="btn small" data-act="joblist-restore" data-type="${t}">↩ Restore</button>` : ''}</div>`).join('')}` : ''}
+    ${S.admin ? '' : '<div class="hint" style="margin-top:6px">🔒 Only the admin can edit or delete job lists.</div>'}</div>`;
   return html + '</div>';
 }
 async function checkAllDistances() {
@@ -2480,7 +2573,7 @@ function collapseSettings() {
 const SET_OPEN_ALL = ['This device', '🤖 Ask Claude', 'App version', 'Sync & Google']; // usable without the admin PIN by default (plus every "(this device)" section)
 const SET_ALWAYS_ADMIN = ['Page layout and custom sections', 'Box colours and text', 'Symbols', 'Menu names'];
 function setLocked(title, devOnly) { if (SET_ALWAYS_ADMIN.includes(title)) return true; const v = (D.settings.setLocks || {})[title]; return v != null ? !!v : !(devOnly || SET_OPEN_ALL.includes(title)); }
-document.addEventListener('click', (e) => { if (e.target.closest('summary .draghandle, summary .setlock')) e.preventDefault(); }, true);
+document.addEventListener('click', (e) => { if (e.target.closest('summary .draghandle, summary .setlock, summary .nofold')) e.preventDefault(); }, true);
 function renderSettings() {
   const st = D.settings;
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('settings'))}</h2>
@@ -2516,7 +2609,7 @@ function renderSettings() {
     <div class="f"><label>${h(lab('contacts'))} show</label><select data-pref="ptype">${[['all', 'All'], ['client', 'Client people'], ['nonclient', 'Non-client people']].map(([v, l]) => `<option value="${v}" ${(PREF.ptype || 'all') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="f"><label>${h(lab('biz'))} sorted by</label><select data-pref="bsort">${[['name', 'Name'], ['rating', 'Rating']].map(([v, l]) => `<option value="${v}" ${(PREF.bsort || 'name') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="f"><label>${h(lab('biz'))} show</label><select data-pref="btype">${[['all', 'All'], ['client', 'Client businesses'], ['nonclient', 'Non-client businesses']].map(([v, l]) => `<option value="${v}" ${(PREF.btype || 'all') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></div>
-  <div class="card"><h3>Jobs to show <span class="hint">(this device)</span></h3><div class="hint" style="margin-bottom:6px">Untick job types you don't want on this device's Jobs list and badge.</div><div class="checks">${Object.entries(JOB_TYPES).map(([k, v]) => `<label><input type="checkbox" data-jobtype="${k}" ${(PREF.jobsOff || []).includes(k) ? '' : 'checked'}>${h(v.t)}</label>`).join('')}</div></div>
+  <div class="card"><h3>Jobs to show <span class="hint">(this device)</span></h3><div class="hint" style="margin-bottom:6px">Untick job types you don't want on this device's Jobs list and badge.</div><div class="checks">${(cjSyncTypes(), Object.entries(JOB_TYPES)).filter(([k]) => !jobsGone().has(k)).map(([k, v]) => `<label><input type="checkbox" data-jobtype="${k}" ${(PREF.jobsOff || []).includes(k) ? '' : 'checked'}>${h(v.t)}</label>`).join('')}</div></div>
   <div class="card"><h3>Required information</h3><div class="hint" style="margin-bottom:6px">New contacts can always be saved — anything ticked here that's missing goes on the Jobs list ("New contact — information missing"). Farm details are only asked for client people.</div><div class="checks">${REQ_FIELDS.map(([k, l]) => `<label><input type="checkbox" data-req="${k}" ${reqOn(k) ? 'checked' : ''}>${h(l)}</label>`).join('')}</div></div>
   <div class="card"><h3>Travel and routes</h3><div class="hint" style="margin-bottom:6px">Google Maps calculates the fastest route. These options apply to the app's km, drive-time and route calculations (the Google Maps app uses its own route options).</div>
     <div class="checks"><label><input type="checkbox" data-route="avoidTolls" ${routeSet().avoidTolls ? 'checked' : ''}>Avoid tolls</label><label><input type="checkbox" data-route="avoidHighways" ${routeSet().avoidHighways ? 'checked' : ''}>Avoid highways</label><label><input type="checkbox" data-route="avoidFerries" ${routeSet().avoidFerries ? 'checked' : ''}>Avoid ferries</label></div>
@@ -4346,6 +4439,17 @@ document.addEventListener('click', async (e) => {
     case 'ep-mv': { if (!needAdmin()) break; const K = d.kind; const keys = layoutKeys(K); const i = keys.indexOf(d.k), j = i + +d.d; if (i < 0 || j < 0 || j >= keys.length) break; [keys[i], keys[j]] = [keys[j], keys[i]];
       D.settings.layout = { ...(D.settings.layout || {}), [K]: keys }; touch(D.settings); NEXT_LOG_LABEL = 'Page layout changed (' + K + ' page)'; S.skipConfirm = true; await changed(); break; }
     case 'ep-name': if (!needAdmin()) break; S.layK = d.kind; if (d.k.startsWith('cs:')) { const list = [...(D.settings.customSecs || [])]; const ci = list.findIndex((x) => 'cs:' + x.id === d.k); const v = ci >= 0 && await customSecForm(list[ci]); if (v) { list[ci] = v; D.settings.customSecs = list; touch(D.settings); NEXT_LOG_LABEL = 'Custom section changed: ' + v.name; S.skipConfirm = true; await changed(); } } else await secNameForm(d.kind, d.k); break;
+    case 'cj-new': cjSheet(null); break;
+    case 'cj-edit': { if (!needAdmin()) break; const cj = cjList().find((x) => 'cj_' + x.id === d.type); if (cj) cjSheet(cj); break; }
+    case 'cj-addrule': { cjRead(); S.cjDraft.rules.push({ f: '', op: '' }); cjRedraw(); break; }
+    case 'cj-delrule': { cjRead(); S.cjDraft.rules.splice(+d.i, 1); if (!S.cjDraft.rules.length) S.cjDraft.rules.push({ f: '', op: '' }); cjRedraw(); break; }
+    case 'cj-copy': { const desc = val('cj-desc'); if (!desc) { toast('Describe what the list should find first'); break; } S.cjDesc = desc; const txt = cjPrompt(desc); let ok = false; try { await navigator.clipboard.writeText(txt); ok = true; } catch (err) { }
+      const info = $('#cj-copyinfo'); if (ok) { info.innerHTML = "✓ Copied. Paste it into Claude, then copy Claude's whole reply into box 3."; window.open(D.settings.aiChatUrl || 'https://claude.ai/new', '_blank'); } else info.innerHTML = `Couldn't copy automatically — select all of this, copy it and paste it into Claude:<textarea readonly style="min-height:100px;margin-top:6px">${h(txt)}</textarea>`; break; }
+    case 'cj-fill': { const out = $('#cj-fillinfo'); try { const r = cjParse($('#cj-reply').value || ''); const dr = S.cjDraft; Object.assign(dr, r); $('#cj-name').value = dr.name; $('#cj-emoji').value = dr.emoji; $('#cj-why').value = dr.why; $('#cj-kind').value = dr.kind; $('#cj-match').value = dr.match; if (!dr.rules.length) dr.rules.push({ f: '', op: '' }); cjRedraw(); out.innerHTML = '✓ Filled in — check the rule and the matches below, then tap Save.'; } catch (err) { out.innerHTML = `<span style="color:var(--red)">${h(err.message)}</span>`; } break; }
+    case 'joblist-del': { if (!needAdmin()) break; const t = d.type; const cj = cjList().find((x) => 'cj_' + x.id === t); const name = JOB_TYPES[t] ? JOB_TYPES[t].t : t;
+      if (!(await askBox('Delete job list?', `<p><b>${h(name)}</b></p><p>${cj ? 'This removes your job list from every device.' : 'This hides this built-in job list on every device. You can restore it at the bottom of the Jobs page.'}</p>`, 'Delete job list', true))) break;
+      if (cj) D.settings.customJobs = cjList().filter((x) => x !== cj); else D.settings.jobsDeleted = [...new Set([...(D.settings.jobsDeleted || []), t])]; touch(D.settings); JOBS_CACHE = null; NEXT_LOG_LABEL = `Job list deleted: ${name}`; S.skipConfirm = true; if (await changed()) toast('Job list deleted'); break; }
+    case 'joblist-restore': { if (!needAdmin()) break; D.settings.jobsDeleted = (D.settings.jobsDeleted || []).filter((x) => x !== d.type); touch(D.settings); JOBS_CACHE = null; NEXT_LOG_LABEL = `Job list restored: ${JOB_TYPES[d.type] ? JOB_TYPES[d.type].t : d.type}`; S.skipConfirm = true; if (await changed()) toast('Restored'); break; }
     case 'set-lock': { if (!needAdmin()) break; const sec = d.sec; const det = el.closest('details.setsec'); const dev = det && /\(this device\)/.test(det.querySelector('summary').textContent); const now = setLocked(sec, dev);
       D.settings.setLocks = { ...(D.settings.setLocks || {}), [sec]: !now }; touch(D.settings); NEXT_LOG_LABEL = `Settings — ${sec}: ${now ? 'open to everyone' : 'admin only'}`; S.skipConfirm = true; await changed(); break; }
     case 'set-all': document.querySelectorAll('details.setsec').forEach((x) => { x.open = d.v === '1'; }); break;
