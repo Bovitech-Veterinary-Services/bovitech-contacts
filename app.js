@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '14.0 (19 Oct 2026)';
+const APP_VERSION = '14.1 (19 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -1983,11 +1983,15 @@ function parseGps(s) {
   if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) [lat, lng] = [lng, lat];
   return { lat, lng };
 }
-function extraPinRow(x) { x = x || { id: uid('p'), type: (pinTypes().find((t) => t.yard) || { id: 'sheep' }).id, name: '', lat: null, lng: null, safety: {} }; const sf = x.safety || {};
-  return `<div class="card xpin" data-id="${h(x.id)}" style="padding:8px;margin:6px 0"><div class="yardlbl">${h(x.name || '')}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><select class="xp-type" style="flex:1;min-width:150px">${pinTypes().map((t) => `<option value="${h(t.id)}" ${x.type === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select><input class="xp-name" value="${h(x.name || '')}" placeholder="Label (optional)" style="flex:1;min-width:140px"><button type="button" class="btn small" data-act="xpin-del">✕</button></div>
-    <input class="xp-gps" value="${x.lat != null ? h(x.lat + ', ' + x.lng) : ''}" placeholder="GPS pin (or paste a Google Maps link)" style="width:100%;margin-top:6px">
-    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><select class="xp-safe" style="flex:1;min-width:150px">${Object.entries(SAFETY).map(([k, v]) => `<option value="${k}" ${(sf.status || 'ok') === k ? 'selected' : ''}>Safety: ${v.l}</option>`).join('')}</select><input class="xp-safenote" value="${h(sf.note || '')}" placeholder="Safety note" style="flex:2;min-width:150px"></div></div>`;
-}
+function yardCard(x, main) { /* one set of yards (or shed, office…) in the edit-farm window — the first is the farm's main pin, the rest are extra pins; both look the same */
+  const sf = x.safety || {}; const sfx = main ? '' : '-x' + x.id; const I = (id, cls) => (main ? `id="${id}"` : `class="${cls}"`);
+  return `<div class="card xpin ${main ? 'ymain' : ''}" ${main ? '' : `data-id="${h(x.id)}"`} style="padding:8px;margin:6px 0"><div class="yardlbl" ${main ? 'id="e-ylbl"' : ''}>${h(x.name || '')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><select ${main ? 'id="e-ftype"' : 'class="xp-type"'} style="flex:1;min-width:150px">${pinTypes().map((t) => `<option value="${h(t.id)}" ${x.type === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select><input ${main ? 'id="e-fylabel"' : 'class="xp-name"'} value="${h(x.name || '')}" placeholder="Label (optional)" style="flex:1;min-width:140px">${main ? '' : '<button type="button" class="btn small" data-act="xpin-del" title="Remove this pin">✕</button>'}</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span class="yemo" ${main ? 'id="e-ftypeemo"' : ''} style="font-size:20px">${pinT(x.type).emoji}</span><input ${I('e-fgps', 'xp-gps')} value="${x.lat != null ? h(x.lat + ', ' + x.lng) : ''}" placeholder="GPS of the yards (or paste a Google Maps link)" style="flex:1"></div>
+    <div class="hint" ${main ? 'id="e-fgpshint"' : ''}>${x.lat != null ? `<a href="${gmapsPin(x)}" target="_blank" rel="noopener">Open pin in Google Maps</a>` : 'Drop a pin in Google Maps, copy the coordinates and paste here — or use Suggest a pin.'}</div>
+    <div class="actions" style="margin-top:6px"><button type="button" class="btn small" data-act="farm-pinsuggest" ${main ? '' : `data-target="x${h(x.id)}"`}>📍 Suggest a pin from the address</button></div><div id="pin-res${sfx}" class="hint"></div><div id="pin-prev${sfx}"></div>
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><select ${I('e-fsafe', 'xp-safe')} style="flex:1;min-width:150px">${Object.entries(SAFETY).map(([k, v]) => `<option value="${k}" ${(sf.status || 'ok') === k ? 'selected' : ''}>Safety: ${v.l}</option>`).join('')}</select><input ${I('e-fsafenote', 'xp-safenote')} value="${h(sf.note || '')}" placeholder="Safety note (e.g. headbail doesn't hold)" style="flex:2;min-width:150px"></div></div>`; }
+function extraPinRow(x) { return yardCard(x || { id: uid('p'), type: (pinTypes().find((t) => t.yard) || { id: 'sheep' }).id, name: '', lat: null, lng: null, safety: {} }, false); }
 function editFarm(b, f) {
   const isNew = !f;
   f = f || newFarm({ owner: { bid: b.id } });
@@ -2007,18 +2011,14 @@ function editFarm(b, f) {
     <div><button class="btn small" type="button" data-act="calc-dist">Calculate with Google Maps</button> <span class="hint" id="e-calchint">Measured to the ${h(turnName().toLowerCase())} pin (or the main yards if there's no ${h(turnName().toLowerCase())}).</span></div>
     <div id="e-verify"></div></div>
   <div class="pinstep"><div class="pinstep-h"><span class="pinnum">2</span>🐄 Yards pins <span class="hint">— where the work is done</span></div>
-    <div class="card" style="padding:8px;margin:6px 0"><div class="yardlbl" id="e-ylbl">${h(f.yLabel || '')}</div><div style="display:flex;gap:6px;flex-wrap:wrap"><select id="e-ftype" style="flex:1;min-width:150px">${pinTypes().map((t) => `<option value="${h(t.id)}" ${f.pinType === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}</select><input id="e-fylabel" value="${h(f.yLabel || '')}" placeholder="Label (optional)" style="flex:1;min-width:140px"></div>
-      <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span id="e-ftypeemo" style="font-size:20px">${pinT(f.pinType).emoji}</span><input id="e-fgps" value="${h(startGps)}" placeholder="GPS of the yards (or paste a Google Maps link)" style="flex:1"></div>
-      <div class="hint" id="e-fgpshint">${f.lat != null ? `<a href="${gmapsPin(f)}" target="_blank" rel="noopener">Open pin in Google Maps</a>` : 'Drop a pin on the yards in Google Maps, copy the coordinates, paste here.'}</div>
-      <div class="actions" style="margin-top:6px"><button type="button" class="btn small" data-act="farm-pinsuggest">📍 Suggest a pin from the address</button></div><div id="pin-res" class="hint"></div><div id="pin-prev"></div></div>
+    ${yardCard({ type: f.pinType, name: f.yLabel || '', lat: f.lat, lng: f.lng, safety: sf }, true)}
     <div id="e-xpins">${(f.extra || []).map(extraPinRow).join('')}</div>
     <button type="button" class="btn small" data-act="xpin-add">➕ Add another yards (or shed, office…)</button></div>
   <details class="fsec" ${acc.notes || acc.wet ? 'open' : ''}><summary>🚪 Access</summary><div class="f"><label>Access notes</label><textarea id="e-facc" placeholder="e.g. Second track after the grid · gate code 1234 · keep left at the silos">${h(acc.notes || '')}</textarea></div><div class="f"><label>Wet weather</label>${sel('e-fwet', Object.entries(WET), acc.wet)}</div></details>
-  <details class="fsec" ${facSummary(fac) || (sf.status && sf.status !== 'ok') ? 'open' : ''}><summary>🛠 Yard facilities & safety</summary>
+  <details class="fsec" ${facSummary(fac) || (sf.status && sf.status !== 'ok') ? 'open' : ''}><summary>🛠 Yard facilities</summary>
     <div class="grid2">${FAC_FIELDS.map(([k, l, opts]) => `<div class="f"><label>${l}</label>${sel('e-fac-' + k, opts, fac[k])}</div>`).join('')}</div>
     <div class="checks">${FAC_TICKS.map(([k, l]) => `<label><input type="checkbox" id="e-fac-${k}" ${fac[k] ? 'checked' : ''}>${l}</label>`).join('')}</div>
-    <div class="grid2" style="margin-top:8px"><div class="f"><label>Safety status</label>${sel('e-fsafe', Object.entries(SAFETY).map(([k, v]) => [k, v.l]), sf.status || 'ok')}</div><div class="f"><label>Safety note</label><input id="e-fsafenote" value="${h(sf.note || '')}" placeholder="e.g. Headbail doesn't hold — use a pole"></div></div>
-    <div class="hint">Caution shows amber and "No routine work" shows red on every business that uses this farm. The date and your name are added when you change it.</div></details>
+    <div class="hint" style="margin-top:6px">Safety for each set of yards is set with its pin above. Caution shows amber and "No routine work" shows red on every business that uses this farm.</div></details>
   <details class="fsec" ${rc.status ? 'open' : ''}><summary>📶 Mobile reception</summary><div class="grid2"><div class="f"><label>Reception at the yards</label>${sel('e-frec', Object.entries(RECEPTION), rc.status)}</div><div class="f"><label>Note</label><input id="e-frecnote" value="${h(rc.note || '')}" placeholder="e.g. Telstra only on the hill · UHF ch 18"></div></div>
     <div class="actions"><button type="button" class="btn small" data-act="rec-here">📶 I'm at the yards — check reception now</button><a class="btn small" href="https://www.telstra.com.au/coverage-networks/our-coverage" target="_blank" rel="noopener">Telstra coverage map</a></div><div id="e-rechint" class="hint">${rc.at ? `Last recorded ${new Date(rc.at).toLocaleDateString('en-AU')}${rc.by ? ' by ' + h(rc.by) : ''}.` : ''}</div></details>
   <details class="fsec" ${(f.biosec || '').trim() ? 'open' : ''}><summary>🦠 Biosecurity</summary><div class="f"><textarea id="e-fbio" class="biosec" placeholder="e.g. Come clean — wash down boots and vehicle · Sign in at the office">${h(f.biosec || '')}</textarea><div class="hint">Business-wide biosecurity (e.g. footrot in the flock) goes on the business and shows here too.</div></div></details>
@@ -2058,7 +2058,7 @@ function editFarm(b, f) {
     return true;
   });
   SHEET.verifyNeeded = false;
-  $('#e-ftype').addEventListener('change', (e) => { $('#e-ftypeemo').textContent = pinT(e.target.value).emoji; });
+
   const showVerify = () => {
     SHEET.verifyNeeded = true;
     $('#e-verify').innerHTML = `<div class="verifybox"><b>Distance requires verification before saving.</b><div class="hint" style="color:var(--yellow-ink)">A GPS pin or the distance has changed. Check the km and drive time above (use “Calculate with Google Maps” or check manually), then tick:</div><label style="display:flex;gap:8px;margin-top:6px;font-weight:600"><input type="checkbox" id="e-verified"> I have checked the distance and drive time</label></div>`;
@@ -4334,8 +4334,8 @@ document.addEventListener('click', async (e) => {
       if (!(await verifyKmBox(f))) { Object.assign(f, was); toast('Not moved — nothing was changed'); break; } touch(f); delete S.pmNew[d.fid]; NEXT_LOG_LABEL = `${farmLabel(f)}: ${n.which === 'turn' ? 'turn-off' : 'yards'} pin moved on the map`; if (await changed()) toast('📍 Pin moved'); break; }
     case 'pin-find': { const f = IDX.farms.get(d.fid); if (f) pinFindSheet(f); break; }
     case 'pin-search': pinSearch(); break;
-    case 'farm-pinsuggest': S.pinMode = 'farm'; S.pinSfx = d.target === 'turn' ? '-turn' : ''; ['', '-turn'].forEach((x) => { if (x !== S.pinSfx) { const a = $('#pin-res' + x), b = $('#pin-prev' + x); if (a) a.innerHTML = ''; if (b) b.innerHTML = ''; } }); pinSearch(); break;
-    case 'pin-use': { const p = S.pinCand, sfx = S.pinSfx || '', el = $(sfx ? '#e-fturn' : '#e-fgps'); if (!p || !el) break; el.value = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`; el.dispatchEvent(new Event('input', { bubbles: true })); $('#pin-prev' + sfx).innerHTML = ''; $('#pin-res' + sfx).innerHTML = sfx ? '✓ Turn-off pin added — check the km below, then Save.' : '✓ Pin added to GPS location — check the km below, then Save.'; break; }
+    case 'farm-pinsuggest': S.pinMode = 'farm'; S.pinSfx = d.target === 'turn' ? '-turn' : d.target ? '-' + d.target : ''; document.querySelectorAll('#sheet [id^="pin-res"], #sheet [id^="pin-prev"]').forEach((x) => { if (x.id !== 'pin-res' + S.pinSfx && x.id !== 'pin-prev' + S.pinSfx) x.innerHTML = ''; }); pinSearch(); break;
+    case 'pin-use': { const p = S.pinCand, sfx = S.pinSfx || '', el = sfx === '-turn' ? $('#e-fturn') : sfx.startsWith('-x') ? document.querySelector(`.xpin[data-id="${CSS.escape(sfx.slice(2))}"] .xp-gps`) : $('#e-fgps'); if (!p || !el) break; el.value = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`; el.dispatchEvent(new Event('input', { bubbles: true })); $('#pin-prev' + sfx).innerHTML = ''; $('#pin-res' + sfx).innerHTML = sfx === '-turn' ? '✓ Turn-off pin added — check the km below, then Save.' : '✓ Pin added — check it, then Save.'; break; }
     case 'pin-pick': if (S.pinRes && S.pinRes[+d.i]) pinPreview(S.pinRes[+d.i]); break;
     case 'pin-confirm': { const f = IDX.farms.get(S.pinFid), p = S.pinCand, b = f && IDX.farmBiz.get(f.id); if (!f || !p || !b) break; closeSheet();
       const was = { lat: f.lat, lng: f.lng, kmReturn: f.kmReturn, driveMin: f.driveMin, kmStatus: f.kmStatus }; f.lat = +p.lat.toFixed(6); f.lng = +p.lng.toFixed(6);
@@ -4533,6 +4533,7 @@ async function routeAddedBox(fids) {
 }
 document.addEventListener('change', (e) => { const t = e.target; if (!t.matches || !t.matches('[name=dtype]')) return; const box = t.closest('#askbox, .card') || document; const ph = t.value === 'phone'; box.querySelectorAll('.dt-phone').forEach((x) => { x.hidden = !ph; }); box.querySelectorAll('.dt-comp').forEach((x) => { x.hidden = ph; }); });
 document.addEventListener('input', (e) => { const t = e.target; if (t.id === 'e-fylabel') { const l = $('#e-ylbl'); if (l) l.textContent = t.value.trim(); } else if (t.classList && t.classList.contains('xp-name')) { const l = t.closest('.xpin').querySelector('.yardlbl'); if (l) l.textContent = t.value.trim(); } });
+document.addEventListener('change', (e) => { const t = e.target; if (t.id === 'e-ftype' || (t.classList && t.classList.contains('xp-type'))) { const c = t.closest('.xpin'); const em = c && c.querySelector('.yemo'); if (em) em.textContent = pinT(t.value).emoji; } });
 async function askDeviceName() { // compulsory on a new device; asked once more on each device when it first opens v8.2
   if (window.SEED) return; const recheck = !LSget('bvt-devask82'); const okPh = (v) => (v || '').replace(/\D/g, '').length >= 8; if (devInfo().nick && (devIsPhone() ? okPh(devInfo().phone) : !!LSget('bvt-devmodel')) && !recheck && LSget('bvt-devtype') && LSget('bvt-initials')) { updHi(); return; }
   await detectDevice(); const di = devInfo(); di.type = devIsPhone() ? 'phone' : 'computer'; if (di.type === 'computer' && di.dev === AUTO_DEV) di.dev = ''; const inp = 'style="width:100%;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:9px"';
