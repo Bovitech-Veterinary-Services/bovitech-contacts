@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '15.4 (20 Oct 2026)';
+const APP_VERSION = '15.5 (20 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -2646,14 +2646,42 @@ function collapseSettings() {
   out.forEach((x) => box.appendChild(x));
 }
 const SET_TITLE_DEF = { 'This device': 'User settings' }; const setTitle = (t) => ((D.settings.setTitles || {})[t] || SET_TITLE_DEF[t] || t);
-const SET_OPEN_ALL = ['This device', '🤖 Ask Claude', 'App version', 'Sync & Google']; // usable without the admin PIN by default (plus every "(this device)" section)
+const SET_OPEN_ALL = ['📖 How to use the app', 'This device', '🤖 Ask Claude', 'App version', 'Sync & Google']; // usable without the admin PIN by default (plus every "(this device)" section)
 const SET_ALWAYS_ADMIN = ['Page layout and custom sections', 'Box colours and text', 'Symbols', 'Menu names'];
 function setLocked(title, devOnly) { if (SET_ALWAYS_ADMIN.includes(title)) return true; const v = (D.settings.setLocks || {})[title]; return v != null ? !!v : !(devOnly || SET_OPEN_ALL.includes(title)); }
 document.addEventListener('click', (e) => { if (e.target.closest('summary .draghandle, summary .setlock, summary .nofold')) e.preventDefault(); }, true);
+
+const GUIDE_STEPS = [
+  ['Find someone', 'Tap <b>${lab("contacts")}</b> and type in the search box — a name, business, phone number or farm. Tick "search in name only" off to search everything (info, notes, addresses). Tap a person to open their page.'],
+  ['Read their page before you call or go out', 'Red boxes are <b>major warnings</b> (no service until resolved), yellow are <b>minor warnings / cautions</b>. ☠️ means Do not answer. 🤫 lists things not to mention. Check the farm card for access notes, safety and repairs.'],
+  ['Call, text or navigate', 'Tap a phone number to call. On a farm card, <b>🗺 View on map</b> shows where a pin is; <b>🧭 Navigate to…</b> starts directions — to the turn-off (where you leave the road) or straight to the yards.'],
+  ['Change something', 'Tap <b>✏️ Edit</b> (top right of the page, or on any section). Make the change and tap <b>Save</b>. Every change is saved with your name and device, and syncs to everyone.'],
+  ['Add a warning, note or photo', 'Tap <b>➕</b> on Warnings or Side notes (or <b>➕ Warning / caution / repair</b> on a farm). Your initials and the date are added. Tap <b>📷</b> on a note to attach a photo. When it’s fixed, tap <b>✓ Issue resolved</b> and say what was done.'],
+  ['Work through Jobs', 'The <b>${lab("jobs")}</b> tab lists things to check or tidy up. Use the search box to find one. Each job has buttons to fix it, or <b>🤖 Ask Claude</b> for help.'],
+  ['Make an appointment note', 'On a client business, tap <b>📝 Make an appointment note</b>, answer the questions, then <b>Send to Keep</b> and pick Keep.'],
+  ['If something looks wrong', 'Settings → <b>Change log</b> shows every change. Search it, then tap <b>↶ Undo</b> (or ↷ Redo). Deleted things are in Settings → <b>Trash</b>.'],
+];
+const GUIDE_MANUAL = [
+  ['Getting started', `<p>The app works offline on phones and computers and keeps everyone's copy the same through the practice Google account (<b>Settings → Sync &amp; Google</b>). The first time it opens on a device it asks who you are, your initials, and either your phone number (phones) or whose computer it is.</p><p>Install it: open the app's web address in Chrome and choose <b>Add to Home screen</b> (phone) or <b>Install app</b> (computer). Tap <b>⟳</b> at the top to get the newest version.</p>`],
+  ['Contacts and businesses', `<p><b>People</b> are linked to <b>businesses</b>. A person's category (A+, A, B, C, inactive…) normally comes from their business. A business can have current and past contacts; one is the <b>primary contact</b>.</p><p>On a page: phone and email, related people, don't mention, general info, linked businesses, PIC and patient IDs (🐄 cattle / 🐑 sheep), farms and saved routes. Tap <b>✏️ Edit</b> to change anything, ⇄ <b>Merge with…</b> to join duplicates.</p><p><b>Inactive</b> clients show a grey box with the reason; <b>☠️ Do not answer</b> shows a black banner.</p>`],
+  ['Warnings, cautions, side notes and repairs', `<p><b>Major warning</b> (red) — no service until resolved; adds CHECK WARNING to the photo. <b>Minor warning / caution</b> (yellow) — can still service with care. <b>Side notes</b> — handy extra info. Farms also have <b>major repairs</b> 🛑 and <b>minor repairs</b> 🛠.</p><p>Each note keeps who added it and when, a history of edits, and optional <b>📷 photos</b> (tap "photos attached" to view, 🗑 to delete). <b>✓ Issue resolved</b> asks what was done and moves it to the <b>Resolved</b> section at the bottom — nothing is ever deleted.</p>`],
+  ['Farms, yards and pins', `<p>Each farm has <b>① turn-off pin(s)</b> — where you leave the road (distance is measured to the first one) — and <b>② yards pins</b> — where the work is done. Add as many of each as needed; give each a label (e.g. Main gate, Back sheep yards).</p><p>To set a pin: <b>🗺 Choose on the map</b> (tap or drag), <b>📍 Suggest a pin from the address</b>, or paste coordinates from Google Maps. After a pin changes, check the km and tick the distance check before saving.</p><p>Shared yards are used by more than one business — changes show for all of them. On a farm card: <b>Make not current</b> (keeps it as a past farm), <b>🗑 Delete</b> (asks which businesses for shared yards), <b>➕ Farm</b> on a business asks whether it's new or an existing farm to link, and <b>⇄ Merge with other yards</b> (in the edit window) joins two that are the same place.</p>`],
+  ['Jobs', `<p>Jobs are things the app has found to check — missing details, possible duplicates, pins to check, sync clashes. Use the <b>search box</b> to find one, the <b>Active / Inactive / All</b> chips to filter, and the tick boxes to fix many at once. <b>Mark resolved</b> (or the job's own button) clears a job if nothing needs changing.</p><p><b>Check pins</b>: the map opens with every pin — drag them into place, change a pin's type or label, add or remove pins, set who still uses shared yards and who owns them, then <b>✓ Save &amp; next</b>. <b>⛶ Full screen</b> makes the map bigger.</p><p><b>Your own job lists</b>: <b>➕ New job list</b> (Jobs page or Settings → Jobs to show) — describe it in words and let Claude set up the rule, or build it yourself.</p>`],
+  ['Search & Bulk Edit, Farm Map and Plan Route', `<p><b>${lab('search')}</b> finds contacts, businesses or pins by any detail and lets you change many at once. <b>${lab('map')}</b> shows every pin. <b>${lab('route')}</b> builds a day's route from homebase, puts the stops in the best order and opens it in Google Maps.</p>`],
+  ['Appointment notes (Google Keep)', `<p>On a client business: <b>📝 Make an appointment note</b> → choose initials, appointment type and farm(s) (and the order, if more than one). The date, business name, property and travel (km and route from Bovitech and back) fill in by themselves. Check the note, then <b>Send to Keep</b> and pick Keep — the first line becomes the title. The admin can change the templates and initials in Settings → <b>Keep note templates</b>.</p>`],
+  ['Ask Claude', `<p>Settings → <b>🤖 Ask Claude</b>, or the 🤖 button on any job. Type what you want, tap <b>Copy for Claude</b>, paste it into Claude, then paste Claude's reply back and tap <b>Check changes</b>. Nothing is saved until you confirm.</p>`],
+  ['Change log, undo and trash', `<p>Settings → <b>Change log</b> lists every change on every device. Search by name, word, person or date; tap a change to see exactly what changed; <b>↶ Undo</b> puts it back, <b>↷ Redo</b> re-applies an undone change. Deleted contacts, businesses and farms go to <b>Trash</b> and can be restored.</p>`],
+  ['Sync, backups and conflicts', `<p>Changes sync through Google Drive whenever you're online. A backup is saved to Google Drive every night (30 days kept) — Settings → <b>Backups</b> to download or restore one. If two devices change the same thing while offline, a <b>Sync conflicts</b> job on that device lets you pick which version to keep.</p>`],
+  ['Admin', `<p>Settings marked 🔒 need the admin PIN. The admin can lock or open each settings section, rename and reorder them (hold ⠿ and drag), edit page layouts (🎨 Edit how this page looks), box colours, symbols, menu names, pin types, job lists and templates.</p>`],
+];
+function guideCard() { return `<div class="card"><h3>📖 How to use the app</h3><div class="hint" style="margin-bottom:8px">A quick walk-through, then the full manual. Tap a step or chapter to open it.</div>
+  <div class="lbl">Quick walk-through</div>${GUIDE_STEPS.map(([t, b], i) => `<details class="guidestep"><summary><span class="pinnum">${i + 1}</span> ${t}</summary><div class="body" style="margin:6px 0 4px 32px">${b.replace(/\$\{lab\("(\w+)"\)\}/g, (m, k) => h(lab(k)))}</div></details>`).join('')}
+  <div class="lbl" style="margin-top:12px">User manual</div>${GUIDE_MANUAL.map(([t, b]) => `<details class="guidestep"><summary>📘 ${t}</summary><div class="body guidebody">${b}</div></details>`).join('')}</div>`; }
 function renderSettings() {
   const st = D.settings;
   return `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('settings'))}</h2>
   <div class="actions setall"><button class="btn small" data-act="set-all" data-v="1">⊞ Expand all</button><button class="btn small" data-act="set-all" data-v="0">⊟ Collapse all</button>${S.admin ? '<button class="btn small on" data-act="admin-lock">🔓 Admin unlocked — lock</button><button class="btn small" data-act="admin-pin">Change admin PIN</button>' : '<button class="btn small" data-act="admin-unlock">🔒 Admin</button>'}</div>${S.admin ? '<div class="adminbar" style="margin-top:-4px"><span>🎨</span><span style="flex:1">To change how pages look, open any contact or business and tap <b>🎨 Edit how this page looks</b> (just under the name). The locked cards below are now open too.</span></div>' : ''}
+  ${guideCard()}
   <div class="card"><h3>🤖 Ask Claude</h3>
     <div class="hint" style="margin-bottom:8px">Free — uses your own Claude account. 1) Type what you want. 2) Tap <b>Copy for Claude</b> and paste it into Claude. 3) Copy Claude's whole reply, paste it in box 3 and tap <b>Check changes</b>. Nothing is saved until you confirm.</div>
     <div class="f"><label>1. What do you want Claude to do or find?</label><textarea id="ai-req" style="min-height:70px" placeholder="e.g. Link Kiara Trowbridge to Zambonetti Transport and make her C client · Which A clients have no PIC? · Make all the Ravenhill contacts A+">${h(S.aiReq || '')}</textarea></div>
@@ -4018,7 +4046,7 @@ function logHay(e) { /* everything searchable in one change: summary, device, na
   Object.defineProperty(e, '_hay', { value: parts.join(' \u0001 ').toLowerCase(), enumerable: false }); return e._hay; }
 function logFiltered() { const L = D.changelog || [], F = S.logF || {}; const pq = parseQuery(F.q || ''); const from = F.from ? new Date(F.from + 'T00:00').getTime() : 0, to = F.to ? new Date(F.to + 'T23:59:59').getTime() : Infinity;
   return L.filter((e) => (!F.dev || (e.dev || '') === F.dev) && e.at >= from && e.at <= to && (!F.auto || !/^Automatic update/.test(e.label || '')) && (!pq.inc.length && !pq.exc.length ? true : matchQ(logHay(e), pq))); }
-function logEntryHtml(e) { return `<details style="border-top:1px solid #f0ede8;padding:8px 0"><summary style="cursor:pointer;list-style:none;display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><div style="font-weight:600;${e.undone ? 'text-decoration:line-through;color:var(--ink3)' : ''}">${h(entrySummary(e))}</div><div class="hint">${new Date(e.at).toLocaleString('en-AU')} · ${h(e.dev || '')}${e.undone ? ' · undone' : ''}${e.undoOf ? ' · undo' : ''}</div></div>${e.undone ? '' : `<button class="btn small" data-act="log-undo" data-id="${e.id}">↶ Undo</button>`}</summary><div style="padding:4px 0 0 4px">${renderLogDetails(e)}</div></details>`; }
+function logEntryHtml(e) { return `<details style="border-top:1px solid #f0ede8;padding:8px 0"><summary style="cursor:pointer;list-style:none;display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><div style="font-weight:600;${e.undone ? 'text-decoration:line-through;color:var(--ink3)' : ''}">${h(entrySummary(e))}</div><div class="hint">${new Date(e.at).toLocaleString('en-AU')} · ${h(e.dev || '')}${e.undone ? ' · undone' : ''}${e.undoOf ? ' · undo' : ''}</div></div>${e.undone ? `<button class="btn small" data-act="log-redo" data-id="${e.id}">↷ Redo</button>` : `<button class="btn small" data-act="log-undo" data-id="${e.id}">↶ Undo</button>`}</summary><div style="padding:4px 0 0 4px">${renderLogDetails(e)}</div></details>`; }
 function logListHtml() { const R = logFiltered(), F = S.logF || {}; const any = F.q || F.dev || F.from || F.to || F.auto;
   return `${any ? `<div class="hint" style="margin:4px 0">${R.length} matching change${R.length === 1 ? '' : 's'}</div>` : ''}${R.slice(0, S.logShow).map(logEntryHtml).join('') || `<div class="hint">${any ? 'Nothing matches — try fewer words or clear the filters.' : 'No changes yet.'}</div>`}${R.length > S.logShow ? '<div class="actions" style="margin-top:8px"><button class="btn small" data-act="log-more">Show more</button></div>' : ''}`; }
 function renderChangeLog() {
@@ -4051,10 +4079,20 @@ async function undoEntry(id) {
   e.undone = true; D._logDirty = true; photoCache.clear();
   NEXT_LOG_LABEL = lbl; S.skipConfirm = true; changed(); toast('Undone');
 }
+async function redoEntry(id) { /* puts an undone change back */
+  const e = (D.changelog || []).find((x) => x.id === id); if (!e || !e.undone) return;
+  const find = (it) => (it.kind === 'settings' ? D.settings : (D[it.kind] || []).find((r) => r.id === it.id)); const dels = e.items.filter((it) => it.deleted).length;
+  if (!(await ask(`Redo "${entrySummary(e)}"?\n\nThis puts the change back the way it was before it was undone.${dels ? `\n\n${dels} deletion${dels === 1 ? '' : 's'} in it can't be redone automatically — delete ${dels === 1 ? 'it' : 'them'} again by hand if needed.` : ''}`, 'Yes — redo it'))) return;
+  e.items.forEach((it) => { if (it.deleted) return; let r = find(it);
+    if (it.created) { if (!r) { const t = (D.trash || []).filter((x) => !x.removed && x.rec && x.rec.id === it.id).pop(); if (t) restoreTrash(t.tid); } return; }
+    if (!r) return; Object.keys(it.after).forEach((f) => { if (it.after[f] === null) delete r[f]; else r[f] = logFat(JSON.parse(JSON.stringify(it.after[f])), r); }); touch(r); });
+  e.undone = false; D._logDirty = true; photoCache.clear(); reindex();
+  NEXT_LOG_LABEL = 'Redo: ' + entrySummary(e); S.skipConfirm = true; changed(); toast('Redone'); }
 let NEXT_LOG_LABEL = null;
 document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'log-undo') { ev.preventDefault(); undoEntry(el.dataset.id); }
+  if (el.dataset.act === 'log-redo') { ev.preventDefault(); redoEntry(el.dataset.id); }
   if (el.dataset.act === 'log-more') { S.logShow += 50; const ll = $('#log-list'); if (ll) ll.innerHTML = logListHtml(); else renderAll(); }
   if (el.dataset.act === 'log-clear') { S.logF = {}; S.logShow = 30; renderAll(); }
   if (el.dataset.act === 'devname-save') { const v = $('#s-nick').value.trim(); if (!v) { toast('Enter a nickname'); return; } const isPh = !!($('#s-dt-phone') && $('#s-dt-phone').checked); if (isPh && $('#s-devphone').value.replace(/\D/g, '').length < 8) { toast('Enter your phone number'); return; } if (!isPh && (!$('#s-devmodel').value.trim() || $('#s-devmodel').value.trim() === AUTO_DEV)) { toast("Enter whose computer this is in Device name (e.g. " + v + "'s computer)"); return; } LSset('bvt-devtype', isPh ? 'phone' : 'computer'); LSset('bvt-nick', v); LSset('bvt-devmodel', $('#s-devmodel').value.trim() === AUTO_DEV ? '' : $('#s-devmodel').value.trim()); if ($('#s-initials') && !/^[A-Za-z]{1,4}$/.test($('#s-initials').value.trim())) { toast('Enter your initials (letters only)'); return; } LSset('bvt-devphone', isPh ? $('#s-devphone').value.trim() : ''); LSset('bvt-initials', $('#s-initials').value.trim().toUpperCase()); LSset('bvt-devname', deviceName()); D._devDirty = true; Sync.soon(); toast('Saved — hi ' + v); updHi(); renderAll(); }
@@ -4092,6 +4130,7 @@ const FIX1019_IDS = new Set(["c2ed35a9069", "c62df5bbf7b", "c4b133ff107", "cac90
 function migrate() {
   if (!D || !D.contacts.length) return false;
   let ch = false;
+  { const linked = new Set(D.businesses.flatMap((b) => b.farmLinks.map((l) => l.fid))); D.farms.forEach((f) => { if (linked.has(f.id)) return; const ob = f.owner && f.owner.bid && D.businesses.find((b) => b.id === f.owner.bid); if (ob) { linkFarm(ob, f); ch = true; } }); } // yards lost from their business in a sync clash go back to the business that owns them
   if (!D.settings.fix1019) { let n = 0;
     D.contacts.forEach((c) => { if (FIX1019_IDS.has(c.id) && c.ownCats && c._dev === 'dev0s5z8mazhf3e') { c.ownCats = false; touch(c); n++; } });
     const js = D.contacts.find((c) => c.infoMove && String(c.infoMove.at) === '1792386625160'); // Jess's own info (birthday, bank details) was moved onto Avago Grazing by mistake — put it back
