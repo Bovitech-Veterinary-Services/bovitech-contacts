@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '15.3 (20 Oct 2026)';
+const APP_VERSION = '15.4 (20 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -2490,16 +2490,18 @@ function jobItemHtml(j, inline) { // one job with all its buttons — used on th
       <button class="btn small" data-act="job-ai" data-key="${h(j.key)}" title="Ask Claude how to sort this out">🤖 Ask Claude</button>${JOB_TYPES[t].manual ? `<button class="btn small" data-act="job-dismiss" data-key="${h(j.key)}">${j.okLabel ? '✓ ' + h(j.okLabel) : JOB_TYPES[t].btn || 'Mark resolved - changes not required'}</button>` : ''}</div></div></div>`;
 }
 function renderJobs() {
-  cjSyncTypes(); const all = jobs(); const nIn = all.filter(jobInactive).length; const js = jobsShown(); const groups = {}; const ja = S.jobAct || 'active';
+  cjSyncTypes(); const all = jobs(); const nIn = all.filter(jobInactive).length; const pqj = parseQuery(S.jobQ || ''); const qOn = !!(pqj.inc.length || pqj.exc.length);
+  const js = jobsShown().filter((j) => !qOn || matchQ([j.who, j.note, (JOB_TYPES[j.type] || {}).t, j.data && j.data.who].filter(Boolean).join(' ').toLowerCase(), pqj)); const groups = {}; const ja = S.jobAct || 'active';
   js.forEach((j) => (groups[j.type] = groups[j.type] || []).push(j));
   let html = `<div class="d-wrap"><h2 class="sec-h" style="font-size:26px">${h(lab('jobs'))} — things to check</h2>
   <div class="hint" style="margin-bottom:10px">Items clear automatically once fixed. Flags also show on the contact or business itself.</div>
   <div class="actions"><button class="btn primary" data-act="jobs-refresh">⟳ Refresh jobs</button><button class="btn" data-act="check-dist">Check all distances against Google Maps</button><button class="btn greenbtn" data-act="cj-new">➕ New job list</button></div><div id="check-msg" class="hint"></div>
   <div class="chips" style="margin:10px 0">${[['active', 'Active clients', '🟢', all.length - nIn], ['inactive', 'Inactive / do not answer', '⚫', nIn], ['all', 'All', '📋', all.length]].map(([v, l, ic, n]) => `<button class="chip ${ja === v ? 'on' : ''}" data-act="jobact" data-v="${v}"><span class="ci">${ic}</span>${l}<span class="cn">${n}</span></button>`).join('')}</div>`;
-  if (!js.length) html += `<div class="empty">${all.length ? 'Nothing in this list. 🎉' : 'Nothing needs attention. 🎉'}</div>`;
+  html += `<div class="search" style="margin:0 0 10px"><input id="job-q" value="${h(S.jobQ || '')}" placeholder="🔍 Search jobs — a name, business, farm or kind of job" autocomplete="off" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px">${qOn ? `<button class="btn small" data-act="job-q-clear">✕</button>` : ''}</div>${qOn ? `<div class="hint" style="margin:-4px 0 8px">${js.length} job${js.length === 1 ? '' : 's'} match — every matching list is opened.</div>` : ''}`;
+  if (!js.length) html += `<div class="empty">${qOn ? 'No jobs match that search.' : all.length ? 'Nothing in this list. 🎉' : 'Nothing needs attention. 🎉'}</div>`;
   Object.keys(JOB_TYPES).forEach((t) => {
     const g = groups[t]; if (!g) return;
-    const isOpen = !!S.jobOpen[t]; // folded unless you open it
+    const isOpen = qOn || !!S.jobOpen[t]; // folded unless you open it (or you're searching)
     const nSel = g.filter((j) => S.jobSel.has(j.key)).length; const ops = bulkOps(t, g.filter((j) => S.jobSel.has(j.key)));
     html += `<details class="jobgroup" data-type="${t}" ${isOpen ? 'open' : ''}><summary><input type="checkbox" class="jobcheck" data-act="job-selall" data-type="${t}" title="Select all" ${nSel && nSel === g.length ? 'checked' : ''}><span style="color:var(--red)">${ICONS.flag}</span><span style="flex:1">${h(jobTitle(t, g.length))}</span><span class="count">${/^pincheck/.test(t) && PC_LEFT[t] != null ? PC_LEFT[t] : g.length}</span>${S.admin ? `${JOB_TYPES[t].custom ? `<button type="button" class="btn small nofold" data-act="cj-edit" data-type="${t}" title="Edit this job list">✏️</button>` : ''}<button type="button" class="btn small nofold" data-act="joblist-del" data-type="${t}" title="Delete this whole job list">🗑</button>` : ''}</summary>${JOB_TYPES[t].custom ? `<div class="hint" style="margin:4px 0 6px">Rule: ${h(cjRuleText(cjList().find((x) => 'cj_' + x.id === t) || {}))}</div>` : ''}`;
     if (nSel) html += `<div class="bulkbar"><b>${nSel} selected</b>${t === 'nocat' ? `<select id="jb-cat" style="padding:6px;border:1px solid var(--line);border-radius:8px">${[...RATINGS, ...D.tags.filter((x) => x.group === 'client').map((x) => x.id)].map((v) => `<option value="${v}">${h(tagName(v))}</option>`).join('')}</select>` : ''}${ops.map((o) => `<button class="btn small ${o.green ? 'greenbtn' : ''}" data-act="job-bulk" data-type="${t}" data-op="${o.op}">${h(o.label)}</button>`).join('') || '<span class="hint">Nothing can be done to all of these at once — use each job\'s own buttons.</span>'}<button class="btn small" data-act="job-selnone" data-type="${t}">Clear selection</button></div>`;
@@ -3670,6 +3672,7 @@ function pcqUsersHtml(f) { const q = S.pcq; const us = farmUsersOf(f.id); const 
   if (dup.length) out += `<div class="pcqusers"><div class="lbl" style="margin:8px 0 4px">⚠ Possible duplicate yards</div>${dup.map((o) => `<div class="pcqpin"><span style="flex:1">${h(farmLabel(o))}</span><button type="button" class="btn small" data-act="farm-merge-pick" data-fid="${f.id}" data-oid="${o.id}">⇄ Merge</button></div>`).join('')}</div>`;
   return out; }
 document.addEventListener('change', (e) => { const t = e.target; if (!S.pcq || !t.classList) return; if (t.classList.contains('pcq-user')) S.pcq.users[t.dataset.bid] = t.value === 'past'; if (t.classList.contains('pcq-owner')) S.pcq.owner = t.value; });
+document.addEventListener('input', (e) => { if (e.target.id !== 'job-q') return; S.jobQ = e.target.value; clearTimeout(S.jobQT); S.jobQT = setTimeout(() => { if (S.tab !== 'jobs') return; const pos = e.target.selectionStart; renderAll(); const i = $('#job-q'); if (i) { i.focus(); try { i.setSelectionRange(pos, pos); } catch (er) { } } }, 250); });
 async function pcqDraw(f) { /* the check-pins map in a job: every pin with its type, label and ✕, plus the map */
   const q = S.pcq, box = $('#pm-' + f.id), hint = $('#pmh-' + f.id); if (!q || !box || !hint) return; const emo = (t) => (t === 'turn' ? turnPin().emoji : pinT(t).emoji);
   const opts = (v) => `<option value="turn" ${v === 'turn' ? 'selected' : ''}>${turnPin().emoji} ${h(turnName())}</option>${pinTypes().map((t) => `<option value="${h(t.id)}" ${v === t.id ? 'selected' : ''}>${t.emoji} ${h(t.name)}</option>`).join('')}`;
@@ -4259,6 +4262,7 @@ document.addEventListener('click', async (e) => {
     case 'farm-merge-pick': { const a = IDX.farms.get(d.fid), o = IDX.farms.get(d.oid); if (!a || !o) break; const pin = (x) => (x.lat != null ? `${pinT(x.pinType).emoji} yards pin` : 'no yards pin') + (x.turn && x.turn.lat != null ? ` · ${turnPin().emoji} turn-off` : '') + (x.kmReturn != null ? ` · ${x.kmReturn} km` : '');
       const r = await askBox('Merge yards', `<p>Merge these into one shared farm:</p><p><b>1.</b> ${h(farmLabel(a))}<br><span class="hint">${h(pin(a))}</span></p><p><b>2.</b> ${h(farmLabel(o))}<br><span class="hint">${h(pin(o))}</span></p><p class="hint">Whose name, pins and distance should it keep? Info, warnings, photos and extra yards from both are combined.</p>`, 'Keep 1\'s details', false, 'Cancel', 'Keep 2\'s details'); if (!r) break;
       const keep = r === 'alt' ? o : a, other = r === 'alt' ? a : o; closeSheet(); combineFarms(keep, other); NEXT_LOG_LABEL = `Merged yards: ${farmLabel(other)} into ${farmLabel(keep)}`; S.skipConfirm = true; if (await changed()) toast('Merged — now one shared farm'); break; }
+    case 'job-q-clear': S.jobQ = ''; renderAll(); break;
     case 'orphan-link': { const f = IDX.farms.get(d.fid), b = IDX.biz.get(d.bid); if (!f || !b) break; closeSheet(); linkFarm(b, f); NEXT_LOG_LABEL = `Linked ${farmLabel(f)} to ${b.name}`; S.skipConfirm = true; if (await changed()) toast('Linked to ' + b.name); break; }
     case 'orphan-pick': { const f = IDX.farms.get(d.fid); if (!f) break; openSheet('Link ' + (f.name || 'farm') + ' to a business', `<input id="orphan-search" data-fid="${f.id}" placeholder="🔍 Search businesses" autocomplete="off" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px"><div id="orphan-res"></div>`, () => { toast('Tap a business'); return false; }); setTimeout(() => { const i = $('#orphan-search'); if (i) i.focus(); }, 50); break; }
     case 'farm-link-new': { const b = IDX.biz.get(d.bid); closeSheet(); if (b) editFarm(b, null); break; }
