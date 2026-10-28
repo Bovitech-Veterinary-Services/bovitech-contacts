@@ -8,7 +8,7 @@ const RATING_SET = new Set(RATINGS);
 const RATING_SHORT = { aplus: 'A+', a: 'A', b: 'B', c: 'C' };
 // which photo wins when we must pick one automatically (user is still asked via the job list)
 const PHOTO_PRIORITY = ['dna', 'blockedc', 'blockedn', 'payup', 'newfac', 'newassess', 'newmaybe', 'aplus', 'a', 'b', 'c', 'bvs', 'bfriends', 'sheepreg', 'sheepocc', 'occ', 'industry', 'prac', 'phone', 'family', 'inactive']; // default order; Inactive is overridden by every other tag
-const APP_VERSION = '17.26 (28 Oct 2026)';
+const APP_VERSION = '17.27 (28 Oct 2026)';
 // current photo priority: the order saved in Settings (synced), then any photo tags not yet placed
 function photoOrder() {
   const withPhoto = D.tags.filter((t) => tagPhotoSrc(t.id)).map((t) => t.id);
@@ -5577,6 +5577,7 @@ async function staleCheck() { /* a device that hasn't synced for over a day must
   if (PREF.tab) S.tab = PREF.tab === 'map' ? 'route' : PREF.tab; if (PREF.sort) S.sort = PREF.sort; if (PREF.bsort) S.bsort = PREF.bsort; if (PREF.ptype) S.ptype = PREF.ptype; if (PREF.btype) S.btype = PREF.btype;
   applyUi(); reindex(); net(); renderAll();
   updHi(); detectDevice(); window.APP_READY = true; if (window.hideSplash) window.hideSplash();
+  movedOverlay();
   Sync.start(); Backup.schedule(); setTimeout(askDeviceName, 600); setTimeout(staleCheck, 2500); setInterval(staleCheck, 30 * 60 * 1000);
   checkLatest();
   { const b = document.querySelector('header [data-act=app-refresh]'); if (b) b.innerHTML = `⟳ v${APP_VERSION.split(' ')[0]}`; }
@@ -5588,3 +5589,26 @@ async function staleCheck() { /* a device that hasn't synced for over a day must
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded && !SHEET) { reloaded = true; location.reload(); } });
   }
 })();
+
+/* ---------------- this app has been replaced: send everyone to the Bovitech Super App ---------------- */
+const NEW_APP_URL = 'https://bovitech-veterinary-services.github.io/bovitech-super-app/';
+function movedOverlay() {
+  if (window.SEED) return; try { if (sessionStorage.getItem('bvt-moved-ok')) return; } catch (e) { }
+  if (document.getElementById('movedbox')) return;
+  const bg = document.createElement('div'); bg.id = 'movedbox';
+  bg.style.cssText = 'position:fixed;inset:0;z-index:70;background:var(--bg,#f4f1ea);display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
+  bg.innerHTML = `<div class="card" style="width:100%;max-width:440px;margin:auto;text-align:center">
+    <img src="img/icon-192.png" alt="" style="width:72px;height:72px;border-radius:16px">
+    <h2 style="margin:8px 0 6px;font-size:24px">This app has moved</h2>
+    <p style="font-size:16px;line-height:1.45;margin:0 0 14px">Bovitech Contacts has been replaced by the <b>Bovitech Super App</b>. All the contacts, businesses and farms are already in it — sign in with your own email and password.</p>
+    <a class="btn primary" href="${NEW_APP_URL}" style="display:block;font-size:18px;padding:13px;text-decoration:none">Open the Bovitech Super App</a>
+    <p class="hint" style="margin:12px 0 4px;text-align:left">On a phone: once it opens, add it to your home screen (Chrome menu ⋮ → <b>Add to Home screen</b> / <b>Install app</b>), then remove this old Bovitech Contacts icon.</p>
+    <div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" data-act="export">⬇ Download a backup of this device's copy</button><button class="btn small" data-act="moved-admin">Admin: keep using this app for now</button></div></div>`;
+  document.body.appendChild(bg);
+}
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest && e.target.closest('[data-act=moved-admin]'); if (!el) return;
+  const r = await askBox('Admin', `<div class="f"><span class="lbl">Admin PIN</span><input data-ask="pin" type="password" inputmode="numeric" autocomplete="off" aria-label="Admin PIN" style="width:160px;font-size:20px;padding:9px;border:1px solid var(--line);border-radius:9px;letter-spacing:4px"></div><p class="hint">Only for finishing the switch-over (e.g. caller photos). This app opens normally until it's closed.</p>`, 'Unlock', false, 'Cancel');
+  if (!r) return; const hsh = await pinHash((ASK_FORM.pin || '').trim()); if (hsh !== (D.settings.adminHash || ADMIN_HASH)) { toast('Wrong PIN'); return; }
+  try { sessionStorage.setItem('bvt-moved-ok', '1'); } catch (x) { } S.admin = true; const b = document.getElementById('movedbox'); if (b) b.remove(); toast('🔓 Using the old app until it is closed');
+});
